@@ -36,7 +36,7 @@ set(LIBS
   MLIRSupport
   MLIRVectorOps
   # MLIRVectorToLLVM
-  # MLIRSten
+  MLIRSten
 )
 if(MLIR_CUDA_CONVERSIONS_ENABLED)
   list(APPEND LIBS
@@ -48,6 +48,8 @@ add_executable(occ-opt
  mlir-opt.cpp
 )
 # llvm_update_compile_flags(mlir-opt)
-target_compile_options(occ-opt PRIVATE -fno-rtti)
+target_compile_options(occ-opt PRIVATE -fno-rtti) # TODO use the above
 whole_archive_link(occ-opt ${LIBS})
 target_link_libraries(occ-opt PRIVATE MLIRIR MLIRMlirOptLib ${LIBS} LLVMSupport)
+
+target_link_directories(occ-opt PRIVATE ${PROJECT_BINARY_DIR}/lib) #hack for the whole-archive hack

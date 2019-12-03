@@ -21,5 +21,4 @@ target_link_libraries(MLIRSten
 
 target_include_directories(MLIRSten PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(MLIRSten PUBLIC ${PROJECT_BINARY_DIR}/include)
-
-link_directories(${})
+target_compile_options(MLIRSten PRIVATE -fno-rtti) #TODO use llvm_update_compile_flags
