@@ -1,14 +1,10 @@
 # Dialect/Sten/CMakeLists.txt
 
-add_library(MLIRSten
+add_llvm_library(MLIRSten
         DialectRegistration.cpp
         StenDialect.cpp
         StenOps.cpp
-        StenTypes.cpp
-
-        # ADDITIONAL_HEADER_DIRS
-        # ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Sten
-        )
+        StenTypes.cpp)
 
 # Make sure that the TableGen generated files are up-to-date
 add_dependencies(MLIRSten
@@ -19,6 +15,6 @@ target_link_libraries(MLIRSten
         MLIRParser
         MLIRSupport)
 
+# specify header directories
 target_include_directories(MLIRSten PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(MLIRSten PUBLIC ${PROJECT_BINARY_DIR}/include)
-target_compile_options(MLIRSten PRIVATE -fno-rtti) #TODO use llvm_update_compile_flags

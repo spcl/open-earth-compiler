@@ -1,3 +1,8 @@
 *.log
 build/
+.clangd/
+.vscode/
+
+.clang-format
+compile_commands.json
 
