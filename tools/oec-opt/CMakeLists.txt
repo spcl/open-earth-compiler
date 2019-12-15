@@ -36,6 +36,7 @@ set(LIBS
   MLIRVectorOps
   MLIRVectorToLLVM
   MLIRVectorToLoops
+  MLIRStencil
 )
 #if(MLIR_CUDA_CONVERSIONS_ENABLED)
 #  list(APPEND LIBS
@@ -43,10 +44,10 @@ set(LIBS
 #  )
 #endif()
 
-add_executable(oec-opt
+add_llvm_executable(oec-opt
  oec-opt.cpp
 )
 llvm_update_compile_flags(oec-opt)
 whole_archive_link(oec-opt ${LIBS})
 target_link_libraries(oec-opt PRIVATE MLIRIR MLIRMlirOptLib ${LIBS} LLVMSupport)
-
+target_link_directories(oec-opt PRIVATE ${PROJECT_BINARY_DIR}/lib/Dialect/Stencil)
