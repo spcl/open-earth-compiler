@@ -36,7 +36,7 @@ function(whole_archive_link target)
   set_target_properties(${target} PROPERTIES LINK_FLAGS ${link_flags})
 endfunction(whole_archive_link)
 
-# TODO build all libraries in ./lib and add ./lib to the linker path in the whole_archive_link
-add_subdirectory(include/Dialect/Stencil)
+add_subdirectory(include/)
 add_subdirectory(lib/)
-add_subdirectory(oec-opt)
+add_subdirectory(test/)
+add_subdirectory(oec-opt/)

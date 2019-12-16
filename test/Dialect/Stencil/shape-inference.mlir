@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s --stencil-shape-inference | mlir-opt | FileCheck %s
+// RUN: oec-opt %s --stencil-shape-inference | oec-opt | FileCheck %s
 
 func @lap(%in : !stencil.view<?x?x?xf64>) -> f64
   attributes { stencil.function } {

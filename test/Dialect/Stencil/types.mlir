@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s | FileCheck %s
+// RUN: oec-opt %s | FileCheck %s
 
 func @foo0(%arg0: !stencil.field<?x?x?xf64>) {
 	return
