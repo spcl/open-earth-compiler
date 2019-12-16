@@ -22,11 +22,11 @@ namespace {
 
 void inlineStencilFunctionCall(stencil::CallOp callOp) {}
 
-struct StencilInlining : public FunctionPass<StencilInlining> {
+struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
   void runOnFunction() override;
 };
 
-void StencilInlining::runOnFunction() {
+void StencilInliningPass::runOnFunction() {
   FuncOp funcOp = getFunction();
 
   // Only run on functions marked as stencil functions: this is the only place
@@ -39,5 +39,5 @@ void StencilInlining::runOnFunction() {
 
 } // namespace
 
-static PassRegistration<StencilInlining> pass("stencil-inlining",
-                                               "Inline stencil functions");
+static PassRegistration<StencilInliningPass> pass("stencil-inlining",
+                                                  "Inline stencil functions");

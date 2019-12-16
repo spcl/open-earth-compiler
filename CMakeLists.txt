@@ -4,8 +4,6 @@ project(oec-opt LANGUAGES CXX)
 
 find_package(LLVM REQUIRED CONFIG)
 
-include_directories(${LLVM_INCLUDE_DIR})
-
 if(LLVM_FOUND)
   message(STATUS "LLVM found")
 endif()
@@ -19,6 +17,9 @@ set(MLIR_TABLEGEN_EXE mlir-tblgen)
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(AddLLVM)
 include(TableGen)
+
+add_definitions(${LLVM_DEFINITIONS})
+include_directories(${LLVM_INCLUDE_DIRS})
 
 function(mlir_tablegen ofn)
   tablegen(MLIR ${ARGV} "-I${MLIR_MAIN_SRC_DIR}" "-I${MLIR_INCLUDE_DIR}" "-I${PROJECT_SOURCE_DIR}/include")
@@ -35,7 +36,7 @@ function(whole_archive_link target)
   set_target_properties(${target} PROPERTIES LINK_FLAGS ${link_flags})
 endfunction(whole_archive_link)
 
-# TODO build all libraries in ./lib and add ./lib to the linker path in the while_archive_linknin
+# TODO build all libraries in ./lib and add ./lib to the linker path in the whole_archive_link
 add_subdirectory(include/Dialect/Stencil)
-add_subdirectory(lib/Dialect/Stencil)
-add_subdirectory(tools/oec-opt)
+add_subdirectory(lib/)
+add_subdirectory(oec-opt)

@@ -1,10 +1,11 @@
+
 add_llvm_library(MLIRStencil
         DialectRegistration.cpp
         StencilDialect.cpp
         StencilOps.cpp
         StencilTypes.cpp
-        ShapeInference.cpp
-        StencilInlining.cpp
+        ShapeInferencePass.cpp
+        StencilInliningPass.cpp
 )
 
 # Make sure that the TableGen generated files are up-to-date

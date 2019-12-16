@@ -10,7 +10,7 @@ using namespace stencil;
 
 namespace {
 
-struct ShapeInference : public FunctionPass<ShapeInference> {
+struct ShapeInferencePass : public FunctionPass<ShapeInferencePass> {
   void runOnFunction() override;
 };
 
@@ -116,7 +116,7 @@ bool inferShapes(stencil::ApplyOp applyOp) {
 
 } // namespace
 
-void ShapeInference::runOnFunction() {
+void ShapeInferencePass::runOnFunction() {
   FuncOp funcOp = getFunction();
 
   // Only run on functions marked as stencil programs
@@ -136,5 +136,5 @@ void ShapeInference::runOnFunction() {
   }
 }
 
-static PassRegistration<ShapeInference>
+static PassRegistration<ShapeInferencePass>
     pass("stencil-shape-inference", "Infer the shapes of views and fields.");
