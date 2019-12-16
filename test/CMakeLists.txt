@@ -9,6 +9,8 @@ else()
   set(LLVM_SOURCE_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
 endif()
 
+#message(${LLVM_BUILD_MAIN_SRC_DIR})
+
 #find_program(LLVM_FILECHECK NAMES FileCheck HINTS ${LLVM_SOURCE_DIR}/../build/bin)
 
 configure_lit_site_cfg(
