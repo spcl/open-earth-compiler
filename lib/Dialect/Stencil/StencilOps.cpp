@@ -31,16 +31,13 @@ void stencil::AccessOp::build(Builder *builder, OperationState &state,
 }
 
 static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
-  stencil::ViewType viewType;
-  Type elementType;
+  FunctionType funcType;
   ArrayAttr offset;
-  OpAsmParser::OperandType view;
+  SmallVector<OpAsmParser::OperandType, 1> operands;
 
   // Parse the view
-  if (parser.parseOperand(view))
-    return failure();
-  // Parse the `offset` attribute
-  if (parser.parseAttribute(offset, stencil::AccessOp::getOffsetAttrName(),
+  if (parser.parseOperandList(operands) ||
+      parser.parseAttribute(offset, stencil::AccessOp::getOffsetAttrName(),
                             state.attributes))
     return failure();
   // Make sure it has the right number of dimensions
@@ -52,16 +49,13 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
 
   // Parse optional attributes as well as the view type
   if (parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonType<stencil::ViewType>(viewType))
-    return failure();
-  // Make sure the `%view` operand is of the right type
-  if (parser.resolveOperand(view, viewType, state.operands))
+      parser.parseColonType<FunctionType>(funcType) ||
+      parser.resolveOperands(operands, funcType.getInputs(),
+                             parser.getCurrentLocation(), state.operands))
     return failure();
 
-  // Extract the element type from the view type
-  elementType = viewType.getElementType();
   // Add the return value
-  if (parser.addTypeToList(elementType, state.types))
+  if (parser.addTypesToList(funcType.getResults(), state.types))
     return failure();
 
   return success();
@@ -76,8 +70,10 @@ static void print(stencil::AccessOp accessOp, OpAsmPrinter &printer) {
   printer.printAttribute(offset);
   printer.printOptionalAttrDict(accessOp.getAttrs(), /*elidedAttrs=*/{
                                     stencil::AccessOp::getOffsetAttrName()});
-  printer << " : ";
+  printer << " : (";
   printer.printType(view->getType());
+  printer << ") -> ";
+  printer.printType(accessOp.getResult()->getType());
 }
 
 static LogicalResult verify(stencil::AccessOp accessOp) {

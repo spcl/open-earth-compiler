@@ -28,7 +28,7 @@ def Stencil_IsFieldType : CPred<"$_self.isa<::mlir::stencil::FieldType>()">;
 
 def Stencil_View : Type<Stencil_IsViewType, "a view on a field">;
 def Stencil_Field : Type<Stencil_IsFieldType, "a field">;
-def Stencil_ElementType : AnyTypeOf<[I64, F64]>;
+def Stencil_ElementType : AnyTypeOf<[F32, F64]>;
 
 //===----------------------------------------------------------------------===//
 // Stencil op definition

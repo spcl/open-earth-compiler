@@ -2,18 +2,18 @@
 
 func @lap(%in : !stencil.view<IJK,f64>) -> f64
   attributes { stencil.function } {
-	%0 = "stencil.access"(%in) {offset = [-1, 0, 0]} : (!stencil.view<IJK,f64>) -> f64
-	%1 = "stencil.access"(%in) {offset = [ 1, 0, 0]} : (!stencil.view<IJK,f64>) -> f64
-	%2 = "stencil.access"(%in) {offset = [ 0, 1, 0]} : (!stencil.view<IJK,f64>) -> f64
-	%3 = "stencil.access"(%in) {offset = [ 0,-1, 0]} : (!stencil.view<IJK,f64>) -> f64
-	%4 = "stencil.access"(%in) {offset = [ 0, 0, 0]} : (!stencil.view<IJK,f64>) -> f64
-	%5 = addf %0, %1 : f64
-	%6 = addf %2, %3 : f64
-	%7 = addf %5, %6 : f64
-	%8 = constant -4.0 : f64
-	%9 = mulf %4, %8 : f64
-	%10 = addf %9, %7 : f64
-	return %10 : f64
+	%0 = "stencil.access"(%in) {offset = [-1, 0, 0]} : (!stencil.view<IJK,f64>) -> f32
+	%1 = "stencil.access"(%in) {offset = [ 1, 0, 0]} : (!stencil.view<IJK,f64>) -> f32
+	%2 = "stencil.access"(%in) {offset = [ 0, 1, 0]} : (!stencil.view<IJK,f64>) -> f32
+	%3 = "stencil.access"(%in) {offset = [ 0,-1, 0]} : (!stencil.view<IJK,f64>) -> f32
+	%4 = "stencil.access"(%in) {offset = [ 0, 0, 0]} : (!stencil.view<IJK,f64>) -> f32
+	%5 = addf %0, %1 : f32
+	%6 = addf %2, %3 : f32
+	%7 = addf %5, %6 : f32
+	%8 = constant -4.0 : f32
+	%9 = mulf %4, %8 : f32
+	%10 = addf %9, %7 : f32
+	return %10 : f32
 }
 
 // CHECK-LABEL: func @lap(%{{.*}}: !stencil.view<IJK,f64>) -> f64
