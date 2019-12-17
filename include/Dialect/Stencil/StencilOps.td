@@ -15,7 +15,7 @@ def Stencil_AccessOp : Stencil_Op<"access"> {
 
     Example:
 
-      %0 = stencil.access %view[-1, 0, 0] : !stencil.view<?x?x?xf64>
+      %0 = stencil.access %view[-1, 0, 0] : !stencil.view<IJK,f64>
   }];
 
   let arguments = (ins Stencil_View:$view, I64ArrayAttr:$offset);
@@ -43,14 +43,13 @@ def Stencil_LoadOp : Stencil_Op<"load"> {
 
     Example:
 
-      %0 = stencil.load %field : (!stencil.field<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
+      %0 = stencil.load %field : !stencil.view<IJK,f64>
   }];
 
   let arguments = (ins Stencil_Field:$field);
   let results = (outs Stencil_View:$res);
 
-  let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
-                            "ArrayRef<int64_t> = {-1, -1, -1}">];
+  let builders = [OpBuilder<"Builder *, OperationState &, Value *">];
 
   let extraClassDeclaration = [{
     stencil::ViewType getResultViewType() {
@@ -66,7 +65,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
 
     Example:
 
-      %0 = stencil.store %view to %field : !stencil.view<?x?x?xf64>, !stencil.field<12x12x16xf64>
+      %0 = stencil.store %view to %field : !stencil.field<IJK,f64>
   }];
 
   let arguments = (ins Stencil_View:$view, Stencil_Field:$field);
@@ -90,7 +89,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply"> {
 
     Example:
 
-      %0 = stencil.appy @func(%0) : (!stencil.view<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
+      %0 = stencil.appy @func(%0) : (!stencil.view<IJK,f64>) -> !stencil.view<IJK,f64>
   }];
 
   let arguments = (ins SymbolRefAttr:$callee, Variadic<AnyType>:$operands);
@@ -122,6 +121,16 @@ def Stencil_ApplyOp : Stencil_Op<"apply"> {
 }
 
 def Stencil_CallOp : Stencil_Op<"call"> {
+  let summary = "call operation";
+  let description = [{
+    This operation takes a stencil function plus parameters and evaluates 
+    the function at the given offset.
+
+    Example:
+
+      %0 = stencil.call @func(%0) : (!stencil.view<IJK,f64>) -> !stencil.view<IJK,f64>
+  }];
+
   let arguments = (ins SymbolRefAttr:$callee, I64ArrayAttr:$offset, Variadic<AnyType>:$operands);
   let results = (outs Stencil_ElementType:$res);
 

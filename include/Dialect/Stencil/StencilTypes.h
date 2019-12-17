@@ -7,11 +7,17 @@
 namespace mlir {
 namespace stencil {
 
-enum StencilTypes {
+namespace StencilTypes {
+enum Kind {
   Field = Type::FIRST_STENCIL_TYPE,
   View,
   LAST_USED_STENCIL_TYPE = View
 };
+}
+
+namespace StencilStorage {
+  enum Allocation : unsigned { IJK, IJ, IK, JK, I, J, K };
+}
 
 struct FieldTypeStorage;
 class FieldType : public Type::TypeBase<FieldType, Type, FieldTypeStorage> {
@@ -20,22 +26,16 @@ public:
   using Base::Base;
 
   /// Construction hook.
-  ///
-  /// Create a field type of given `shape` containing elements of type
-  /// `elementType`.
-  ///
-  /// Note: `shape` must contain 3 elements, -1 being used to specify an unknown
-  /// size.
   static FieldType get(MLIRContext *context, Type elementType,
-                       ArrayRef<int64_t> shape);
+                       StencilStorage::Allocation allocation);
 
   /// Used to implement LLVM-style casts.
   static bool kindof(unsigned kind) { return kind == StencilTypes::Field; }
 
   /// Return the type of the field elements.
   Type getElementType();
-  /// Return the shape of the field.
-  ArrayRef<int64_t> getShape();
+  /// Return the allocation of the field.
+  StencilStorage::Allocation getAllocation();
 };
 
 struct ViewTypeStorage;
@@ -45,22 +45,16 @@ public:
   using Base::Base;
 
   /// Construction hook.
-  ///
-  /// Create a field type of given `shape` containing elements of type
-  /// `elementType`.
-  ///
-  /// Note: `shape` must contain 3 elements, -1 being used to specify an unknown
-  /// size.
   static ViewType get(MLIRContext *context, Type elementType,
-                      ArrayRef<int64_t> shape);
+                      StencilStorage::Allocation allocation);
 
   /// Used to implement LLVM-style casts.
   static bool kindof(unsigned kind) { return kind == StencilTypes::View; }
 
   /// Return the type of the field elements.
   Type getElementType();
-  /// Return the shape of the field.
-  ArrayRef<int64_t> getShape();
+  /// Return the allocation of the field.
+  StencilStorage::Allocation getAllocation();
 };
 
 } // namespace stencil

@@ -1,4 +1,5 @@
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/IR/Types.h"
 
 using namespace mlir;
 using namespace mlir::stencil;
@@ -6,7 +7,7 @@ using namespace mlir::stencil;
 struct mlir::stencil::FieldTypeStorage : public TypeStorage {
   /// Underlying Key type to transport the payload needed to construct a custom
   /// type in a generic way.
-  using Key = std::pair<ArrayRef<int64_t>, Type>;
+  using Key = std::pair<unsigned, Type>;
 
   /// `KeyTy` is a necessary typename hook for MLIR's custom type unique'ing.
   using KeyTy = Key;
@@ -14,53 +15,49 @@ struct mlir::stencil::FieldTypeStorage : public TypeStorage {
   /// Construction in the `llvm::BumpPtrAllocator` given a key.
   static FieldTypeStorage *construct(TypeStorageAllocator &allocator,
                                      const KeyTy &key) {
-    // Copy the shape into the bump pointer.
-    ArrayRef<int64_t> shape = allocator.copyInto(key.first);
-
     // Initialize the memory using placement new.
-    return new (allocator.allocate<FieldTypeStorage>())
-        FieldTypeStorage(shape.size(), shape.data(), key.second);
+    return new (allocator.allocate<FieldTypeStorage>()) FieldTypeStorage(
+        static_cast<StencilStorage::Allocation>(key.first), key.second);
   }
 
   /// Equality operator for hashing.
   bool operator==(const KeyTy &key) const {
-    return key == KeyTy(getShape(), elementType);
+    return key == KeyTy(getAllocation(), elementType);
   }
 
   /// Return the type of the field elements.
   Type getElementType() const { return elementType; }
 
   /// Return the shape of the field.
-  ArrayRef<int64_t> getShape() const { return {shapeElems, shapeSize}; }
+  StencilStorage::Allocation getAllocation() const { return allocation; }
 
 private:
-  FieldTypeStorage(size_t shapeSize, const int64_t *shape, Type elementType)
-      : shapeSize(shapeSize), shapeElems(shape), elementType(elementType) {}
+  FieldTypeStorage(StencilStorage::Allocation allocation, Type elementType)
+      : allocation(allocation), elementType(elementType) {}
 
-  /// Number of shape dimensions.
-  const size_t shapeSize;
-  /// Shape size in each dimension.
-  const int64_t *shapeElems;
+  /// Allocation of the storage.
+  StencilStorage::Allocation allocation;
   /// Type of the field elements.
   Type elementType;
 };
 
 FieldType FieldType::get(mlir::MLIRContext *context, mlir::Type elementType,
-                         llvm::ArrayRef<int64_t> shape) {
-  assert(shape.size() == 3 && "field shape must have 3 dimensions");
-  assert((elementType.isInteger(64) || elementType.isF64()) &&
-         "fields only support i64 and f64 elements");
-  return Base::get(context, StencilTypes::Field, shape, elementType);
+                         StencilStorage::Allocation allocation) {
+  assert((elementType.isF32() || elementType.isF64()) &&
+         "fields only support f32 and f64 elements");
+  return Base::get(context, StencilTypes::Field, allocation, elementType);
 }
 
 Type FieldType::getElementType() { return getImpl()->getElementType(); }
 
-ArrayRef<int64_t> FieldType::getShape() { return getImpl()->getShape(); }
+StencilStorage::Allocation FieldType::getAllocation() {
+  return getImpl()->getAllocation();
+}
 
 struct mlir::stencil::ViewTypeStorage : public TypeStorage {
   /// Underlying Key type to transport the payload needed to construct a custom
   /// type in a generic way.
-  using Key = std::pair<ArrayRef<int64_t>, Type>;
+  using Key = std::pair<unsigned, Type>;
 
   /// `KeyTy` is a necessary typename hook for MLIR's custom type unique'ing.
   using KeyTy = Key;
@@ -68,45 +65,41 @@ struct mlir::stencil::ViewTypeStorage : public TypeStorage {
   /// Construction in the `llvm::BumpPtrAllocator` given a key.
   static ViewTypeStorage *construct(TypeStorageAllocator &allocator,
                                     const KeyTy &key) {
-    // Copy the shape into the bump pointer.
-    ArrayRef<int64_t> shape = allocator.copyInto(key.first);
-
     // Initialize the memory using placement new.
-    return new (allocator.allocate<ViewTypeStorage>())
-        ViewTypeStorage(shape.size(), shape.data(), key.second);
+    return new (allocator.allocate<ViewTypeStorage>()) ViewTypeStorage(
+        static_cast<StencilStorage::Allocation>(key.first), key.second);
   }
 
   /// Equality operator for hashing.
   bool operator==(const KeyTy &key) const {
-    return key == KeyTy(getShape(), elementType);
+    return key == KeyTy(getAllocation(), elementType);
   }
 
   /// Return the type of the field elements.
   Type getElementType() const { return elementType; }
 
   /// Return the shape of the field.
-  ArrayRef<int64_t> getShape() const { return {shapeElems, shapeSize}; }
+  StencilStorage::Allocation getAllocation() const { return allocation; }
 
 private:
-  ViewTypeStorage(size_t shapeSize, const int64_t *shape, Type elementType)
-      : shapeSize(shapeSize), shapeElems(shape), elementType(elementType) {}
+  ViewTypeStorage(StencilStorage::Allocation allocation, Type elementType)
+      : allocation(allocation), elementType(elementType) {}
 
-  /// Number of shape dimensions.
-  const size_t shapeSize;
-  /// Shape size in each dimension.
-  const int64_t *shapeElems;
+  /// Allocation of the storage.
+  StencilStorage::Allocation allocation;
   /// Type of the field elements.
   Type elementType;
 };
 
 ViewType ViewType::get(mlir::MLIRContext *context, mlir::Type elementType,
-                       llvm::ArrayRef<int64_t> shape) {
-  assert(shape.size() == 3 && "view shape must have 3 dimensions");
-  assert((elementType.isInteger(64) || elementType.isF64()) &&
-         "views only support i64 and f64 elements");
-  return Base::get(context, StencilTypes::View, shape, elementType);
+                       StencilStorage::Allocation allocation) {
+  assert((elementType.isF32() || elementType.isF64()) &&
+         "views only support f32 and f64 elements");
+  return Base::get(context, StencilTypes::View, allocation, elementType);
 }
 
 Type ViewType::getElementType() { return getImpl()->getElementType(); }
 
-ArrayRef<int64_t> ViewType::getShape() { return getImpl()->getShape(); }
+StencilStorage::Allocation ViewType::getAllocation() {
+  return getImpl()->getAllocation();
+}

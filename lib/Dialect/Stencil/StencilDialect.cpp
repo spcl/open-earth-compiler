@@ -34,33 +34,49 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
   StringRef prefix;
   parser.parseKeyword(&prefix);
 
+  // Helper method converting a string to an allocation
+  auto parseAllocation = [&](StringRef Input) {
+    if (Input == "IJK")
+      return StencilStorage::IJK;
+    else if (Input == "IJ")
+      return StencilStorage::IJ;
+    else if (Input == "IK")
+      return StencilStorage::IK;
+    else if (Input == "JK")
+      return StencilStorage::JK;
+    else if (Input == "I")
+      return StencilStorage::I;
+    else if (Input == "J")
+      return StencilStorage::J;
+    else if (Input == "K")
+      return StencilStorage::K;
+    parser.emitError(parser.getNameLoc(), "unexpected field allocation type");
+    return StencilStorage::IJK;
+  };
+
   // Parse a field type
-  if (prefix == "field") {
-    SmallVector<int64_t, 3> shape;
+  if (prefix == getFieldTypeName()) {
+    StringRef allocation;
     Type elementType;
-    if (parser.parseLess() || parser.parseDimensionList(shape) ||
-        parser.parseType(elementType) || parser.parseGreater()) {
+    if (parser.parseLess() || parser.parseKeyword(&allocation) ||
+        parser.parseComma() || parser.parseType(elementType) ||
+        parser.parseGreater()) {
       return Type();
     }
-    // Make sure that we are only dealing with 3D fields
-    if (shape.size() != 3)
-      parser.emitError(parser.getNameLoc(),
-                       "expected field to have three dimensions");
-    return FieldType::get(getContext(), elementType, shape);
+    return FieldType::get(getContext(), elementType,
+                          parseAllocation(allocation));
   }
   // Parse a view type
-  else if (prefix == "view") {
-    SmallVector<int64_t, 3> shape;
+  else if (prefix == getViewTypeName()) {
+    StringRef allocation;
     Type elementType;
-    if (parser.parseLess() || parser.parseDimensionList(shape) ||
-        parser.parseType(elementType) || parser.parseGreater()) {
+    if (parser.parseLess() || parser.parseKeyword(&allocation) ||
+        parser.parseComma() || parser.parseType(elementType) ||
+        parser.parseGreater()) {
       return Type();
     }
-    // Make sure that we are only dealing with 3D views
-    if (shape.size() != 3)
-      parser.emitError(parser.getNameLoc(),
-                       "expected view to have three dimensions");
-    return ViewType::get(getContext(), elementType, shape);
+    return ViewType::get(getContext(), elementType,
+                         parseAllocation(allocation));
   }
 
   parser.emitError(parser.getNameLoc(), "unknown Stencil type: ")
@@ -74,27 +90,41 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 
 namespace {
 
-void print(FieldType fieldType, DialectAsmPrinter &printer) {
-  printer << "field<";
-  for (auto &elem : fieldType.getShape()) {
-    if (elem < 0)
-      printer << "?";
-    else
-      printer << elem;
-    printer << "x";
+StringRef printAllocation(StencilStorage::Allocation allocation) {
+  switch(allocation) {
+    case mlir::stencil::StencilStorage::IJK:
+      return "IJK";
+    case mlir::stencil::StencilStorage::IJ:
+      return "IJ";
+    case mlir::stencil::StencilStorage::IK:
+      return "IK";
+    case mlir::stencil::StencilStorage::JK:
+      return "JK";
+    case mlir::stencil::StencilStorage::I:
+      return "I";
+    case mlir::stencil::StencilStorage::J:
+      return "J";
+    case mlir::stencil::StencilStorage::K:
+      return "K";
+    default:
+      assert(false && "unexpected allocation type");
   }
+  return "IJK";
+}
+
+void print(FieldType fieldType, DialectAsmPrinter &printer) {
+  printer << StencilDialect::getFieldTypeName() << "<";
+  StencilStorage::Allocation allocation = fieldType.getAllocation();
+  printer << printAllocation(allocation);
+  printer << ",";
   printer << fieldType.getElementType() << ">";
 }
 
 void print(ViewType viewType, DialectAsmPrinter &printer) {
-  printer << "view<";
-  for (auto &elem : viewType.getShape()) {
-    if (elem < 0)
-      printer << "?";
-    else
-      printer << elem;
-    printer << "x";
-  }
+  printer << StencilDialect::getViewTypeName() << "<";
+  StencilStorage::Allocation allocation = viewType.getAllocation();
+  printer << printAllocation(allocation);
+  printer << ",";
   printer << viewType.getElementType() << ">";
 }
 

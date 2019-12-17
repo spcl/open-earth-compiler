@@ -20,8 +20,6 @@ void stencil::AccessOp::build(Builder *builder, OperationState &state,
   assert(offset.size() == 3 && "expected offset with 3 elements");
 
   // Extract the element type of the view.
-  // The `cast` operation will fail and throw an error if the type of the
-  // view is not `stencil::ViewType`.
   Type elementType = view->getType().cast<stencil::ViewType>().getElementType();
 
   // Add an SSA argument
@@ -33,40 +31,36 @@ void stencil::AccessOp::build(Builder *builder, OperationState &state,
 }
 
 static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
-  // %0 = stencil.access %view[-1, 0, 0] : !stencil.view<?x?x?xf64>
-
   stencil::ViewType viewType;
   Type elementType;
   ArrayAttr offset;
-  // SSA values have the special type `OpAsmParser::OperandType` until they are
-  // resolved
   OpAsmParser::OperandType view;
 
-  // Step 1: Parse the `%view` operand
+  // Parse the view
   if (parser.parseOperand(view))
     return failure();
-  // Step 2: Parse the `offset` attribute
+  // Parse the `offset` attribute
   if (parser.parseAttribute(offset, stencil::AccessOp::getOffsetAttrName(),
                             state.attributes))
     return failure();
-  // Step 2.5: Make sure it has the right number of dimensions
+  // Make sure it has the right number of dimensions
   if (offset.size() != 3) {
     parser.emitError(parser.getCurrentLocation(),
                      "expected offset to have three components");
     return failure();
   }
 
-  // Step 3: Parse optional attributes as well as the view type
+  // Parse optional attributes as well as the view type
   if (parser.parseOptionalAttrDict(state.attributes) ||
       parser.parseColonType<stencil::ViewType>(viewType))
     return failure();
-  // Step 4: Make sure the `%view` operand is of the right type
+  // Make sure the `%view` operand is of the right type
   if (parser.resolveOperand(view, viewType, state.operands))
     return failure();
 
-  // Step 5: Extract the element type from the view type
+  // Extract the element type from the view type
   elementType = viewType.getElementType();
-  // Step 6: Add the return value
+  // Add the return value
   if (parser.addTypeToList(elementType, state.types))
     return failure();
 
@@ -104,29 +98,33 @@ static LogicalResult verify(stencil::AccessOp accessOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::LoadOp::build(Builder *builder, OperationState &state,
-                            Value *field, ArrayRef<int64_t> viewShape) {
-  assert(viewShape.size() == 3 && "view shape should have three components");
-
+                            Value *field) {
   Type elementType =
       field->getType().cast<stencil::FieldType>().getElementType();
+  StencilStorage::Allocation allocation =
+      field->getType().cast<stencil::FieldType>().getAllocation();
 
   state.addOperands(field);
   state.addTypes(
-      stencil::ViewType::get(builder->getContext(), elementType, viewShape));
+      stencil::ViewType::get(builder->getContext(), elementType, allocation));
 }
 
 static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
-  FunctionType funcType;
+  stencil::ViewType viewType;
+  stencil::FieldType fieldType;
   OpAsmParser::OperandType field;
 
   if (parser.parseOperand(field) ||
       parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonType<FunctionType>(funcType))
+      parser.parseColonType<stencil::ViewType>(viewType))
     return failure();
+  fieldType =
+      stencil::FieldType::get(viewType.getContext(), viewType.getElementType(),
+                              viewType.getAllocation());
 
-  if (parser.resolveOperands(field, funcType.getInputs(),
-                             parser.getCurrentLocation(), state.operands) ||
-      parser.addTypesToList(funcType.getResults(), state.types))
+  if (parser.resolveOperands(field, fieldType, parser.getCurrentLocation(),
+                             state.operands) ||
+      parser.addTypesToList(viewType, state.types))
     return failure();
 
   return success();
@@ -139,9 +137,7 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Type viewType = loadOp.res()->getType();
 
   printer << stencil::LoadOp::getOperationName() << ' ' << *field;
-  printer << " : (";
-  printer.printType(fieldType);
-  printer << ") -> ";
+  printer << " : ";
   printer.printType(viewType);
 }
 
@@ -158,6 +154,11 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
            << fieldElementType << "' and view element type '" << viewElementType
            << "'";
 
+  auto fieldAllocation = fieldType.getAllocation();
+  auto viewAllocation = viewType.getAllocation();
+  if (fieldAllocation != viewAllocation)
+    return loadOp.emitOpError("storage allocation is inconsistent");
+
   return success();
 }
 
@@ -167,14 +168,16 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
   OpAsmParser::OperandType view, field;
-  Type viewType, fieldType;
+  stencil::FieldType fieldType;
 
   if (parser.parseOperand(view) || parser.parseKeyword("to") ||
       parser.parseOperand(field) ||
-      parser.parseOptionalAttrDict(state.attributes) || parser.parseColon() ||
-      parser.parseType(viewType) || parser.parseComma() ||
-      parser.parseType(fieldType))
+      parser.parseOptionalAttrDict(state.attributes) ||
+      parser.parseColonType<stencil::FieldType>(fieldType))
     return failure();
+  stencil::ViewType viewType =
+      stencil::ViewType::get(fieldType.getContext(), fieldType.getElementType(),
+                             fieldType.getAllocation());
 
   if (parser.resolveOperand(view, viewType, state.operands) ||
       parser.resolveOperand(field, fieldType, state.operands))
@@ -188,8 +191,6 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   Value *view = storeOp.view();
   printer << stencil::StoreOp::getOperationName() << ' ' << *view << " to "
           << *field << " : ";
-  printer.printType(view->getType());
-  printer << ", ";
   printer.printType(field->getType());
 }
 
@@ -203,6 +204,11 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
     return storeOp.emitOpError("inconsistent field element type '")
            << fieldElementType << "' and view element type '" << viewElementType
            << "'";
+
+  auto fieldAllocation = fieldType.getAllocation();
+  auto viewAllocation = viewType.getAllocation();
+  if (fieldAllocation != viewAllocation)
+    return storeOp.emitOpError("storage allocation is inconsistent");
 
   return success();
 }
