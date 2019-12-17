@@ -5,7 +5,7 @@ add_llvm_library(MLIRStencil
         StencilOps.cpp
         StencilTypes.cpp
         ShapeInferencePass.cpp
-        StencilInliningPass.cpp
+        CallInliningPass.cpp
 )
 
 # Make sure that the TableGen generated files are up-to-date

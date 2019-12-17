@@ -1,4 +1,4 @@
-// RUN: oec-opt %s | oec-opt | FileCheck %s
+// RUN: oec-opt %s --stencil-call-inlining | oec-opt | FileCheck %s
 
 func @lap(%in : !stencil.view<?x?x?xf64>) -> f64
   attributes { stencil.function } {
