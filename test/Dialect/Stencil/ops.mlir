@@ -29,7 +29,7 @@ func @lap_stencil(%in: !stencil.field<?x?x?xf64>, %out: !stencil.field<12x12x16x
 	%0 = "stencil.load"(%in) : (!stencil.field<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
 	%1 = "stencil.apply"(%0) { callee = @lap } : (!stencil.view<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
 	%2 = "stencil.apply"(%1) { callee = @lap } : (!stencil.view<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
-	"stencil.store"(%out, %2) : (!stencil.field<12x12x16xf64>, !stencil.view<?x?x?xf64>) -> ()
+	"stencil.store"(%2, %out) : (!stencil.view<?x?x?xf64>, !stencil.field<12x12x16xf64>) -> ()
 	return
 }
 
@@ -38,4 +38,4 @@ func @lap_stencil(%in: !stencil.field<?x?x?xf64>, %out: !stencil.field<12x12x16x
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply @lap(%{{.*}}) : (!stencil.view<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply @lap(%{{.*}}) : (!stencil.view<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
-//  CHECK-NEXT: stencil.store %{{.*}}, %{{.*}} : !stencil.field<12x12x16xf64>, !stencil.view<?x?x?xf64>
+//  CHECK-NEXT: stencil.store %{{.*}} to %{{.*}} : !stencil.view<?x?x?xf64>, !stencil.field<12x12x16xf64>

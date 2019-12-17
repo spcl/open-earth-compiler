@@ -1,3 +1,5 @@
+#include "Dialect/Stencil/StencilDialect.h"
+#include "Dialect/Stencil/StencilOps.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/AffineExpr.h"
@@ -12,9 +14,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
-#include "Dialect/Stencil/StencilDialect.h"
-#include "Dialect/Stencil/StencilOps.h"
-//#include "mlir/Conversion/StenToStandard/ConvertStenToStandard.h"
 
 using namespace mlir;
 
@@ -34,7 +33,8 @@ void StencilInliningPass::runOnFunction() {
   if (!stencil::StencilDialect::isStencilFunction(funcOp))
     return;
 
-  funcOp.walk([](stencil::CallOp callOp) { inlineStencilFunctionCall(callOp); });
+  funcOp.walk(
+      [](stencil::CallOp callOp) { inlineStencilFunctionCall(callOp); });
 }
 
 } // namespace

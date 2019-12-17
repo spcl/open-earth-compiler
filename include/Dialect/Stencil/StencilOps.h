@@ -1,8 +1,9 @@
 #ifndef MLIR_DIALECT_STENCIL_STENCILOPS_H
 #define MLIR_DIALECT_STENCIL_STENCILOPS_H
 
-#include "mlir/IR/Function.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/IR/Function.h"
+#include "mlir/IR/Module.h"
 
 namespace mlir {
 namespace stencil {

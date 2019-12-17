@@ -37,6 +37,15 @@ def Stencil_AccessOp : Stencil_Op<"access"> {
 }
 
 def Stencil_LoadOp : Stencil_Op<"load"> {
+  let summary = "load operation";
+  let description = [{
+    This operation takes a field and returns a view.
+
+    Example:
+
+      %0 = stencil.load %field : (!stencil.field<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
+  }];
+
   let arguments = (ins Stencil_Field:$field);
   let results = (outs Stencil_View:$res);
 
@@ -51,7 +60,16 @@ def Stencil_LoadOp : Stencil_Op<"load"> {
 }
 
 def Stencil_StoreOp : Stencil_Op<"store"> {
-  let arguments = (ins Stencil_Field:$field, Stencil_View:$view);
+  let summary = "store operation";
+  let description = [{
+    This operation takes a field and returns a view.
+
+    Example:
+
+      %0 = stencil.store %view to %field : !stencil.view<?x?x?xf64>, !stencil.field<12x12x16xf64>
+  }];
+
+  let arguments = (ins Stencil_View:$view, Stencil_Field:$field);
   let results = (outs);
 
   let extraClassDeclaration = [{
@@ -65,6 +83,16 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
 }
 
 def Stencil_ApplyOp : Stencil_Op<"apply"> {
+  let summary = "apply operation";
+  let description = [{
+    This operation takes a stencil function plus parameters and applies 
+    the stencil function to the output view.
+
+    Example:
+
+      %0 = stencil.appy @func(%0) : (!stencil.view<?x?x?xf64>) -> !stencil.view<?x?x?xf64>
+  }];
+
   let arguments = (ins SymbolRefAttr:$callee, Variadic<AnyType>:$operands);
   let results = (outs Stencil_View:$res);
 

@@ -4,7 +4,6 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Function.h"
 
-
 namespace mlir {
 namespace stencil {
 

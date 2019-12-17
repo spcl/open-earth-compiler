@@ -6,7 +6,8 @@
 namespace mlir {
 namespace stencil {
 
-std::unique_ptr<OpPassBase<mlir::ModuleOp>> createConvertStencilToStandardPass();
+std::unique_ptr<OpPassBase<mlir::ModuleOp>>
+createConvertStencilToStandardPass();
 
 } // namespace stencil
 } // namespace mlir

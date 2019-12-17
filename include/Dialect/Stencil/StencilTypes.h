@@ -52,7 +52,7 @@ public:
   /// Note: `shape` must contain 3 elements, -1 being used to specify an unknown
   /// size.
   static ViewType get(MLIRContext *context, Type elementType,
-                       ArrayRef<int64_t> shape);
+                      ArrayRef<int64_t> shape);
 
   /// Used to implement LLVM-style casts.
   static bool kindof(unsigned kind) { return kind == StencilTypes::View; }

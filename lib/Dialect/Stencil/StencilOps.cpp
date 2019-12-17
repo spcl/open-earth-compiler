@@ -1,11 +1,12 @@
+#include "Dialect/Stencil/StencilOps.h"
+#include "Dialect/Stencil/StencilDialect.h"
+#include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/OpImplementation.h"
-#include "Dialect/Stencil/StencilOps.h"
-#include "Dialect/Stencil/StencilDialect.h"
-#include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/IR/Types.h"
 
 using namespace mlir;
 
@@ -14,15 +15,14 @@ using namespace mlir;
 //===----------------------------------------------------------------------===//
 
 void stencil::AccessOp::build(Builder *builder, OperationState &state,
-                               Value *view, ArrayRef<int64_t> offset) {
+                              Value *view, ArrayRef<int64_t> offset) {
   // Make sure that the offset has the right size
   assert(offset.size() == 3 && "expected offset with 3 elements");
 
   // Extract the element type of the view.
   // The `cast` operation will fail and throw an error if the type of the
   // view is not `stencil::ViewType`.
-  Type elementType =
-      view->getType().cast<stencil::ViewType>().getElementType();
+  Type elementType = view->getType().cast<stencil::ViewType>().getElementType();
 
   // Add an SSA argument
   state.addOperands(view);
@@ -104,7 +104,7 @@ static LogicalResult verify(stencil::AccessOp accessOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::LoadOp::build(Builder *builder, OperationState &state,
-                             Value *field, ArrayRef<int64_t> viewShape) {
+                            Value *field, ArrayRef<int64_t> viewShape) {
   assert(viewShape.size() == 3 && "view shape should have three components");
 
   Type elementType =
@@ -166,16 +166,18 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 //===----------------------------------------------------------------------===//
 
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
-  SmallVector<OpAsmParser::OperandType, 2> operands;
-  SmallVector<Type, 2> operandTypes;
+  OpAsmParser::OperandType view, field;
+  Type viewType, fieldType;
 
-  if (parser.parseOperandList(operands, 2, OpAsmParser::Delimiter::None) ||
-      parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonTypeList(operandTypes))
+  if (parser.parseOperand(view) || parser.parseKeyword("to") ||
+      parser.parseOperand(field) ||
+      parser.parseOptionalAttrDict(state.attributes) || parser.parseColon() ||
+      parser.parseType(viewType) || parser.parseComma() ||
+      parser.parseType(fieldType))
     return failure();
 
-  if (parser.resolveOperands(operands, operandTypes,
-                             parser.getCurrentLocation(), state.operands))
+  if (parser.resolveOperand(view, viewType, state.operands) ||
+      parser.resolveOperand(field, fieldType, state.operands))
     return failure();
 
   return success();
@@ -184,11 +186,11 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
 static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   Value *field = storeOp.field();
   Value *view = storeOp.view();
-  printer << stencil::StoreOp::getOperationName() << ' ' << *field << ", "
-          << *view << " : ";
-  printer.printType(field->getType());
-  printer << ", ";
+  printer << stencil::StoreOp::getOperationName() << ' ' << *view << " to "
+          << *field << " : ";
   printer.printType(view->getType());
+  printer << ", ";
+  printer.printType(field->getType());
 }
 
 static LogicalResult verify(stencil::StoreOp storeOp) {
@@ -210,8 +212,8 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::ApplyOp::build(Builder *builder, OperationState &result,
-                              FuncOp callee, stencil::ViewType viewType,
-                              ArrayRef<Value *> operands) {
+                             FuncOp callee, stencil::ViewType viewType,
+                             ArrayRef<Value *> operands) {
   if (!callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()))
     callee.emitError(
         "only stencil functions can be used in an apply operation");
@@ -308,9 +310,9 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::CallOp::build(Builder *builder, OperationState &result,
-                             FuncOp callee, stencil::ViewType viewType,
-                             ArrayRef<int64_t> offset,
-                             ArrayRef<Value *> operands) {
+                            FuncOp callee, stencil::ViewType viewType,
+                            ArrayRef<int64_t> offset,
+                            ArrayRef<Value *> operands) {
   assert(offset.size() == 3 && "expected offset with 3 elements");
   assert(
       callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()) &&
@@ -370,8 +372,8 @@ static void print(stencil::CallOp callOp, OpAsmPrinter &printer) {
 
 static LogicalResult verify(stencil::CallOp callOp) {
   // Check that the callee attribute was specified.
-  auto fnAttr = callOp.getAttrOfType<SymbolRefAttr>(
-      stencil::CallOp::getCalleeAttrName());
+  auto fnAttr =
+      callOp.getAttrOfType<SymbolRefAttr>(stencil::CallOp::getCalleeAttrName());
   if (!fnAttr)
     return callOp.emitOpError("requires a '")
            << stencil::CallOp::getCalleeAttrName()
@@ -406,4 +408,3 @@ namespace stencil {
 #include "Dialect/Stencil/StencilOps.cpp.inc"
 } // namespace stencil
 } // namespace mlir
-

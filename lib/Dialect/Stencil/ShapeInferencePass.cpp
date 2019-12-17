@@ -1,9 +1,9 @@
-#include "mlir/IR/StandardTypes.h"
-#include "mlir/Pass/Pass.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/IR/StandardTypes.h"
+#include "mlir/Pass/Pass.h"
 
 using namespace mlir;
 using namespace stencil;
@@ -32,8 +32,8 @@ bool inferShapes(stencil::StoreOp storeOp) {
 
   // Propagate the field shape to the view
   Type elementType = storeOp.getViewType().getElementType();
-  storeOp.view()->setType(stencil::ViewType::get(storeOp.getContext(), elementType,
-                                              fieldType.getShape()));
+  storeOp.view()->setType(stencil::ViewType::get(
+      storeOp.getContext(), elementType, fieldType.getShape()));
 
   return true;
 }

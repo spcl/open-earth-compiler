@@ -1,3 +1,7 @@
+#include "Conversion/StencilToStandard/ConvertStencilToStandard.h"
+#include "Dialect/Stencil/Passes.h"
+#include "Dialect/Stencil/StencilDialect.h"
+#include "Dialect/Stencil/StencilOps.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/AffineExpr.h"
@@ -12,10 +16,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
-#include "Conversion/StencilToStandard/ConvertStencilToStandard.h"
-#include "Dialect/Stencil/StencilDialect.h"
-#include "Dialect/Stencil/StencilOps.h"
-#include "Dialect/Stencil/Passes.h"
 
 using namespace mlir;
 
@@ -90,7 +90,8 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    stencil::ViewType viewType = cast<stencil::LoadOp>(operation).getResultViewType();
+    stencil::ViewType viewType =
+        cast<stencil::LoadOp>(operation).getResultViewType();
     rewriter.replaceOpWithNewOp<MemRefCastOp>(
         operation, operands[0],
         MemRefType::get(viewType.getShape(), viewType.getElementType()));
@@ -299,8 +300,10 @@ public:
 
   bool isDynamicallyLegal(Operation *op) const override {
     if (auto funcOp = dyn_cast<FuncOp>(op)) {
-      return !funcOp.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()) &&
-             !funcOp.getAttr(stencil::StencilDialect::getStencilProgramAttrName());
+      return !funcOp.getAttr(
+                 stencil::StencilDialect::getStencilFunctionAttrName()) &&
+             !funcOp.getAttr(
+                 stencil::StencilDialect::getStencilProgramAttrName());
     } else
       return true;
   }
@@ -337,7 +340,8 @@ void mlir::populateStencilToStandardConversionPatterns(
                   LoadOpLowering, StoreOpLowering>(ctx);
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::stencil::createConvertStencilToStandardPass() {
+std::unique_ptr<OpPassBase<ModuleOp>>
+mlir::stencil::createConvertStencilToStandardPass() {
   return std::make_unique<StencilToStandardPass>();
 }
 
