@@ -106,21 +106,15 @@ void stencil::LoadOp::build(Builder *builder, OperationState &state,
 }
 
 static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
-  stencil::ViewType viewType;
-  stencil::FieldType fieldType;
-  OpAsmParser::OperandType field;
+  FunctionType funcType;
+  SmallVector<OpAsmParser::OperandType, 1> operands;
 
-  if (parser.parseOperand(field) ||
+  if (parser.parseOperandList(operands) ||
       parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonType<stencil::ViewType>(viewType))
-    return failure();
-  fieldType =
-      stencil::FieldType::get(viewType.getContext(), viewType.getElementType(),
-                              viewType.getAllocation());
-
-  if (parser.resolveOperands(field, fieldType, parser.getCurrentLocation(),
-                             state.operands) ||
-      parser.addTypesToList(viewType, state.types))
+      parser.parseColonType<FunctionType>(funcType) ||
+      parser.resolveOperands(operands, funcType.getInputs(),
+                             parser.getCurrentLocation(), state.operands) ||
+      parser.addTypesToList(funcType.getResults(), state.types))
     return failure();
 
   return success();
@@ -133,7 +127,9 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Type viewType = loadOp.res()->getType();
 
   printer << stencil::LoadOp::getOperationName() << ' ' << *field;
-  printer << " : ";
+  printer << " : (";
+  printer.printType(fieldType);
+  printer << ") -> ";
   printer.printType(viewType);
 }
 
@@ -164,16 +160,14 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
   OpAsmParser::OperandType view, field;
-  stencil::FieldType fieldType;
+  Type fieldType, viewType;
 
   if (parser.parseOperand(view) || parser.parseKeyword("to") ||
       parser.parseOperand(field) ||
-      parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonType<stencil::FieldType>(fieldType))
+      parser.parseOptionalAttrDict(state.attributes) || parser.parseColon() ||
+      parser.parseType(viewType) || parser.parseKeyword("to") ||
+      parser.parseType(fieldType))
     return failure();
-  stencil::ViewType viewType =
-      stencil::ViewType::get(fieldType.getContext(), fieldType.getElementType(),
-                             fieldType.getAllocation());
 
   if (parser.resolveOperand(view, viewType, state.operands) ||
       parser.resolveOperand(field, fieldType, state.operands))
@@ -187,6 +181,8 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   Value *view = storeOp.view();
   printer << stencil::StoreOp::getOperationName() << ' ' << *view << " to "
           << *field << " : ";
+  printer.printType(view->getType());
+  printer << " to ";
   printer.printType(field->getType());
 }
 
