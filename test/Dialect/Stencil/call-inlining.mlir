@@ -1,12 +1,18 @@
 // RUN: oec-opt %s --stencil-call-inlining | oec-opt | FileCheck %s
 
+func @load(%in : !stencil.view<?x?x?xf64>) -> f64
+  attributes { stencil.function } {
+	%0 = stencil.access %in[ 0, 0, 0] : !stencil.view<?x?x?xf64>
+	return %0 : f64
+}
+
 func @lap(%in : !stencil.view<?x?x?xf64>) -> f64
   attributes { stencil.function } {
 	%0 = stencil.access %in[-1, 0, 0] : !stencil.view<?x?x?xf64>
 	%1 = stencil.access %in[ 1, 0, 0] : !stencil.view<?x?x?xf64>
 	%2 = stencil.access %in[ 0, 1, 0] : !stencil.view<?x?x?xf64>
 	%3 = stencil.access %in[ 0,-1, 0] : !stencil.view<?x?x?xf64>
-	%4 = stencil.access %in[ 0, 0, 0] : !stencil.view<?x?x?xf64>
+	%4 = stencil.call @load(%in)[ 0, 0, 0] : (!stencil.view<?x?x?xf64>) -> f64
 	%5 = addf %0, %1 : f64
 	%6 = addf %2, %3 : f64
 	%7 = addf %5, %6 : f64
