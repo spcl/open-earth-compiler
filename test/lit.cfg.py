@@ -29,12 +29,6 @@ config.test_source_root = os.path.dirname(__file__)
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.oec_obj_root, 'test')
 
-# config.substitutions.append(('%PATH%', config.environment['PATH']))
-# config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
-
-# llvm_config.with_system_environment(
-#     ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
-
 llvm_config.use_default_substitutions()
 
 # excludes: A list of directories to exclude from the testsuite. The 'Inputs'
@@ -47,8 +41,7 @@ config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.oec_obj_root, 'test')
-config.oec_tools_dir = os.path.join(config.oec_obj_root, 'oec-opt')
-
+config.oec_tools_dir = os.path.join(config.oec_obj_root, 'bin')
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)

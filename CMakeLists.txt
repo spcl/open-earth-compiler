@@ -40,10 +40,7 @@ function(whole_archive_link target)
   set_target_properties(${target} PROPERTIES LINK_FLAGS ${link_flags})
 endfunction(whole_archive_link)
 
-message("llvm library dir")
-message(${LLVM_LIBRARY_DIR})
-
 add_subdirectory(include/)
 add_subdirectory(lib/)
-#add_subdirectory(test/)
+add_subdirectory(test/)
 add_subdirectory(oec-opt/)
