@@ -52,5 +52,3 @@ add_llvm_executable(oec-opt
 llvm_update_compile_flags(oec-opt)
 whole_archive_link(oec-opt ${LIBS})
 target_link_libraries(oec-opt PRIVATE MLIRIR MLIRMlirOptLib ${LIBS} LLVMSupport)
-target_link_directories(oec-opt PRIVATE ${PROJECT_BINARY_DIR}/lib/Dialect/Stencil)
-target_link_directories(oec-opt PRIVATE ${PROJECT_BINARY_DIR}/lib/Conversion/StencilToStandard)

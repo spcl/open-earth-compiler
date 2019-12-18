@@ -13,6 +13,10 @@ set(MLIR_MAIN_SRC_DIR ${LLVM_INCLUDE_DIR}) # --src-root
 set(MLIR_INCLUDE_DIR ${LLVM_INCLUDE_DIR}) # --includedir
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
+# set the output directories
+set( LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin )
+set( LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib )
+
 # import llvm functionality
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(AddLLVM)
@@ -28,13 +32,16 @@ function(mlir_tablegen ofn)
 endfunction()
 
 function(whole_archive_link target)
-  set(link_flags "-L${LLVM_LIBRARY_DIR} -Wl,--whole-archive,")
+  set(link_flags "-L${LLVM_LIBRARY_DIR} -L${CMAKE_BINARY_DIR}/lib -Wl,--whole-archive,")
   FOREACH(LIB ${ARGN})
     string(CONCAT link_flags ${link_flags} "-l${LIB},")
   ENDFOREACH(LIB)
   string(CONCAT link_flags ${link_flags} "--no-whole-archive")
   set_target_properties(${target} PROPERTIES LINK_FLAGS ${link_flags})
 endfunction(whole_archive_link)
+
+message("llvm library dir")
+message(${LLVM_LIBRARY_DIR})
 
 add_subdirectory(include/)
 add_subdirectory(lib/)
