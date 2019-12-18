@@ -36,19 +36,19 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 
   // Helper method converting a string to an allocation
   auto parseAllocation = [&](StringRef Input) {
-    if (Input == "IJK")
+    if (Input == "ijk")
       return StencilStorage::IJK;
-    else if (Input == "IJ")
+    else if (Input == "ij")
       return StencilStorage::IJ;
-    else if (Input == "IK")
+    else if (Input == "ik")
       return StencilStorage::IK;
-    else if (Input == "JK")
+    else if (Input == "jk")
       return StencilStorage::JK;
-    else if (Input == "I")
+    else if (Input == "i")
       return StencilStorage::I;
-    else if (Input == "J")
+    else if (Input == "j")
       return StencilStorage::J;
-    else if (Input == "K")
+    else if (Input == "k")
       return StencilStorage::K;
     parser.emitError(parser.getNameLoc(), "unexpected field allocation type");
     return StencilStorage::IJK;
@@ -93,23 +93,23 @@ namespace {
 StringRef printAllocation(StencilStorage::Allocation allocation) {
   switch(allocation) {
     case mlir::stencil::StencilStorage::IJK:
-      return "IJK";
+      return "ijk";
     case mlir::stencil::StencilStorage::IJ:
-      return "IJ";
+      return "ij";
     case mlir::stencil::StencilStorage::IK:
-      return "IK";
+      return "ik";
     case mlir::stencil::StencilStorage::JK:
-      return "JK";
+      return "jk";
     case mlir::stencil::StencilStorage::I:
-      return "I";
+      return "i";
     case mlir::stencil::StencilStorage::J:
-      return "J";
+      return "j";
     case mlir::stencil::StencilStorage::K:
-      return "K";
+      return "k";
     default:
       assert(false && "unexpected allocation type");
   }
-  return "IJK";
+  return "ijk";
 }
 
 void print(FieldType fieldType, DialectAsmPrinter &printer) {

@@ -322,9 +322,9 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
   if (fnType.getNumInputs() != applyOp.getNumOperands())
     return applyOp.emitOpError("incorrect number of operands for callee");
 
-  /*for (unsigned i = 0, e = fnType.getNumInputs(); i != e; ++i)
+  for (unsigned i = 0, e = fnType.getNumInputs(); i != e; ++i)
     if (applyOp.getOperand(i)->getType() != fnType.getInput(i))
-      return applyOp.emitOpError("operand type mismatch");*/
+      return applyOp.emitOpError("operand type mismatch");
 
   if (fnType.getNumResults() != 1)
     return applyOp.emitOpError("incorrect number of results for callee");
