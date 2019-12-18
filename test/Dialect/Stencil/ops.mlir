@@ -29,7 +29,7 @@ func @lap_stencil(%in: !stencil.field<ijk,f64>, %out: !stencil.field<ijk,f64>)
 	%0 = "stencil.load"(%in) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
 	%1 = "stencil.apply"(%0) { callee = @lap } : (!stencil.view<ijk,f64>) -> !stencil.view<ijk,f64>
 	%2 = "stencil.apply"(%1) { callee = @lap } : (!stencil.view<ijk,f64>) -> !stencil.view<ijk,f64>
-	"stencil.store"(%2, %out) {lb = [0,0,0], ub = [64,64,60]} : (!stencil.view<ijk,f64>, !stencil.field<ijk,f64>) -> ()
+	"stencil.store"(%2, %out) {lb=[0,0,0], ub=[64,64,60]} : (!stencil.view<ijk,f64>, !stencil.field<ijk,f64>) -> ()
 	return
 }
 

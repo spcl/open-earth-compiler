@@ -127,6 +127,7 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Type viewType = loadOp.res()->getType();
 
   printer << stencil::LoadOp::getOperationName() << ' ' << *field;
+  printer.printOptionalAttrDict(loadOp.getAttrs(), /*elidedAttrs=*/{});
   printer << " : (";
   printer.printType(fieldType);
   printer << ") -> ";
@@ -173,14 +174,14 @@ void stencil::StoreOp::build(Builder *builder, OperationState &state,
 
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
   OpAsmParser::OperandType view, field;
-  ArrayAttr lb, ub;
+  ArrayAttr lbAttr, ubAttr;
   Type fieldType, viewType;
   // Parse the store op
   if (parser.parseOperand(view) || parser.parseKeyword("to") ||
-      parser.parseOperand(field) ||
-      parser.parseAttribute(lb, stencil::StoreOp::getLBAttrName(),
+      parser.parseOperand(field) || 
+      parser.parseAttribute(lbAttr, stencil::StoreOp::getLBAttrName(),
                             state.attributes) ||
-      parser.parseAttribute(ub, stencil::StoreOp::getUBAttrName(),
+      parser.parseAttribute(ubAttr, stencil::StoreOp::getUBAttrName(),
                             state.attributes) ||
       parser.parseOptionalAttrDict(state.attributes) || parser.parseColon() ||
       parser.parseType(viewType) || parser.parseKeyword("to") ||
@@ -188,7 +189,7 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
     return failure();
 
   // Make sure bounds have the right number of dimensions
-  if (lb.size() != 3 || ub.size() != 3) {
+  if (lbAttr.size() != 3 || ubAttr.size() != 3) {
     parser.emitError(parser.getCurrentLocation(),
                      "expected bounds to have three components");
     return failure();
@@ -267,6 +268,7 @@ FunctionType stencil::ApplyOp::getCalleeType() {
 
 static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SymbolRefAttr calleeAttr;
+  ArrayAttr ubAttr, lbAttr; // TODO parse optional attributes
   FunctionType funcType;
   SmallVector<OpAsmParser::OperandType, 3> operands;
   auto calleeLoc = parser.getNameLoc();
@@ -285,7 +287,8 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
 
 static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer << stencil::ApplyOp::getOperationName() << ' '
-          << applyOp.getAttr(stencil::ApplyOp::getCalleeAttrName()) << '(';
+          << applyOp.getAttr(stencil::ApplyOp::getCalleeAttrName());
+  printer << '(';
   printer.printOperands(applyOp.getOperands());
   printer << ')';
   printer.printOptionalAttrDict(applyOp.getAttrs(),
