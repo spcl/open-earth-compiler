@@ -61,17 +61,36 @@ def Stencil_LoadOp : Stencil_Op<"load"> {
 def Stencil_StoreOp : Stencil_Op<"store"> {
   let summary = "store operation";
   let description = [{
-    This operation takes a field and returns a view.
+    This operation takes a view and writes a field on a user defined range.
 
     Example:
 
-      %0 = stencil.store %view to %field : !stencil.field<IJK,f64>
+      %0 = stencil.store %view to %field[0,0,0][64,64,60] : !stencil.field<IJK,f64>
   }];
 
-  let arguments = (ins Stencil_View:$view, Stencil_Field:$field);
+  let arguments = (ins Stencil_View:$view, Stencil_Field:$field, I64ArrayAttr:$lb, I64ArrayAttr:$ub);
   let results = (outs);
 
+  let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
+                            "Value *, ArrayRef<int64_t>, ArrayRef<int64_t>">];
+
   let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    SmallVector<int64_t, 3> getLB() {
+      SmallVector<int64_t, 3> result;
+      for(auto &attr : lb().cast<ArrayAttr>().getValue()) {
+        result.push_back(attr.cast<IntegerAttr>().getValue().getSExtValue());
+      }
+      return result;
+    }
+    static StringRef getUBAttrName() { return "ub"; }
+    SmallVector<int64_t, 3> getUB() {
+      SmallVector<int64_t, 3> result;
+      for(auto &attr : ub().cast<ArrayAttr>().getValue()) {
+        result.push_back(attr.cast<IntegerAttr>().getValue().getSExtValue());
+      }
+      return result;
+    }
     stencil::FieldType getFieldType() {
       return field()->getType().cast<stencil::FieldType>();
     }

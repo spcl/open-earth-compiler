@@ -158,16 +158,41 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 // stencil.store
 //===----------------------------------------------------------------------===//
 
+void stencil::StoreOp::build(Builder *builder, OperationState &state,
+                             Value *view, Value *field, ArrayRef<int64_t> lb,
+                             ArrayRef<int64_t> ub) {
+  // Make sure that the offset has the right size
+  assert(lb.size() == 3 && ub.size() == 3 && "expected bounds with 3 elements");
+
+  // Add an SSA arguments
+  state.addOperands({view, field});
+  // Add the bounds attributes
+  state.addAttribute(getLBAttrName(), builder->getI64ArrayAttr(lb));
+  state.addAttribute(getUBAttrName(), builder->getI64ArrayAttr(ub));
+}
+
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
   OpAsmParser::OperandType view, field;
+  ArrayAttr lb, ub;
   Type fieldType, viewType;
-
+  // Parse the store op
   if (parser.parseOperand(view) || parser.parseKeyword("to") ||
       parser.parseOperand(field) ||
+      parser.parseAttribute(lb, stencil::StoreOp::getLBAttrName(),
+                            state.attributes) ||
+      parser.parseAttribute(ub, stencil::StoreOp::getUBAttrName(),
+                            state.attributes) ||
       parser.parseOptionalAttrDict(state.attributes) || parser.parseColon() ||
       parser.parseType(viewType) || parser.parseKeyword("to") ||
       parser.parseType(fieldType))
     return failure();
+
+  // Make sure bounds have the right number of dimensions
+  if (lb.size() != 3 || ub.size() != 3) {
+    parser.emitError(parser.getCurrentLocation(),
+                     "expected bounds to have three components");
+    return failure();
+  }
 
   if (parser.resolveOperand(view, viewType, state.operands) ||
       parser.resolveOperand(field, fieldType, state.operands))
@@ -179,8 +204,17 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
 static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   Value *field = storeOp.field();
   Value *view = storeOp.view();
-  printer << stencil::StoreOp::getOperationName() << ' ' << *view << " to "
-          << *field << " : ";
+  ArrayAttr lb = storeOp.lb();
+  ArrayAttr ub = storeOp.ub();
+
+  printer << stencil::StoreOp::getOperationName() << " " << *view;
+  printer << " to " << *field;
+  printer.printAttribute(lb);
+  printer.printAttribute(ub);
+  printer.printOptionalAttrDict(
+      storeOp.getAttrs(), /*elidedAttrs=*/{stencil::StoreOp::getLBAttrName(),
+                                           stencil::StoreOp::getUBAttrName()});
+  printer << " : ";
   printer.printType(view->getType());
   printer << " to ";
   printer.printType(field->getType());
