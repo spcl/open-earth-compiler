@@ -5,6 +5,7 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
@@ -19,7 +20,7 @@ using namespace mlir;
 
 namespace {
 
-void inlineStencilFunctionCall(stencil::CallOp callOp) {
+void inlineCalls(stencil::CallOp callOp) {
   ArrayRef<int64_t> callOffset = callOp.getOffset();
   FuncOp funcOp = callOp.getCallee().clone();
   OpBuilder builder(callOp);
@@ -36,10 +37,10 @@ void inlineStencilFunctionCall(stencil::CallOp callOp) {
   });
 
   // Replace the arguments of the clone with the call op operands
-  for(unsigned i=0, e=funcOp.getNumArguments(); i<e; ++i) {
-      Value *argument = funcOp.getArgument(i);
-      Value *replacement = callOp.getOperand(i);
-      argument->replaceAllUsesWith(replacement);
+  for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
+    Value *argument = funcOp.getArgument(i);
+    Value *replacement = callOp.getOperand(i);
+    argument->replaceAllUsesWith(replacement);
   }
 
   // Insert the body of the function clone
@@ -57,25 +58,25 @@ void inlineStencilFunctionCall(stencil::CallOp callOp) {
   Value *result = returnOp.getOperand(0);
   Value *old = callOp.getResult();
   old->replaceAllUsesWith(result);
-  
+
   // Remove the call and the return operations
   returnOp.erase();
   callOp.erase();
 }
 
-struct CallInliningPass : public FunctionPass<CallInliningPass> {
-  void runOnFunction() override;
+struct CallInliningPass : public ModulePass<CallInliningPass> {
+  void runOnModule() override;
 };
 
-void CallInliningPass::runOnFunction() {
-  FuncOp funcOp = getFunction();
-
-  // Only run on functions marked as stencil functions
-  if (!stencil::StencilDialect::isStencilFunction(funcOp))
-    return;
-
-  funcOp.walk(
-      [](stencil::CallOp callOp) { inlineStencilFunctionCall(callOp); });
+void CallInliningPass::runOnModule() {
+  ModuleOp moduleOp = getModule();
+  
+  // Walk all the functions of a module
+  moduleOp.walk([](FuncOp funcOp) {
+    // Walk the body of the function and inline all calls
+    if (stencil::StencilDialect::isStencilFunction(funcOp))
+      funcOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
+  });
 }
 
 } // namespace
