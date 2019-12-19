@@ -13,6 +13,9 @@ set(MLIR_MAIN_SRC_DIR ${LLVM_INCLUDE_DIR}) # --src-root
 set(MLIR_INCLUDE_DIR ${LLVM_INCLUDE_DIR}) # --includedir
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
+# setup llvm lit
+set(LLVM_LIT_ARGS "-sv" CACHE STRING "lit default options")
+
 # set the output directories
 set( LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin )
 set( LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib )

@@ -7,6 +7,7 @@ configure_lit_site_cfg(
   )
 
 set(OEC_TEST_DEPENDS
+  FileCheck count not
   oec-opt
   )
 
@@ -15,3 +16,8 @@ add_lit_testsuite(check-oec "Running the OEC regression tests"
   DEPENDS ${OEC_TEST_DEPENDS}
   )
 set_target_properties(check-oec PROPERTIES FOLDER "Tests")
+
+add_lit_testsuites(OEC ${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS ${OEC_TEST_DEPS}
+)
+

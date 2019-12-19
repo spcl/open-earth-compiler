@@ -4,8 +4,7 @@ Development repository for the open earth compiler. The repository depends on a 
 
 ```
 mkdir build && cd build
-cmake .. -DLLVM_DIR=<install_root>/lib/cmake/llvm/
-cmake --build . --target occ-opt
+cmake .. -DLLVM_DIR=<install_root>/lib/cmake/llvm/ -DLLVM_EXTERNAL_LIT=<build_root>/bin/llvm-lit
+cmake --build . --target oec-opt
+cmake --build . --target check-oec
 ```
-
-Just for fun, the mlir-opt is called occ-opt here.
