@@ -5,6 +5,8 @@
 include "Dialect/Stencil/StencilBase.td"
 #endif // STENCIL_BASE
 
+// TODO make stencil ops side-effect free
+
 def Stencil_AccessOp : Stencil_Op<"access"> {
   let summary = "view access operation";
   let description = [{
@@ -100,7 +102,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply"> {
+def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove]> {
   let summary = "apply operation";
   let description = [{
     This operation takes a stencil function plus parameters and applies 
@@ -111,31 +113,24 @@ def Stencil_ApplyOp : Stencil_Op<"apply"> {
       %0 = stencil.appy @func(%0) : (!stencil.view<ijk,f64>) -> !stencil.view<ijk,f64>
   }];
 
-  let arguments = (ins SymbolRefAttr:$callee, Variadic<AnyType>:$operands);
-  let results = (outs Stencil_View:$res);
+  let arguments = (ins Variadic<AnyType>:$operands);
+  let results = (outs Variadic<Stencil_View>:$res);
+  let regions = (region SizedRegion<1>:$region);
 
-  let builders = [
-    OpBuilder<"Builder *builder, OperationState &result, FuncOp callee,"
-              "stencil::ViewType viewType, ArrayRef<Value *> operands = {}">];
+  // let builders = [
+  //   OpBuilder<"Builder *builder, OperationState &result,"
+  //             "stencil::ViewType viewType, ArrayRef<Value *> operands = {}">];
 
   let extraClassDeclaration = [{
-    stencil::ViewType getResultViewType() {
-      return res()->getType().cast<stencil::ViewType>();
-    }
-
-    static StringRef getCalleeAttrName() { return "callee"; }
-    FunctionType getCalleeType();
-    FuncOp getCallee() {
-        return getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(callee().getLeafReference());
-    }
-
     /// Get the argument operands to the called function.
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
-
     operand_iterator arg_operand_begin() { return operand_begin(); }
     operand_iterator arg_operand_end() { return operand_end(); }
+
+    /// Get the body of the apply op
+    Block *getBody() { return &region().front(); }
   }];
 }
 
@@ -181,10 +176,22 @@ def Stencil_CallOp : Stencil_Op<"call"> {
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
-
     operand_iterator arg_operand_begin() { return operand_begin(); }
     operand_iterator arg_operand_end() { return operand_end(); }
   }];
+}
+
+def Stencil_ReturnOp : Stencil_Op<"return", [Terminator, HasParent<"ApplyOp">]> {
+  let summary = "return operation";
+  let description = [{
+    This operation represents the return operation of a stencil apply.
+    The operation takes a variable number of operands that must match
+    the element types of the returned views.
+
+      stencil.return %0 : f64
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$operands);
 }
 
 #endif // STENCIL_OPS

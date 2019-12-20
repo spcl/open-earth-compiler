@@ -48,18 +48,18 @@ bool inferShapes(stencil::ApplyOp applyOp) {
 
   // Iterate all result
   // TODO deal with multiple resutls
-  Value* Result = applyOp.getResult();
-  for(OpOperand &use : Result->getUses()) {
-    if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-      auto LB = storeOp.getLB();
-      auto UB = storeOp.getUB();
+  // Value* Result = applyOp.getResult();
+  // for(OpOperand &use : Result->getUses()) {
+  //   if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
+  //     auto LB = storeOp.getLB();
+  //     auto UB = storeOp.getUB();
 
-      llvm::outs() << "["
-        << LB[0] << ":" << UB[0] << ","
-        << LB[1] << ":" << UB[1] << ","
-        << LB[2] << ":" << UB[2] << "]\n";
-    }
-  }
+  //     llvm::outs() << "["
+  //       << LB[0] << ":" << UB[0] << ","
+  //       << LB[1] << ":" << UB[1] << ","
+  //       << LB[2] << ":" << UB[2] << "]\n";
+  //   }
+  // }
 
   // // The shape of the field must be kwown at this point
   // stencil::ViewType resultViewType = applyOp.getResultViewType();

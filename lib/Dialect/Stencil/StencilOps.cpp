@@ -2,11 +2,15 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/STLExtras.h"
+#include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
 
@@ -178,7 +182,7 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
   Type fieldType, viewType;
   // Parse the store op
   if (parser.parseOperand(view) || parser.parseKeyword("to") ||
-      parser.parseOperand(field) || 
+      parser.parseOperand(field) ||
       parser.parseAttribute(lbAttr, stencil::StoreOp::getLBAttrName(),
                             state.attributes) ||
       parser.parseAttribute(ubAttr, stencil::StoreOp::getUBAttrName(),
@@ -244,98 +248,110 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 // stencil.apply
 //===----------------------------------------------------------------------===//
 
-void stencil::ApplyOp::build(Builder *builder, OperationState &result,
-                             FuncOp callee, stencil::ViewType viewType,
-                             ArrayRef<Value *> operands) {
-  if (!callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()))
-    callee.emitError(
-        "only stencil functions can be used in an apply operation");
-  if (callee.getType().getNumResults() != 1)
-    callee.emitError("expected stencil function to return only one result");
-  if (callee.getType().getResult(0) != viewType.getElementType())
-    callee.emitError("incompatible stencil function return type and view type");
+// void stencil::ApplyOp::build(Builder *builder, OperationState &result,
+//                              stencil::ViewType viewType,
+//                              ArrayRef<Value *> operands) {
+//   result.addOperands(operands);
+//   result.addTypes(viewType);
 
-  result.addOperands(operands);
-  result.addAttribute(getCalleeAttrName(), builder->getSymbolRefAttr(callee));
-  result.addTypes(viewType);
-}
-
-FunctionType stencil::ApplyOp::getCalleeType() {
-  SmallVector<Type, 1> resultTypes({getResult()->getType()});
-  SmallVector<Type, 8> argTypes(getOperandTypes());
-  return FunctionType::get(argTypes, resultTypes, getContext());
-}
+//   // TODO add region here
+// }
 
 static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
-  SymbolRefAttr calleeAttr;
-  ArrayAttr ubAttr, lbAttr; // TODO parse optional attributes
-  FunctionType funcType;
-  SmallVector<OpAsmParser::OperandType, 3> operands;
-  auto calleeLoc = parser.getNameLoc();
-  if (parser.parseAttribute(calleeAttr, stencil::ApplyOp::getCalleeAttrName(),
-                            state.attributes) ||
-      parser.parseOperandList(operands, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonType(funcType) ||
-      parser.addTypesToList(funcType.getResults(), state.types) ||
-      parser.resolveOperands(operands, funcType.getInputs(), calleeLoc,
-                             state.operands))
+  SmallVector<OpAsmParser::OperandType, 8> operands;
+  SmallVector<OpAsmParser::OperandType, 8> arguments;
+
+  // Parse region arguments and the assigned data operands
+  llvm::SMLoc loc = parser.getCurrentLocation();
+  do {
+    OpAsmParser::OperandType currentArgument;
+    OpAsmParser::OperandType currentOperand;
+    if (parser.parseRegionArgument(currentArgument) || parser.parseEqual() ||
+        parser.parseOperand(currentOperand))
+      return failure();
+    arguments.push_back(currentArgument);
+    operands.push_back(currentOperand);
+  } while (!parser.parseOptionalComma());
+
+  // Parse optional attributes and the operand types
+  SmallVector<Type, 8> operandTypes;
+  if (parser.parseOptionalAttrDict(state.attributes) ||
+      parser.parseColonTypeList(operandTypes))
+    return failure();
+
+  // Parse the body region.
+  SmallVector<Type, 8> resultTypes;
+  Region *body = state.addRegion();
+  if (parser.parseRegion(*body, arguments, operandTypes) ||
+      parser.parseColonTypeList(resultTypes) ||
+      parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
+      parser.addTypesToList(resultTypes, state.types))
     return failure();
 
   return success();
 }
 
 static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
-  printer << stencil::ApplyOp::getOperationName() << ' '
-          << applyOp.getAttr(stencil::ApplyOp::getCalleeAttrName());
-  printer << '(';
-  printer.printOperands(applyOp.getOperands());
-  printer << ')';
-  printer.printOptionalAttrDict(applyOp.getAttrs(),
-                                {stencil::ApplyOp::getCalleeAttrName()});
+  printer << stencil::ApplyOp::getOperationName() << ' ';
+
+  // Print the region arguments
+  ValueRange operands = applyOp.getOperands();
+  if (!applyOp.region().empty() && !operands.empty()) {
+    Block *body = applyOp.getBody();
+    interleaveComma(llvm::seq<int>(0, operands.size()), printer, [&](int i) {
+      printer << *body->getArgument(i) << " = " << *operands[i];
+    });
+  }
+
+  // Print the optional arguments and the operand types
+  printer.printOptionalAttrDict(applyOp.getAttrs());
   printer << " : ";
-
-  FunctionType calleeType = applyOp.getCalleeType();
-  FunctionType funcType = FunctionType::get(
-      calleeType.getInputs(), llvm::makeArrayRef({applyOp.res()->getType()}),
-      applyOp.getContext());
-
-  printer.printType(funcType);
+  interleaveComma(applyOp.getOperandTypes(), printer);
+  
+  // Print region and return type
+  printer.printRegion(applyOp.region(),
+                      /*printEntryBlockArgs=*/false);
+  printer << " : ";
+  interleaveComma(applyOp.res().getTypes(), printer);
 }
 
 static LogicalResult verify(stencil::ApplyOp applyOp) {
-  // Check that the callee attribute was specified.
-  auto fnAttr = applyOp.getAttrOfType<SymbolRefAttr>(
-      stencil::ApplyOp::getCalleeAttrName());
-  if (!fnAttr)
-    return applyOp.emitOpError("requires a '")
-           << stencil::ApplyOp::getCalleeAttrName()
-           << "' symbol reference attribute";
-  auto fn = applyOp.getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(
-      fnAttr.getLeafReference());
-  if (!fn)
-    return applyOp.emitOpError() << "'" << fnAttr.getLeafReference()
-                                 << "' does not reference a valid function";
-  if (!fn.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()))
-    return applyOp.emitOpError() << "'" << fnAttr.getLeafReference()
-                                 << "' does not reference a stencil function";
+  // TODO verify types
+  // TODO verify at least one argument
 
-  // Verify that the operand and result types match the callee.
-  auto fnType = fn.getType();
-  if (fnType.getNumInputs() != applyOp.getNumOperands())
-    return applyOp.emitOpError("incorrect number of operands for callee");
+  // // Check that the callee attribute was specified.
+  // auto fnAttr = applyOp.getAttrOfType<SymbolRefAttr>(
+  //     stencil::ApplyOp::getCalleeAttrName());
+  // if (!fnAttr)
+  //   return applyOp.emitOpError("requires a '")
+  //          << stencil::ApplyOp::getCalleeAttrName()
+  //          << "' symbol reference attribute";
+  // auto fn = applyOp.getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(
+  //     fnAttr.getLeafReference());
+  // if (!fn)
+  //   return applyOp.emitOpError() << "'" << fnAttr.getLeafReference()
+  //                                << "' does not reference a valid function";
+  // if (!fn.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()))
+  //   return applyOp.emitOpError() << "'" << fnAttr.getLeafReference()
+  //                                << "' does not reference a stencil
+  //                                function";
 
-  for (unsigned i = 0, e = fnType.getNumInputs(); i != e; ++i)
-    if (applyOp.getOperand(i)->getType() != fnType.getInput(i))
-      return applyOp.emitOpError("operand type mismatch");
+  // // Verify that the operand and result types match the callee.
+  // auto fnType = fn.getType();
+  // if (fnType.getNumInputs() != applyOp.getNumOperands())
+  //   return applyOp.emitOpError("incorrect number of operands for callee");
 
-  if (fnType.getNumResults() != 1)
-    return applyOp.emitOpError("incorrect number of results for callee");
+  // for (unsigned i = 0, e = fnType.getNumInputs(); i != e; ++i)
+  //   if (applyOp.getOperand(i)->getType() != fnType.getInput(i))
+  //     return applyOp.emitOpError("operand type mismatch");
 
-  Type elementType =
-      applyOp.res()->getType().cast<stencil::ViewType>().getElementType();
-  if (fnType.getResult(0) != elementType)
-    return applyOp.emitOpError("element type mismatch");
+  // if (fnType.getNumResults() != 1)
+  //   return applyOp.emitOpError("incorrect number of results for callee");
+
+  // Type elementType =
+  //     applyOp.res()->getType().cast<stencil::ViewType>().getElementType();
+  // if (fnType.getResult(0) != elementType)
+  //   return applyOp.emitOpError("element type mismatch");
 
   return success();
 }
@@ -433,6 +449,44 @@ static LogicalResult verify(stencil::CallOp callOp) {
 
   if (fnType.getNumResults() != 1)
     return callOp.emitOpError("incorrect number of results for callee");
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// stencil.return
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
+  SmallVector<OpAsmParser::OperandType, 2> operands;
+  SmallVector<Type, 2> operandTypes;
+  llvm::SMLoc loc = parser.getCurrentLocation();
+  return failure(parser.parseOperandList(operands) ||
+                 parser.parseColonTypeList(operandTypes) ||
+                 parser.resolveOperands(operands, operandTypes, loc, result.operands));
+}
+
+static void print(stencil::ReturnOp returnOp, OpAsmPrinter &printer) {
+  printer << stencil::ReturnOp::getOperationName() << ' ';
+  printer << returnOp.getOperands() << " : " << returnOp.getOperandTypes();
+}
+
+static LogicalResult verify(stencil::ReturnOp op) {
+  auto applyOp = cast<stencil::ApplyOp>(op.getParentOp());
+
+  // // The operand number and types must match the function signature.
+  // const auto &results = applyOp.getType().getResults();
+  // if (op.getNumOperands() != results.size())
+  //   return op.emitOpError("has ")
+  //          << op.getNumOperands()
+  //          << " operands, but enclosing function returns " << results.size();
+
+  // for (unsigned i = 0, e = results.size(); i != e; ++i)
+  //   if (op.getOperand(i)->getType() != results[i])
+  //     return op.emitError()
+  //            << "type of return operand " << i << " ("
+  //            << op.getOperand(i)->getType()
+  //            << ") doesn't match function result type (" << results[i] << ")";
 
   return success();
 }
