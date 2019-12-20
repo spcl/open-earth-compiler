@@ -102,7 +102,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove]> {
+def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, SingleBlockImplicitTerminator<"ReturnOp">]> {
   let summary = "apply operation";
   let description = [{
     This operation takes a stencil function plus parameters and applies 
@@ -110,7 +110,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove]> {
 
     Example:
 
-      %0 = stencil.appy @func(%0) : (!stencil.view<ijk,f64>) -> !stencil.view<ijk,f64>
+      %0 = stencil.appy %arg0=%0 : !stencil.view<ijk,f64> {
+        ...
+      } : !stencil.view<ijk,f64>
   }];
 
   let arguments = (ins Variadic<AnyType>:$operands);
@@ -122,13 +124,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove]> {
   //             "stencil::ViewType viewType, ArrayRef<Value *> operands = {}">];
 
   let extraClassDeclaration = [{
-    /// Get the argument operands to the called function.
-    operand_range getArgOperands() {
-      return {arg_operand_begin(), arg_operand_end()};
+    stencil::ViewType getResultViewType(unsigned i) {
+      return res()[i]->getType().cast<stencil::ViewType>();
     }
-    operand_iterator arg_operand_begin() { return operand_begin(); }
-    operand_iterator arg_operand_end() { return operand_end(); }
-
     /// Get the body of the apply op
     Block *getBody() { return &region().front(); }
   }];
