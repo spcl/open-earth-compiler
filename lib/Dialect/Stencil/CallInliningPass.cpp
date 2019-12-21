@@ -77,6 +77,12 @@ void CallInliningPass::runOnModule() {
     if (stencil::StencilDialect::isStencilFunction(funcOp))
       funcOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
   });
+
+  // Walk all the apply ops
+  moduleOp.walk([](stencil::ApplyOp applyOp) {
+    // Walk the body of the apply operation and inline all calls
+    applyOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
+  });
 }
 
 } // namespace
