@@ -264,7 +264,7 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
     resultTypes.push_back(stencil::ViewType::get(
         builder->getContext(), operandType, StencilStorage::Allocation::IJK));
   } 
-  
+
   // Add the body and set the result types
   Region *region = result.addRegion();
   region->push_back(body);
@@ -334,6 +334,8 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
   auto *body = applyOp.getBody();
   if (body->getNumArguments() == 0)
     return applyOp.emitOpError("expected body to have at least one argument");
+
+  // TODO check the body contains only valid operations
 
   // Check the number of operands and arguments match
   if (body->getNumArguments() != applyOp.operands().size())

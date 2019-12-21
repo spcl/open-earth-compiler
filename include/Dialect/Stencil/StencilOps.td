@@ -102,7 +102,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, SingleBlockImplicitTerminator<"ReturnOp">]> {
+def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, NoSideEffect, SingleBlockImplicitTerminator<"ReturnOp">]> {
   let summary = "apply operation";
   let description = [{
     This operation takes a stencil function plus parameters and applies 

@@ -2,49 +2,105 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/Functional.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/MapVector.h"
+#include <bits/stdint-intn.h>
+#include <limits>
 
 using namespace mlir;
 using namespace stencil;
 
 namespace {
 
+// Apply binary function element by element
+SmallVector<int64_t, 3>
+map(const SmallVector<int64_t, 3> &x, const SmallVector<int64_t, 3> &y,
+    const std::function<int64_t(int64_t, int64_t)> &fun) {
+  assert(x.size() == y.size() && "expected both vectors have equal size");
+  SmallVector<int64_t, 3> result;
+  for (int i = 0, e = x.size(); i != e; ++i) {
+    result[i] = fun(x[i], y[i]);
+  }
+  return result;
+}
+
+/// This class computes for every stencil apply operand
+/// the minimal bounding box containing all access offsets.
+class AccessExtents {
+  // This struct stores the positive and negative extends
+  struct Extent {
+    SmallVector<int64_t, 3> positive;
+    SmallVector<int64_t, 3> negative;
+  };
+
+public:
+  AccessExtents(stencil::ApplyOp applyOp) {
+    // Compute mapping between operands and block arguments
+    llvm::DenseMap<Value *, Value *> argumentsToOperands;
+    for (int i = 0, e = applyOp.operands().size(); i != e; ++i) {
+      argumentsToOperands[applyOp.getBody()->getArgument(i)] =
+          applyOp.operands()[i];
+      extents[applyOp.operands()[i]] = {{0, 0, 0}, {0, 0, 0}};
+    }
+    // Walk the access ops and update the extent
+    applyOp.walk([&](stencil::AccessOp accessOp) {
+      auto offset = accessOp.getOffset();
+      auto argument = accessOp.getOperand();
+      auto &ext = extents[argumentsToOperands[argument]];
+      ext.negative = map(ext.negative, offset,
+                         [](int64_t x, int64_t y) { return std::min(x, y); });
+      ext.positive = map(ext.positive, offset,
+                         [](int64_t x, int64_t y) { return std::max(x, y); });
+    });
+  }
+
+  Extent *lookupExtent(Value *value) {
+    auto extent = extents.find(value);
+    if (extent == extents.end())
+      return nullptr;
+    else
+      return &extent->second;
+  }
+
+private:
+  llvm::DenseMap<Value *, Extent> extents;
+};
+
 struct ShapeInferencePass : public FunctionPass<ShapeInferencePass> {
   void runOnFunction() override;
 };
 
-// todo add a shape analysis pass
-
-int checkKnownShape(ArrayRef<int64_t> shape) {
-  for (int i = 0, e = shape.size(); i < e; ++i) {
-    if (shape[i] < e)
-      return i;
-  }
-  return -1;
-}
-
-// bool inferShapes(stencil::LoadOp loadOp) {
-//   // // The shape of the field must be kwown at this point
-//   // stencil::FieldType fieldType = storeOp.getFieldType();
-//   // if (int idx = checkKnownShape(fieldType.getShape()) >= 0) {
-//   //   storeOp.emitError("field shape dimension #") << idx << " must be known";
-//   //   return false;
-//   // }
-
-//   // // Propagate the field shape to the view
-//   // Type elementType = storeOp.getViewType().getElementType();
-//   // storeOp.view()->setType(stencil::ViewType::get(
-//   //     storeOp.getContext(), elementType, fieldType.getShape()));
-
-//   return true;
-// }
-
 bool inferShapes(stencil::ApplyOp applyOp) {
-  auto ctx = applyOp.getContext();
+  // Initial lower and upper bounds
+  SmallVector<int64_t, 3> lowerBound = {std::numeric_limits<int64_t>::max(),
+                                        std::numeric_limits<int64_t>::max(),
+                                        std::numeric_limits<int64_t>::max()};
+  SmallVector<int64_t, 3> upperBound = {std::numeric_limits<int64_t>::min(),
+                                        std::numeric_limits<int64_t>::min(),
+                                        std::numeric_limits<int64_t>::min()};
+  // Iterate all uses and extend the bounds
+  for (auto result : applyOp.getResults()) {
+    for (OpOperand &use : result->getUses()) {
+      if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
+        lowerBound = map(lowerBound, storeOp.getLB(),
+                         [](int64_t x, int64_t y) { return std::min(x, y); });
+        upperBound = map(upperBound, storeOp.getUB(),
+                         [](int64_t x, int64_t y) { return std::max(x, y); });
+      }
+      if (auto applyOp = dyn_cast<stencil::ApplyOp>(use.getOwner())) {
+      }
+    }
+  }
+  // applyOp.setAttr("lb", lowerBound);
+  // applyOp.setAttr("ub", upperBound);
 
-  // TODO probably makes sense to inline into region before? 
+  // TODO probably makes sense to inline into region before?
 
   // Iterate all result
   // TODO deal with multiple resutls
@@ -115,7 +171,8 @@ bool inferShapes(stencil::ApplyOp applyOp) {
   //   ArrayRef<int64_t> newShape = {shape[0] + iextent, shape[1] + jextent,
   //                                 shape[2] + kextent};
   //   stencil::ViewType viewType =
-  //       stencil::ViewType::get(ctx, resultViewType.getElementType(), newShape);
+  //       stencil::ViewType::get(ctx, resultViewType.getElementType(),
+  //       newShape);
   //   operand->setType(viewType);
 
   //   NamedAttributeList extentAttr;
