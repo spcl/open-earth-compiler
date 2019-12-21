@@ -12,9 +12,11 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
+#include "llvm/Support/Casting.h"
 
 using namespace mlir;
 
@@ -71,17 +73,19 @@ struct CallInliningPass : public ModulePass<CallInliningPass> {
 void CallInliningPass::runOnModule() {
   ModuleOp moduleOp = getModule();
   
-  // Walk all the functions of a module
-  moduleOp.walk([](FuncOp funcOp) {
-    // Walk the body of the function and inline all calls
-    if (stencil::StencilDialect::isStencilFunction(funcOp))
-      funcOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
+  // Walk the body of all stencil functions and apply ops and inline the calls
+  moduleOp.walk([](Operation* op) {
+    if(auto funcOp = dyn_cast<FuncOp>(*op))
+      if (stencil::StencilDialect::isStencilFunction(funcOp))
+        funcOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
+    if(auto applyOp = dyn_cast<stencil::ApplyOp>(*op))
+      applyOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
   });
 
-  // Walk all the apply ops
-  moduleOp.walk([](stencil::ApplyOp applyOp) {
-    // Walk the body of the apply operation and inline all calls
-    applyOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
+  // Walk the stencil functions and remove them
+  moduleOp.walk([](FuncOp funcOp) {
+    if (stencil::StencilDialect::isStencilFunction(funcOp))
+      funcOp.erase();
   });
 }
 

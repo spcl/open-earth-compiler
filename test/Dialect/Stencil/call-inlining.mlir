@@ -22,12 +22,8 @@ func @lap(%in : !stencil.view<ijk,f64>) -> f64
 	return %10 : f64
 }
 
-// CHECK-LABEL: func @lap(%{{.*}}: !stencil.view<ijk,f64>) -> f64 attributes {stencil.function} {
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
+// CHECK-NOT: func @load(%{{.*}}: !stencil.view<ijk,f64>) -> f64
+// CHECK-NOT: func @lap(%{{.*}}: !stencil.view<ijk,f64>) -> f64 
 
 func @lap_stencil(%in: !stencil.field<ijk,f64>, %out: !stencil.field<ijk,f64>)
   attributes { stencil.program } {
