@@ -46,7 +46,6 @@ void inlineCalls(stencil::CallOp callOp) {
   }
 
   // Insert the body of the function clone
-  // TODO: currently we only support functions with a single region/block
   assert(funcOp.getOperation()->getNumRegions() == 1);
   assert(funcOp.getOperation()->getRegion(0).getBlocks().size() == 1);
   callOp.getOperation()->getBlock()->getOperations().splice(
@@ -54,7 +53,6 @@ void inlineCalls(stencil::CallOp callOp) {
       funcOp.getOperation()->getRegion(0).front().getOperations());
 
   // Remove the return op
-  // TODO: support multiple return values
   ReturnOp returnOp = cast<ReturnOp>(*std::prev(Block::iterator(callOp)));
   assert(returnOp.getNumOperands() == 1);
   Value *result = returnOp.getOperand(0);
