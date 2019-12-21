@@ -7,6 +7,7 @@
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LogicalResult.h"
@@ -249,16 +250,26 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 // stencil.apply
 //===----------------------------------------------------------------------===//
 
-// void stencil::ApplyOp::build(Builder *builder, OperationState &result,
-//                              stencil::ViewType viewType,
-//                              ArrayRef<Value *> operands) {
-//   result.addOperands(operands);
-//   result.addTypes(viewType);
+void stencil::ApplyOp::build(Builder *builder, OperationState &result,
+                             Block *body, ArrayRef<Value *> operands) {
+  result.addOperands(operands);
 
-  // stencil::ApplyOp::ensureTerminator(Region &region, Builder &builder,
-
-//   // TODO add region here
-// }
+  // Check the arguments and extract the return types
+  for (int i = 0, e = operands.size(); i != e; ++i)
+    assert(operands[i]->getType() != body->getArgument(i)->getType() &&
+           "expected matching operand and block argument types");
+  stencil::ReturnOp returnOp = cast<stencil::ReturnOp>(body->back());
+  SmallVector<Type, 12> resultTypes;
+  for (auto operandType : returnOp.getOperandTypes()) {
+    resultTypes.push_back(stencil::ViewType::get(
+        builder->getContext(), operandType, StencilStorage::Allocation::IJK));
+  } 
+  
+  // Add the body and set the result types
+  Region *region = result.addRegion();
+  region->push_back(body);
+  result.addTypes(resultTypes);
+}
 
 static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::OperandType, 8> operands;

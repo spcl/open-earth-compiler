@@ -7,7 +7,7 @@ include "Dialect/Stencil/StencilBase.td"
 
 // TODO make stencil ops side-effect free
 
-def Stencil_AccessOp : Stencil_Op<"access"> {
+def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   let summary = "view access operation";
   let description = [{
     This operation takes a view as an input as well as an offset
@@ -119,9 +119,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, SingleBlockImplici
   let results = (outs Variadic<Stencil_View>:$res);
   let regions = (region SizedRegion<1>:$region);
 
-  // let builders = [
-  //   OpBuilder<"Builder *builder, OperationState &result,"
-  //             "stencil::ViewType viewType, ArrayRef<Value *> operands = {}">];
+  let builders = [
+    OpBuilder<"Builder *builder, OperationState &result,"
+              "Block *body, ArrayRef<Value *> operands = {}">];
 
   let extraClassDeclaration = [{
     stencil::ViewType getResultViewType(unsigned i) {
