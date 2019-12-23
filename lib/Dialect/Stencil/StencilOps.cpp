@@ -114,9 +114,29 @@ void stencil::LoadOp::build(Builder *builder, OperationState &state,
 static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
   FunctionType funcType;
   SmallVector<OpAsmParser::OperandType, 1> operands;
+  ArrayAttr lbAttr, ubAttr;
 
-  if (parser.parseOperandList(operands) ||
-      parser.parseOptionalAttrDict(state.attributes) ||
+  if (parser.parseOperandList(operands))
+    return failure();
+  if (!parser.parseOptionalLParen()) {
+    // Parse the optional bounds
+    if (parser.parseAttribute(lbAttr, stencil::LoadOp::getLBAttrName(),
+                              state.attributes) ||
+        parser.parseColon() ||
+        parser.parseAttribute(ubAttr, stencil::LoadOp::getUBAttrName(),
+                              state.attributes) ||
+        parser.parseRParen())
+      return failure();
+
+    // Make sure bounds have the right number of dimensions
+    if (lbAttr.size() != 3 || ubAttr.size() != 3) {
+      parser.emitError(parser.getCurrentLocation(),
+                       "expected bounds to have three components");
+      return failure();
+    }
+  }
+
+  if (parser.parseOptionalAttrDict(state.attributes) ||
       parser.parseColonType<FunctionType>(funcType) ||
       parser.resolveOperands(operands, funcType.getInputs(),
                              parser.getCurrentLocation(), state.operands) ||
@@ -128,12 +148,22 @@ static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
 
 static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Value *field = loadOp.field();
-
   Type fieldType = field->getType();
   Type viewType = loadOp.res()->getType();
 
   printer << stencil::LoadOp::getOperationName() << ' ' << *field;
-  printer.printOptionalAttrDict(loadOp.getAttrs(), /*elidedAttrs=*/{});
+  assert(loadOp.lb().hasValue() == loadOp.ub().hasValue() &&
+         "expected both bounds have a value");
+  if (loadOp.lb().hasValue() && loadOp.ub().hasValue()) {
+    printer << " (";
+    printer.printAttribute(loadOp.lb().getValue());
+    printer << ":";
+    printer.printAttribute(loadOp.ub().getValue());
+    printer << ")";
+  }
+  printer.printOptionalAttrDict(
+      loadOp.getAttrs(), /*elidedAttrs=*/{stencil::LoadOp::getLBAttrName(),
+                                          stencil::LoadOp::getUBAttrName()});
   printer << " : (";
   printer.printType(fieldType);
   printer << ") -> ";
@@ -184,14 +214,15 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
   Type fieldType, viewType;
   // Parse the store op
   if (parser.parseOperand(view) || parser.parseKeyword("to") ||
-      parser.parseOperand(field) ||
+      parser.parseOperand(field) || parser.parseLParen() ||
       parser.parseAttribute(lbAttr, stencil::StoreOp::getLBAttrName(),
                             state.attributes) ||
+      parser.parseColon() ||
       parser.parseAttribute(ubAttr, stencil::StoreOp::getUBAttrName(),
                             state.attributes) ||
-      parser.parseOptionalAttrDict(state.attributes) || parser.parseColon() ||
-      parser.parseType(viewType) || parser.parseKeyword("to") ||
-      parser.parseType(fieldType))
+      parser.parseRParen() || parser.parseOptionalAttrDict(state.attributes) ||
+      parser.parseColon() || parser.parseType(viewType) ||
+      parser.parseKeyword("to") || parser.parseType(fieldType))
     return failure();
 
   // Make sure bounds have the right number of dimensions
@@ -215,9 +246,11 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   ArrayAttr ub = storeOp.ub();
 
   printer << stencil::StoreOp::getOperationName() << " " << *view;
-  printer << " to " << *field;
+  printer << " to " << *field << " (";
   printer.printAttribute(lb);
+  printer << ":";
   printer.printAttribute(ub);
+  printer << ")";
   printer.printOptionalAttrDict(
       storeOp.getAttrs(), /*elidedAttrs=*/{stencil::StoreOp::getLBAttrName(),
                                            stencil::StoreOp::getUBAttrName()});
@@ -274,6 +307,7 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
 static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::OperandType, 8> operands;
   SmallVector<OpAsmParser::OperandType, 8> arguments;
+  ArrayAttr lbAttr, ubAttr;
 
   // Parse region arguments and the assigned data operands
   llvm::SMLoc loc = parser.getCurrentLocation();
@@ -295,8 +329,31 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   // Parse the body region.
   SmallVector<Type, 8> resultTypes;
   Region *body = state.addRegion();
-  if (parser.parseRegion(*body, arguments, operandTypes) ||
-      parser.parseOptionalAttrDict(state.attributes) ||
+  if (parser.parseRegion(*body, arguments, operandTypes))
+    return failure();
+
+  // Parse the optional bounds
+  if (!parser.parseOptionalKeyword("to")) {
+    // Parse the optional bounds
+    if (parser.parseLParen() ||
+        parser.parseAttribute(lbAttr, stencil::LoadOp::getLBAttrName(),
+                              state.attributes) ||
+        parser.parseColon() ||
+        parser.parseAttribute(ubAttr, stencil::LoadOp::getUBAttrName(),
+                              state.attributes) ||
+        parser.parseRParen())
+      return failure();
+
+    // Make sure bounds have the right number of dimensions
+    if (lbAttr.size() != 3 || ubAttr.size() != 3) {
+      parser.emitError(parser.getCurrentLocation(),
+                       "expected bounds to have three components");
+      return failure();
+    }
+  }
+
+  // Parse the return types and resolve all operands
+  if (parser.parseOptionalAttrDict(state.attributes) ||
       parser.parseColonTypeList(resultTypes) ||
       parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
       parser.addTypesToList(resultTypes, state.types))
@@ -321,10 +378,21 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer << " : ";
   interleaveComma(applyOp.getOperandTypes(), printer);
 
-  // Print region and return type
+  // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),
                       /*printEntryBlockArgs=*/false);
-  printer.printOptionalAttrDict(applyOp.getAttrs());
+  assert(applyOp.lb().hasValue() == applyOp.ub().hasValue() &&
+         "expected both bounds have a value");
+  if (applyOp.lb().hasValue() && applyOp.ub().hasValue()) {
+    printer << " to (";
+    printer.printAttribute(applyOp.lb().getValue());
+    printer << ":";
+    printer.printAttribute(applyOp.ub().getValue());
+    printer << ")";
+  }
+  printer.printOptionalAttrDict(
+      applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
+                                           stencil::ApplyOp::getUBAttrName()});
   printer << " : ";
   interleaveComma(applyOp.res().getTypes(), printer);
 }
