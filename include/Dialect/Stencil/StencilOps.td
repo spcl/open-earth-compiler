@@ -5,8 +5,6 @@
 include "Dialect/Stencil/StencilBase.td"
 #endif // STENCIL_BASE
 
-// TODO make stencil ops side-effect free
-
 def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   let summary = "view access operation";
   let description = [{
@@ -29,16 +27,12 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
     SmallVector<int64_t, 3> getOffset() {
-      SmallVector<int64_t, 3> offsetAttr;
-      for(auto &attr : offset().cast<ArrayAttr>().getValue()) {
-        offsetAttr.push_back(attr.cast<IntegerAttr>().getValue().getSExtValue());
-      }
-      return offsetAttr;
+      return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), getContext());
     }
   }];
 }
 
-def Stencil_LoadOp : Stencil_Op<"load"> {
+def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   let summary = "load operation";
   let description = [{
     This operation takes a field and returns a view.
@@ -48,12 +42,30 @@ def Stencil_LoadOp : Stencil_Op<"load"> {
       %0 = stencil.load %field : !stencil.view<ijk,f64>
   }];
 
-  let arguments = (ins Stencil_Field:$field);
+  let arguments = (ins Stencil_Field:$field,
+                        OptionalAttr<I64ArrayAttr>:$lb, 
+                        OptionalAttr<I64ArrayAttr>:$ub);
   let results = (outs Stencil_View:$res);
 
   let builders = [OpBuilder<"Builder *, OperationState &, Value *">];
 
   let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    static StringRef getUBAttrName() { return "ub"; }
+    SmallVector<int64_t, 3> getLB() {
+      assert(lb().hasValue() && "expected lb to have value");
+      return convertArrayAttrToSmallVector(lb().getValue(), getContext());
+    }
+    SmallVector<int64_t, 3> getUB() {
+      assert(ub().hasValue() && "expected ub to have value");
+      return convertArrayAttrToSmallVector(ub().getValue(), getContext());
+    }
+    void setLB(SmallVector<int64_t, 3> bound) {
+      setAttr(stencil::LoadOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
+    void setUB(SmallVector<int64_t, 3> bound) {
+      setAttr(stencil::LoadOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
     stencil::ViewType getResultViewType() {
       return res()->getType().cast<stencil::ViewType>();
     }
@@ -70,7 +82,8 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
       %0 = stencil.store %view to %field[0,0,0][64,64,60] : !stencil.field<ijk,f64>
   }];
 
-  let arguments = (ins Stencil_View:$view, Stencil_Field:$field, I64ArrayAttr:$lb, I64ArrayAttr:$ub);
+  let arguments = (ins Stencil_View:$view, Stencil_Field:$field, 
+                        I64ArrayAttr:$lb, I64ArrayAttr:$ub);
   let results = (outs);
 
   let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
@@ -78,20 +91,12 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
-    SmallVector<int64_t, 3> getLB() {
-      SmallVector<int64_t, 3> result;
-      for(auto &attr : lb().cast<ArrayAttr>().getValue()) {
-        result.push_back(attr.cast<IntegerAttr>().getValue().getSExtValue());
-      }
-      return result;
-    }
     static StringRef getUBAttrName() { return "ub"; }
+    SmallVector<int64_t, 3> getLB() {
+      return convertArrayAttrToSmallVector(lb().cast<ArrayAttr>(), getContext());
+    }
     SmallVector<int64_t, 3> getUB() {
-      SmallVector<int64_t, 3> result;
-      for(auto &attr : ub().cast<ArrayAttr>().getValue()) {
-        result.push_back(attr.cast<IntegerAttr>().getValue().getSExtValue());
-      }
-      return result;
+      return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
     }
     stencil::FieldType getFieldType() {
       return field()->getType().cast<stencil::FieldType>();
@@ -102,7 +107,10 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, NoSideEffect, SingleBlockImplicitTerminator<"ReturnOp">]> {
+def Stencil_ApplyOp : Stencil_Op<"apply", [
+                        IsolatedFromAbove, 
+                        NoSideEffect, 
+                        SingleBlockImplicitTerminator<"ReturnOp">]> {
   let summary = "apply operation";
   let description = [{
     This operation takes a stencil function plus parameters and applies 
@@ -115,7 +123,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, NoSideEffect, Sing
       } : !stencil.view<ijk,f64>
   }];
 
-  let arguments = (ins Variadic<AnyType>:$operands);
+  let arguments = (ins Variadic<AnyType>:$operands, 
+                        OptionalAttr<I64ArrayAttr>:$lb, 
+                        OptionalAttr<I64ArrayAttr>:$ub);
   let results = (outs Variadic<Stencil_View>:$res);
   let regions = (region SizedRegion<1>:$region);
 
@@ -124,6 +134,22 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, NoSideEffect, Sing
               "Block *body, ArrayRef<Value *> operands = {}">];
 
   let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    static StringRef getUBAttrName() { return "ub"; }
+    SmallVector<int64_t, 3> getLB() {
+      assert(lb().hasValue() && "expected lb to have value");
+      return convertArrayAttrToSmallVector(lb().getValue(), getContext());
+    }
+    SmallVector<int64_t, 3> getUB() {
+      assert(ub().hasValue() && "expected ub to have value");
+      return convertArrayAttrToSmallVector(ub().getValue(), getContext());
+    }
+    void setLB(SmallVector<int64_t, 3> bound) {
+      setAttr(stencil::ApplyOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
+    void setUB(SmallVector<int64_t, 3> bound) {
+      setAttr(stencil::ApplyOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
     stencil::ViewType getResultViewType(unsigned i) {
       return res()[i]->getType().cast<stencil::ViewType>();
     }
@@ -132,7 +158,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, NoSideEffect, Sing
   }];
 }
 
-def Stencil_CallOp : Stencil_Op<"call"> {
+def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
   let summary = "call operation";
   let description = [{
     This operation takes a stencil function plus parameters and evaluates 
@@ -143,7 +169,8 @@ def Stencil_CallOp : Stencil_Op<"call"> {
       %0 = stencil.call @func(%0) : (!stencil.view<ijk,f64>) -> !stencil.view<ijk,f64>
   }];
 
-  let arguments = (ins SymbolRefAttr:$callee, I64ArrayAttr:$offset, Variadic<AnyType>:$operands);
+  let arguments = (ins SymbolRefAttr:$callee, 
+                        I64ArrayAttr:$offset, Variadic<AnyType>:$operands);
   let results = (outs Stencil_ElementType:$res);
 
   let builders = [
@@ -163,19 +190,15 @@ def Stencil_CallOp : Stencil_Op<"call"> {
     }
     static StringRef getOffsetAttrName() { return "offset"; }
     SmallVector<int64_t, 3> getOffset() {
-      SmallVector<int64_t, 3> offsetAttr;
-      for(auto &attr : offset().cast<ArrayAttr>().getValue()) {
-        offsetAttr.push_back(attr.cast<IntegerAttr>().getValue().getSExtValue());
-      }
-      return offsetAttr;
+      return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), getContext());
     }
 
     /// Get the argument operands to the called function.
-    operand_range getArgOperands() {
-      return {arg_operand_begin(), arg_operand_end()};
-    }
-    operand_iterator arg_operand_begin() { return operand_begin(); }
-    operand_iterator arg_operand_end() { return operand_end(); }
+    // operand_range getArgOperands() {
+    //   return {arg_operand_begin(), arg_operand_end()};
+    // }
+    // operand_iterator arg_operand_begin() { return operand_begin(); }
+    // operand_iterator arg_operand_end() { return operand_end(); }
   }];
 }
 

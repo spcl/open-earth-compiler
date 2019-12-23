@@ -263,7 +263,7 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
   for (auto operandType : returnOp.getOperandTypes()) {
     resultTypes.push_back(stencil::ViewType::get(
         builder->getContext(), operandType, StencilStorage::Allocation::IJK));
-  } 
+  }
 
   // Add the body and set the result types
   Region *region = result.addRegion();
@@ -289,14 +289,14 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
 
   // Parse optional attributes and the operand types
   SmallVector<Type, 8> operandTypes;
-  if (parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonTypeList(operandTypes))
+  if (parser.parseColonTypeList(operandTypes))
     return failure();
 
   // Parse the body region.
   SmallVector<Type, 8> resultTypes;
   Region *body = state.addRegion();
   if (parser.parseRegion(*body, arguments, operandTypes) ||
+      parser.parseOptionalAttrDict(state.attributes) ||
       parser.parseColonTypeList(resultTypes) ||
       parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
       parser.addTypesToList(resultTypes, state.types))
@@ -317,14 +317,14 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
     });
   }
 
-  // Print the optional arguments and the operand types
-  printer.printOptionalAttrDict(applyOp.getAttrs());
+  // Print the operand types
   printer << " : ";
   interleaveComma(applyOp.getOperandTypes(), printer);
 
   // Print region and return type
   printer.printRegion(applyOp.region(),
                       /*printEntryBlockArgs=*/false);
+  printer.printOptionalAttrDict(applyOp.getAttrs());
   printer << " : ";
   interleaveComma(applyOp.res().getTypes(), printer);
 }
