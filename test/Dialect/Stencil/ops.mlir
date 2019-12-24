@@ -41,4 +41,4 @@ func @lap_stencil(%in: !stencil.field<ijk,f64>, %out: !stencil.field<ijk,f64>)
 //  CHECK-NEXT: %{{.*}} = stencil.call @lap(%{{.*}})[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
 //  CHECK-NEXT: stencil.return %{{.*}} : f64
 //  CHECK-NEXT: } : !stencil.view<ijk,f64>
-//  CHECK-NEXT: stencil.store %{{.*}} to %{{.*}}[0, 0, 0][64, 64, 60] : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.store %{{.*}} to %{{.*}} ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>

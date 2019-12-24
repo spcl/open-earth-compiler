@@ -32,7 +32,7 @@ func @lap_stencil(%in: !stencil.field<ijk,f64>, %out: !stencil.field<ijk,f64>)
 		%2 = stencil.call @lap(%arg0)[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
 		stencil.return %2 : f64
 	} : !stencil.view<ijk,f64>
-	stencil.store %1 to %out[0, 0, 0][64, 64, 60] : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+	stencil.store %1 to %out ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
 	return
 }
 
