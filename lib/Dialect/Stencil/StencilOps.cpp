@@ -1,6 +1,7 @@
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -70,13 +71,13 @@ static void print(stencil::FieldOp fieldOp, OpAsmPrinter &printer) {
 }
 
 static LogicalResult verify(stencil::FieldOp fieldOp) {
-  // Check if all uses are loads or stores 
+  // Check if all uses are loads or stores
   int stores = 0;
   int loads = 0;
-  for(OpOperand &use : fieldOp.res()->getUses()) {
-    if(auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) 
+  for (OpOperand &use : fieldOp.res()->getUses()) {
+    if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
       stores++;
-    if(auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) 
+    if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
       loads++;
   }
   // Check if input and output
@@ -85,7 +86,7 @@ static LogicalResult verify(stencil::FieldOp fieldOp) {
   // Check if multiple stores
   if (stores > 1)
     return fieldOp.emitOpError("field written multiple times");
-  return success(); 
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -243,6 +244,7 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
 }
 
 static LogicalResult verify(stencil::LoadOp loadOp) {
+  // Check the field and view types match
   stencil::FieldType fieldType =
       loadOp.field()->getType().cast<stencil::FieldType>();
   stencil::ViewType viewType =
@@ -259,6 +261,23 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
   auto viewDimensions = viewType.getDimensions();
   if (fieldDimensions != viewDimensions)
     return loadOp.emitOpError("storage dimensions are inconsistent");
+
+  // // Check if the field is large enough
+  // if (loadOp.lb().hasValue() && loadOp.ub().hasValue()) {
+  //   if (auto fieldOp =
+  //           dyn_cast<stencil::FieldOp>(loadOp.field()->getDefiningOp())) {
+  //     bool lower = llvm::any_of(llvm::zip(loadOp.getLB(), fieldOp.getLB()),
+  //                               [](std::tuple<int64_t, int64_t> x) {
+  //                                 return std::get<0>(x) < std::get<1>(x);
+  //                               });
+  //     bool upper = llvm::any_of(llvm::zip(loadOp.getUB(), fieldOp.getUB()),
+  //                               [](std::tuple<int64_t, int64_t> x) {
+  //                                 return std::get<0>(x) > std::get<1>(x);
+  //                               });
+  //     if (lower || upper)
+  //       return loadOp.emitOpError("field not large enough for load bounds");
+  //   }
+  // }
 
   return success();
 }
@@ -333,6 +352,7 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
 }
 
 static LogicalResult verify(stencil::StoreOp storeOp) {
+  // Check the field and view types match
   stencil::FieldType fieldType = storeOp.getFieldType();
   stencil::ViewType viewType = storeOp.getViewType();
 
@@ -347,6 +367,21 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
   auto viewDimensions = viewType.getDimensions();
   if (fieldDimensions != viewDimensions)
     return storeOp.emitOpError("storage dimensions are inconsistent");
+
+  // // Check if the field is large enough
+  // if (auto fieldOp =
+  //         dyn_cast<stencil::FieldOp>(storeOp.field()->getDefiningOp())) {
+  //   bool lower = llvm::any_of(llvm::zip(storeOp.getLB(), fieldOp.getLB()),
+  //                             [](std::tuple<int64_t, int64_t> x) {
+  //                               return std::get<0>(x) < std::get<1>(x);
+  //                             });
+  //   bool upper = llvm::any_of(llvm::zip(storeOp.getUB(), fieldOp.getUB()),
+  //                             [](std::tuple<int64_t, int64_t> x) {
+  //                               return std::get<0>(x) > std::get<1>(x);
+  //                             });
+  //   if (lower || upper)
+  //     return storeOp.emitOpError("field not large enough for store bounds");
+  // }
 
   return success();
 }

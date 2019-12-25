@@ -18,19 +18,6 @@ using namespace stencil;
 
 namespace {
 
-// Apply binary function element by element
-SmallVector<int64_t, 3>
-applyFun(const SmallVector<int64_t, 3> &x, const SmallVector<int64_t, 3> &y,
-         const std::function<int64_t(int64_t, int64_t)> &fun) {
-  assert(x.size() == y.size() && "expected both vectors have equal size");
-  SmallVector<int64_t, 3> result;
-  result.resize(x.size());
-  for (int i = 0, e = x.size(); i != e; ++i) {
-    result[i] = fun(x[i], y[i]);
-  }
-  return result;
-}
-
 /// This class computes for every stencil apply operand
 /// the minimal bounding box containing all access offsets.
 class AccessExtents {
@@ -57,12 +44,14 @@ public:
         auto offset = accessOp.getOffset();
         auto argument = accessOp.getOperand();
         auto &ext = extents[operation][argumentsToOperands[argument]];
-        ext.negative = applyFun(ext.negative, offset, [](int64_t x, int64_t y) {
-          return std::min(x, y);
-        });
-        ext.positive = applyFun(ext.positive, offset, [](int64_t x, int64_t y) {
-          return std::max(x, y);
-        });
+        llvm::transform(llvm::zip(ext.negative, offset), ext.negative.begin(),
+                        [](std::tuple<int64_t, int64_t> x) {
+                          return std::min(std::get<0>(x), std::get<1>(x));
+                        });
+        llvm::transform(llvm::zip(ext.positive, offset), ext.positive.begin(),
+                        [](std::tuple<int64_t, int64_t> x) {
+                          return std::max(std::get<0>(x), std::get<1>(x));
+                        });
       });
     });
   }
@@ -91,10 +80,14 @@ void extendBounds(OpOperand &use, const AccessExtents &extents,
                   SmallVector<int64_t, 3> &upper) {
   // Copy the bounds of store ops
   if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-    lower = applyFun(lower, storeOp.getLB(),
-                     [](int64_t x, int64_t y) { return std::min(x, y); });
-    upper = applyFun(upper, storeOp.getUB(),
-                     [](int64_t x, int64_t y) { return std::max(x, y); });
+    llvm::transform(llvm::zip(lower, storeOp.getLB()), lower.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::min(std::get<0>(x), std::get<1>(x));
+                    });
+    llvm::transform(llvm::zip(upper, storeOp.getUB()), upper.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::max(std::get<0>(x), std::get<1>(x));
+                    });
   }
   // Extend the bounds of apply ops
   if (auto applyOp = dyn_cast<stencil::ApplyOp>(use.getOwner())) {
@@ -103,14 +96,22 @@ void extendBounds(OpOperand &use, const AccessExtents &extents,
     // Extend loop bounds by extents
     auto opExtents = extents.lookupExtent(applyOp.getOperation(), use.get());
     assert(opExtents && "expected valid access extent analysis");
-    lb = applyFun(lb, opExtents->negative,
-                  [](int64_t x, int64_t y) { return x + y; });
-    ub = applyFun(ub, opExtents->positive,
-                  [](int64_t x, int64_t y) { return x + y; });
-    lower = applyFun(lower, lb,
-                     [](int64_t x, int64_t y) { return std::min(x, y); });
-    upper = applyFun(upper, ub,
-                     [](int64_t x, int64_t y) { return std::max(x, y); });
+    llvm::transform(llvm::zip(lb, opExtents->negative), lb.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::get<0>(x) + std::get<1>(x);
+                    });
+    llvm::transform(llvm::zip(ub, opExtents->positive), ub.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::get<0>(x) + std::get<1>(x);
+                    });
+    llvm::transform(llvm::zip(lower, lb), lower.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::min(std::get<0>(x), std::get<1>(x));
+                    });
+    llvm::transform(llvm::zip(upper, ub), upper.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::max(std::get<0>(x), std::get<1>(x));
+                    });
   }
 }
 
