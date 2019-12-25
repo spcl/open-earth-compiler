@@ -1,1 +1,1 @@
-#add_subdirectory(StencilToStandard)
+add_subdirectory(StencilToStandard)

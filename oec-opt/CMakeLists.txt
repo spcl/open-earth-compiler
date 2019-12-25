@@ -38,7 +38,7 @@ set(LIBS
   MLIRVectorToLoops
   
   MLIRStencil
-  #MLIRStencilToStandard
+  MLIRStencilToStandard
 )
 #if(MLIR_CUDA_CONVERSIONS_ENABLED)
 #  list(APPEND LIBS
