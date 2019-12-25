@@ -4,6 +4,10 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Module.h"
+#include "llvm/ADT/None.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ErrorHandling.h"
+#include <algorithm>
 
 using namespace mlir;
 using namespace mlir::stencil;
@@ -34,8 +38,8 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
   StringRef prefix;
   parser.parseKeyword(&prefix);
 
-  // Helper method converting a string to an allocation
-  auto parseDimensions = [&](StringRef input) -> std::vector<int> {
+  // Helper method converting a string to a dimension vector
+  auto parseDimensions = [&](StringRef input) {
     std::vector<int> result;
     for (int i = 0, e = input.size(); i != e; ++i) {
       switch (input[i]) {
@@ -51,37 +55,52 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
       default:
         parser.emitError(parser.getNameLoc(),
                          "unexpected dimension identifier");
+        return llvm::Optional<std::vector<int>>();
       }
     }
-    return result;
+    // Verify the dimension vector
+    if (!std::is_sorted(result.begin(), result.end())) {
+      parser.emitError(parser.getNameLoc(), "expected sorted dimension list");
+      return llvm::Optional<std::vector<int>>();
+    }
+    if (std::unique(result.begin(), result.end()) != result.end()) {
+      parser.emitError(parser.getNameLoc(), "expected unique dimension list");
+      return llvm::Optional<std::vector<int>>();
+    }
+    return llvm::Optional<std::vector<int>>(result);
   };
 
   // Parse a field type
   if (prefix == getFieldTypeName()) {
-    StringRef dimensions;
+    StringRef identifiers;
     Type elementType;
-    if (parser.parseLess() || parser.parseKeyword(&dimensions) ||
+    if (parser.parseLess() || parser.parseKeyword(&identifiers) ||
         parser.parseComma() || parser.parseType(elementType) ||
         parser.parseGreater()) {
       return Type();
     }
-    return FieldType::get(getContext(), elementType,
-                          parseDimensions(dimensions));
-  }
-  // Parse a view type
-  else if (prefix == getViewTypeName()) {
-    StringRef dimensions;
-    Type elementType;
-    if (parser.parseLess() || parser.parseKeyword(&dimensions) ||
-        parser.parseComma() || parser.parseType(elementType) ||
-        parser.parseGreater()) {
+    auto dimensions = parseDimensions(identifiers);
+    if (!dimensions.hasValue())
       return Type();
-    }
-    return ViewType::get(getContext(), elementType,
-                         parseDimensions(dimensions));
+    return FieldType::get(getContext(), elementType, dimensions.getValue());
   }
 
-  parser.emitError(parser.getNameLoc(), "unknown Stencil type: ")
+  // Parse a view type
+  else if (prefix == getViewTypeName()) {
+    StringRef identifiers;
+    Type elementType;
+    if (parser.parseLess() || parser.parseKeyword(&identifiers) ||
+        parser.parseComma() || parser.parseType(elementType) ||
+        parser.parseGreater()) {
+      return Type();
+    }
+    auto dimensions = parseDimensions(identifiers);
+    if (!dimensions.hasValue())
+      return Type();
+    return ViewType::get(getContext(), elementType, dimensions.getValue());
+  }
+
+  parser.emitError(parser.getNameLoc(), "unknown stencil type: ")
       << parser.getFullSymbolSpec();
   return Type();
 }
@@ -93,17 +112,21 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 namespace {
 
 StringRef dimensionToString(int dimension) {
+  StringRef result = "";
   switch (dimension) {
   case 0:
-    return "i";
+    result = "i";
+    break;
   case 1:
-    return "j";
+    result = "j";
+    break;
   case 2:
-    return "k";
+    result = "k";
+    break;
   default:
-    assert(false && "dimension not supported");
+    llvm_unreachable("dimension not supported");
   }
-  return "";
+  return result;
 }
 
 void print(FieldType fieldType, DialectAsmPrinter &printer) {

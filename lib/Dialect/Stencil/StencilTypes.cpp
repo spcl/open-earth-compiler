@@ -12,11 +12,8 @@ using namespace mlir;
 using namespace mlir::stencil;
 
 struct mlir::stencil::FieldTypeStorage : public TypeStorage {
-  /// Underlying Key type to transport the payload needed to construct a custom
-  /// type in a generic way.
+  /// Underlying Key type to transport the payload needed to the type
   using Key = std::pair<ArrayRef<int>, Type>;
-
-  /// `KeyTy` is a necessary typename hook for MLIR's custom type unique'ing.
   using KeyTy = Key;
 
   /// Construction in the `llvm::BumpPtrAllocator` given a key.
@@ -57,9 +54,8 @@ FieldType FieldType::get(mlir::MLIRContext *context, mlir::Type elementType,
   assert((elementType.isF32() || elementType.isF64()) &&
          "supporting only f32 and f64 elements");
   assert(dimensions.size() > 0 && dimensions.size() <= 3 &&
-         "expected one, two, or three dimensions");
+         "expected up to three dimensions");
   // Sort the dimensions
-
   std::vector<int> temp = dimensions.vec();
   std::sort(temp.begin(), temp.end());
   auto last = std::unique(temp.begin(), temp.end());
@@ -75,11 +71,8 @@ Type FieldType::getElementType() { return getImpl()->getElementType(); }
 ArrayRef<int> FieldType::getDimensions() { return getImpl()->getDimensions(); }
 
 struct mlir::stencil::ViewTypeStorage : public TypeStorage {
-  /// Underlying Key type to transport the payload needed to construct a custom
-  /// type in a generic way.
+  /// Underlying Key type to transport the payload needed to the type
   using Key = std::pair<ArrayRef<int>, Type>;
-
-  /// `KeyTy` is a necessary typename hook for MLIR's custom type unique'ing.
   using KeyTy = Key;
 
   /// Construction in the `llvm::BumpPtrAllocator` given a key.
@@ -120,7 +113,7 @@ ViewType ViewType::get(mlir::MLIRContext *context, mlir::Type elementType,
   assert((elementType.isF32() || elementType.isF64()) &&
          "supporting only f32 and f64 elements");
   assert(dimensions.size() > 0 && dimensions.size() <= 3 &&
-         "expected one, two, or three dimensions");
+         "expected up to three dimensions");
   // Sort the dimensions
   std::vector<int> temp = dimensions.vec();
   std::sort(temp.begin(), temp.end());
