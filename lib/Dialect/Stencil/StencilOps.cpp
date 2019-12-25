@@ -103,12 +103,12 @@ void stencil::LoadOp::build(Builder *builder, OperationState &state,
                             Value *field) {
   Type elementType =
       field->getType().cast<stencil::FieldType>().getElementType();
-  StencilStorage::Allocation allocation =
-      field->getType().cast<stencil::FieldType>().getAllocation();
+  ArrayRef<int> dimensions =
+      field->getType().cast<stencil::FieldType>().getDimensions();
 
   state.addOperands(field);
   state.addTypes(
-      stencil::ViewType::get(builder->getContext(), elementType, allocation));
+      stencil::ViewType::get(builder->getContext(), elementType, dimensions));
 }
 
 static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
@@ -183,10 +183,10 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
            << fieldElementType << "' and view element type '" << viewElementType
            << "'";
 
-  auto fieldAllocation = fieldType.getAllocation();
-  auto viewAllocation = viewType.getAllocation();
-  if (fieldAllocation != viewAllocation)
-    return loadOp.emitOpError("storage allocation is inconsistent");
+  auto fieldDimensions = fieldType.getDimensions();
+  auto viewDimensions = viewType.getDimensions();
+  if (fieldDimensions != viewDimensions)
+    return loadOp.emitOpError("storage dimensions are inconsistent");
 
   return success();
 }
@@ -271,10 +271,10 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
            << fieldElementType << "' and view element type '" << viewElementType
            << "'";
 
-  auto fieldAllocation = fieldType.getAllocation();
-  auto viewAllocation = viewType.getAllocation();
-  if (fieldAllocation != viewAllocation)
-    return storeOp.emitOpError("storage allocation is inconsistent");
+  auto fieldDimensions = fieldType.getDimensions();
+  auto viewDimensions = viewType.getDimensions();
+  if (fieldDimensions != viewDimensions)
+    return storeOp.emitOpError("storage dimensions are inconsistent");
 
   return success();
 }
@@ -294,8 +294,8 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
   stencil::ReturnOp returnOp = cast<stencil::ReturnOp>(body->back());
   SmallVector<Type, 12> resultTypes;
   for (auto operandType : returnOp.getOperandTypes()) {
-    resultTypes.push_back(stencil::ViewType::get(
-        builder->getContext(), operandType, StencilStorage::Allocation::IJK));
+    resultTypes.push_back(
+        stencil::ViewType::get(builder->getContext(), operandType, {0, 1, 2}));
   }
 
   // Add the body and set the result types

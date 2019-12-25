@@ -104,13 +104,13 @@ void extendBounds(OpOperand &use, const AccessExtents &extents,
     auto opExtents = extents.lookupExtent(applyOp.getOperation(), use.get());
     assert(opExtents && "expected valid access extent analysis");
     lb = applyFun(lb, opExtents->negative,
-                     [](int64_t x, int64_t y) { return x + y; });
+                  [](int64_t x, int64_t y) { return x + y; });
     ub = applyFun(ub, opExtents->positive,
-                     [](int64_t x, int64_t y) { return x + y; });
+                  [](int64_t x, int64_t y) { return x + y; });
     lower = applyFun(lower, lb,
                      [](int64_t x, int64_t y) { return std::min(x, y); });
     upper = applyFun(upper, ub,
-                     [](int64_t x, int64_t y) { return std::max(x, y); });  
+                     [](int64_t x, int64_t y) { return std::max(x, y); });
   }
 }
 

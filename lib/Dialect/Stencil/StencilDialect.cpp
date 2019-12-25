@@ -35,48 +35,50 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
   parser.parseKeyword(&prefix);
 
   // Helper method converting a string to an allocation
-  auto parseAllocation = [&](StringRef Input) {
-    if (Input == "ijk")
-      return StencilStorage::IJK;
-    else if (Input == "ij")
-      return StencilStorage::IJ;
-    else if (Input == "ik")
-      return StencilStorage::IK;
-    else if (Input == "jk")
-      return StencilStorage::JK;
-    else if (Input == "i")
-      return StencilStorage::I;
-    else if (Input == "j")
-      return StencilStorage::J;
-    else if (Input == "k")
-      return StencilStorage::K;
-    parser.emitError(parser.getNameLoc(), "unexpected field allocation type");
-    return StencilStorage::IJK;
+  auto parseDimensions = [&](StringRef input) -> std::vector<int> {
+    std::vector<int> result;
+    for (int i = 0, e = input.size(); i != e; ++i) {
+      switch (input[i]) {
+      case 'i':
+        result.push_back(0);
+        break;
+      case 'j':
+        result.push_back(1);
+        break;
+      case 'k':
+        result.push_back(2);
+        break;
+      default:
+        parser.emitError(parser.getNameLoc(),
+                         "unexpected dimension identifier");
+      }
+    }
+    return result;
   };
 
   // Parse a field type
   if (prefix == getFieldTypeName()) {
-    StringRef allocation;
+    StringRef dimensions;
     Type elementType;
-    if (parser.parseLess() || parser.parseKeyword(&allocation) ||
+    if (parser.parseLess() || parser.parseKeyword(&dimensions) ||
         parser.parseComma() || parser.parseType(elementType) ||
         parser.parseGreater()) {
       return Type();
     }
     return FieldType::get(getContext(), elementType,
-                          parseAllocation(allocation));
+                          parseDimensions(dimensions));
   }
   // Parse a view type
   else if (prefix == getViewTypeName()) {
-    StringRef allocation;
+    StringRef dimensions;
     Type elementType;
-    if (parser.parseLess() || parser.parseKeyword(&allocation) ||
+    if (parser.parseLess() || parser.parseKeyword(&dimensions) ||
         parser.parseComma() || parser.parseType(elementType) ||
         parser.parseGreater()) {
       return Type();
     }
     return ViewType::get(getContext(), elementType,
-                         parseAllocation(allocation));
+                         parseDimensions(dimensions));
   }
 
   parser.emitError(parser.getNameLoc(), "unknown Stencil type: ")
@@ -90,40 +92,34 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 
 namespace {
 
-StringRef printAllocation(StencilStorage::Allocation allocation) {
-  switch(allocation) {
-    case mlir::stencil::StencilStorage::IJK:
-      return "ijk";
-    case mlir::stencil::StencilStorage::IJ:
-      return "ij";
-    case mlir::stencil::StencilStorage::IK:
-      return "ik";
-    case mlir::stencil::StencilStorage::JK:
-      return "jk";
-    case mlir::stencil::StencilStorage::I:
-      return "i";
-    case mlir::stencil::StencilStorage::J:
-      return "j";
-    case mlir::stencil::StencilStorage::K:
-      return "k";
-    default:
-      assert(false && "unexpected allocation type");
+StringRef dimensionToString(int dimension) {
+  switch (dimension) {
+  case 0:
+    return "i";
+  case 1:
+    return "j";
+  case 2:
+    return "k";
+  default:
+    assert(false && "dimension not supported");
   }
-  return "ijk";
+  return "";
 }
 
 void print(FieldType fieldType, DialectAsmPrinter &printer) {
   printer << StencilDialect::getFieldTypeName() << "<";
-  StencilStorage::Allocation allocation = fieldType.getAllocation();
-  printer << printAllocation(allocation);
+  ArrayRef<int> dimensions = fieldType.getDimensions();
+  for (auto dimension : dimensions)
+    printer << dimensionToString(dimension);
   printer << ",";
   printer << fieldType.getElementType() << ">";
 }
 
 void print(ViewType viewType, DialectAsmPrinter &printer) {
   printer << StencilDialect::getViewTypeName() << "<";
-  StencilStorage::Allocation allocation = viewType.getAllocation();
-  printer << printAllocation(allocation);
+  ArrayRef<int> dimensions = viewType.getDimensions();
+  for (auto dimension : dimensions)
+    printer << dimensionToString(dimension);
   printer << ",";
   printer << viewType.getElementType() << ">";
 }
