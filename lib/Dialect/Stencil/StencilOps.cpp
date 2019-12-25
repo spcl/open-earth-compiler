@@ -10,11 +10,83 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/Functional.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/STLExtras.h"
 #include "llvm/ADT/ArrayRef.h"
 
 using namespace mlir;
+
+//===----------------------------------------------------------------------===//
+// stencil.field
+//===----------------------------------------------------------------------===//
+
+static ParseResult parseFieldOp(OpAsmParser &parser, OperationState &state) {
+  StringAttr fieldAttr;
+  ArrayAttr lbAttr, ubAttr;
+  Type fieldType;
+
+  // Parse the field op
+  if (parser.parseAttribute(fieldAttr, stencil::FieldOp::getFieldAttrName(),
+                            state.attributes) ||
+      parser.parseLParen() ||
+      parser.parseAttribute(lbAttr, stencil::FieldOp::getLBAttrName(),
+                            state.attributes) ||
+      parser.parseColon() ||
+      parser.parseAttribute(ubAttr, stencil::FieldOp::getUBAttrName(),
+                            state.attributes) ||
+      parser.parseRParen() || parser.parseOptionalAttrDict(state.attributes) ||
+      parser.parseColon() || parser.parseType(fieldType) ||
+      parser.addTypeToList(fieldType, state.types))
+    return failure();
+
+  // Make sure bounds have the right number of dimensions
+  if (lbAttr.size() != 3 || ubAttr.size() != 3) {
+    parser.emitError(parser.getCurrentLocation(),
+                     "expected bounds to have three components");
+    return failure();
+  }
+
+  return success();
+}
+
+static void print(stencil::FieldOp fieldOp, OpAsmPrinter &printer) {
+  StringRef field = fieldOp.field();
+  ArrayAttr lb = fieldOp.lb();
+  ArrayAttr ub = fieldOp.ub();
+
+  printer << stencil::FieldOp::getOperationName();
+  printer << " \"" << field << "\" (";
+  printer.printAttribute(lb);
+  printer << ":";
+  printer.printAttribute(ub);
+  printer << ")";
+  printer.printOptionalAttrDict(
+      fieldOp.getAttrs(), /*elidedAttrs=*/{stencil::FieldOp::getFieldAttrName(),
+                                           stencil::FieldOp::getLBAttrName(),
+                                           stencil::FieldOp::getUBAttrName()});
+  printer << " : ";
+  printer.printType(fieldOp.res()->getType());
+}
+
+static LogicalResult verify(stencil::FieldOp fieldOp) {
+  // Check if all uses are loads or stores 
+  int stores = 0;
+  int loads = 0;
+  for(OpOperand &use : fieldOp.res()->getUses()) {
+    if(auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) 
+      stores++;
+    if(auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) 
+      loads++;
+  }
+  // Check if input and output
+  if (loads > 0 && stores > 0)
+    return fieldOp.emitOpError("field cannot by input and output");
+  // Check if multiple stores
+  if (stores > 1)
+    return fieldOp.emitOpError("field written multiple times");
+  return success(); 
+}
 
 //===----------------------------------------------------------------------===//
 // stencil.access

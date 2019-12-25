@@ -5,6 +5,33 @@
 include "Dialect/Stencil/StencilBase.td"
 #endif // STENCIL_BASE
 
+def Stencil_FieldOp : Stencil_Op<"field", [NoSideEffect]> {
+  let summary = "view access operation";
+  let description = [{
+    This operation defines an input or output field of the
+    stencil program.
+
+    Example:
+
+      %0 = stencil.field out ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+  }];
+
+  let arguments = (ins StrAttr:$field, I64ArrayAttr:$lb, I64ArrayAttr:$ub);
+  let results = (outs Stencil_Field:$res);
+
+  let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    static StringRef getUBAttrName() { return "ub"; }
+    SmallVector<int64_t, 3> getLB() {
+      return convertArrayAttrToSmallVector(lb().cast<ArrayAttr>(), getContext());
+    }
+    SmallVector<int64_t, 3> getUB() {
+      return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
+    }
+    static StringRef getFieldAttrName() { return "field"; }
+  }];
+}
+
 def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   let summary = "view access operation";
   let description = [{
