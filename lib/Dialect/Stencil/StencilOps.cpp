@@ -15,6 +15,8 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/STLExtras.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/raw_ostream.h"
+#include <bits/stdint-intn.h>
 
 using namespace mlir;
 
@@ -75,9 +77,9 @@ static void print(stencil::AssertOp assertOp, OpAsmPrinter &printer) {
   printer << ":";
   printer.printAttribute(ub);
   printer << ")";
-  printer.printOptionalAttrDict(
-      assertOp.getAttrs(), /*elidedAttrs=*/{stencil::AssertOp::getLBAttrName(),
-                                           stencil::AssertOp::getUBAttrName()});
+  printer.printOptionalAttrDict(assertOp.getAttrs(), /*elidedAttrs=*/{
+                                    stencil::AssertOp::getLBAttrName(),
+                                    stencil::AssertOp::getUBAttrName()});
   printer << " : ";
   printer.printType(assertOp.field()->getType());
 }
@@ -99,7 +101,31 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
   if (stores > 1)
     return assertOp.emitOpError("field written multiple times");
 
-  // TODO possibly check the range is large enough
+  // Check if the field is large enough
+  auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
+                          const SmallVector<int64_t, 3> &ub) {
+    if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
+                     [](std::tuple<int64_t, int64_t> x) {
+                       return std::get<0>(x) < std::get<1>(x);
+                     }) ||
+        llvm::any_of(llvm::zip(ub, assertOp.getUB()),
+                     [](std::tuple<int64_t, int64_t> x) {
+                       return std::get<0>(x) > std::get<1>(x);
+                     }))
+      return false;
+    return true;
+  };
+  for (OpOperand &use : assertOp.field()->getUses()) {
+    if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
+      if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
+        return assertOp.emitOpError("field bounds not large enough");
+      }
+    if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
+      if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
+        if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
+          return assertOp.emitOpError("field bounds not large enough");
+        }
+  }
 
   return success();
 }
@@ -277,23 +303,6 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
   if (fieldDimensions != viewDimensions)
     return loadOp.emitOpError("storage dimensions are inconsistent");
 
-  // // Check if the field is large enough
-  // if (loadOp.lb().hasValue() && loadOp.ub().hasValue()) {
-  //   if (auto fieldOp =
-  //           dyn_cast<stencil::FieldOp>(loadOp.field()->getDefiningOp())) {
-  //     bool lower = llvm::any_of(llvm::zip(loadOp.getLB(), fieldOp.getLB()),
-  //                               [](std::tuple<int64_t, int64_t> x) {
-  //                                 return std::get<0>(x) < std::get<1>(x);
-  //                               });
-  //     bool upper = llvm::any_of(llvm::zip(loadOp.getUB(), fieldOp.getUB()),
-  //                               [](std::tuple<int64_t, int64_t> x) {
-  //                                 return std::get<0>(x) > std::get<1>(x);
-  //                               });
-  //     if (lower || upper)
-  //       return loadOp.emitOpError("field not large enough for load bounds");
-  //   }
-  // }
-
   return success();
 }
 
@@ -382,21 +391,6 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
   auto viewDimensions = viewType.getDimensions();
   if (fieldDimensions != viewDimensions)
     return storeOp.emitOpError("storage dimensions are inconsistent");
-
-  // // Check if the field is large enough
-  // if (auto fieldOp =
-  //         dyn_cast<stencil::FieldOp>(storeOp.field()->getDefiningOp())) {
-  //   bool lower = llvm::any_of(llvm::zip(storeOp.getLB(), fieldOp.getLB()),
-  //                             [](std::tuple<int64_t, int64_t> x) {
-  //                               return std::get<0>(x) < std::get<1>(x);
-  //                             });
-  //   bool upper = llvm::any_of(llvm::zip(storeOp.getUB(), fieldOp.getUB()),
-  //                             [](std::tuple<int64_t, int64_t> x) {
-  //                               return std::get<0>(x) > std::get<1>(x);
-  //                             });
-  //   if (lower || upper)
-  //     return storeOp.emitOpError("field not large enough for store bounds");
-  // }
 
   return success();
 }
