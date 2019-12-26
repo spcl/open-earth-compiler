@@ -23,10 +23,10 @@ func @lap(%in : !stencil.view<ijk,f64>) -> f64
 //  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
 //  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
 
-func @lap_stencil()
+func @lap_stencil(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
-	%in = "stencil.field"() {field="in", lb=[-3,-3,0], ub=[67,67,60]} : () -> !stencil.field<ijk,f64>
-	%out = "stencil.field"() {field="out", lb=[-3,-3,0], ub=[67,67,60]} : () -> !stencil.field<ijk,f64>
+	"stencil.assert"(%in) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<ijk,f64>) -> ()
+	"stencil.assert"(%out) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<ijk,f64>) -> ()
 	%0 = "stencil.load"(%in) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
 	%1 = "stencil.apply"(%0) ({
 		^bb0(%2 : !stencil.view<ijk,f64>):
@@ -37,9 +37,9 @@ func @lap_stencil()
 	return
 }
 
-// CHECK-LABEL: func @lap_stencil() attributes {stencil.program} {
-//  CHECK-NEXT: %{{.*}} = stencil.field "in" ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: %{{.*}} = stencil.field "out" ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+// CHECK-LABEL: func @lap_stencil(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
+//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply %{{.*}} = %{{.*}} : !stencil.view<ijk,f64> {
 //  CHECK-NEXT: %{{.*}} = stencil.call @lap(%{{.*}})[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64

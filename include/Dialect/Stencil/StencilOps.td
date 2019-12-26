@@ -5,19 +5,20 @@
 include "Dialect/Stencil/StencilBase.td"
 #endif // STENCIL_BASE
 
-def Stencil_FieldOp : Stencil_Op<"field", [NoSideEffect]> {
+def Stencil_AssertOp : Stencil_Op<"assert", [NoSideEffect]> {
   let summary = "view access operation";
   let description = [{
-    This operation defines an input or output field of the
-    stencil program.
+    This operation asserts the size of input fields.
 
     Example:
 
-      %0 = stencil.field out ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+      stencil.assert %in ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
   }];
 
-  let arguments = (ins StrAttr:$field, I64ArrayAttr:$lb, I64ArrayAttr:$ub);
-  let results = (outs Stencil_Field:$res);
+  let arguments = (ins Stencil_Field:$field, I64ArrayAttr:$lb, I64ArrayAttr:$ub);
+
+  let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
+                            "ArrayRef<int64_t>, ArrayRef<int64_t>">];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -28,7 +29,6 @@ def Stencil_FieldOp : Stencil_Op<"field", [NoSideEffect]> {
     SmallVector<int64_t, 3> getUB() {
       return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
     }
-    static StringRef getFieldAttrName() { return "field"; }
   }];
 }
 

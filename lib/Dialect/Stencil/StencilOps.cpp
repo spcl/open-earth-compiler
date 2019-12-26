@@ -19,26 +19,36 @@
 using namespace mlir;
 
 //===----------------------------------------------------------------------===//
-// stencil.field
+// stencil.assert
 //===----------------------------------------------------------------------===//
 
-static ParseResult parseFieldOp(OpAsmParser &parser, OperationState &state) {
-  StringAttr fieldAttr;
+void stencil::AssertOp::build(Builder *builder, OperationState &state,
+                              Value *field, ArrayRef<int64_t> lb,
+                              ArrayRef<int64_t> ub) {
+  // Make sure that the offset has the right size
+  assert(lb.size() == 3 && ub.size() == 3 && "expected bounds with 3 elements");
+
+  // Add an SSA arguments
+  state.addOperands({field});
+  // Add the bounds attributes
+  state.addAttribute(getLBAttrName(), builder->getI64ArrayAttr(lb));
+  state.addAttribute(getUBAttrName(), builder->getI64ArrayAttr(ub));
+}
+
+static ParseResult parseAssertOp(OpAsmParser &parser, OperationState &state) {
+  OpAsmParser::OperandType field;
   ArrayAttr lbAttr, ubAttr;
   Type fieldType;
 
-  // Parse the field op
-  if (parser.parseAttribute(fieldAttr, stencil::FieldOp::getFieldAttrName(),
-                            state.attributes) ||
-      parser.parseLParen() ||
-      parser.parseAttribute(lbAttr, stencil::FieldOp::getLBAttrName(),
+  // Parse the assert op
+  if (parser.parseOperand(field) || parser.parseLParen() ||
+      parser.parseAttribute(lbAttr, stencil::AssertOp::getLBAttrName(),
                             state.attributes) ||
       parser.parseColon() ||
-      parser.parseAttribute(ubAttr, stencil::FieldOp::getUBAttrName(),
+      parser.parseAttribute(ubAttr, stencil::AssertOp::getUBAttrName(),
                             state.attributes) ||
       parser.parseRParen() || parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColon() || parser.parseType(fieldType) ||
-      parser.addTypeToList(fieldType, state.types))
+      parser.parseColonType(fieldType))
     return failure();
 
   // Make sure bounds have the right number of dimensions
@@ -48,33 +58,35 @@ static ParseResult parseFieldOp(OpAsmParser &parser, OperationState &state) {
     return failure();
   }
 
+  if (parser.resolveOperand(field, fieldType, state.operands))
+    return failure();
+
   return success();
 }
 
-static void print(stencil::FieldOp fieldOp, OpAsmPrinter &printer) {
-  StringRef field = fieldOp.field();
-  ArrayAttr lb = fieldOp.lb();
-  ArrayAttr ub = fieldOp.ub();
+static void print(stencil::AssertOp assertOp, OpAsmPrinter &printer) {
+  Value *field = assertOp.field();
+  ArrayAttr lb = assertOp.lb();
+  ArrayAttr ub = assertOp.ub();
 
-  printer << stencil::FieldOp::getOperationName();
-  printer << " \"" << field << "\" (";
+  printer << stencil::AssertOp::getOperationName();
+  printer << " " << *field << " (";
   printer.printAttribute(lb);
   printer << ":";
   printer.printAttribute(ub);
   printer << ")";
   printer.printOptionalAttrDict(
-      fieldOp.getAttrs(), /*elidedAttrs=*/{stencil::FieldOp::getFieldAttrName(),
-                                           stencil::FieldOp::getLBAttrName(),
-                                           stencil::FieldOp::getUBAttrName()});
+      assertOp.getAttrs(), /*elidedAttrs=*/{stencil::AssertOp::getLBAttrName(),
+                                           stencil::AssertOp::getUBAttrName()});
   printer << " : ";
-  printer.printType(fieldOp.res()->getType());
+  printer.printType(assertOp.field()->getType());
 }
 
-static LogicalResult verify(stencil::FieldOp fieldOp) {
+static LogicalResult verify(stencil::AssertOp assertOp) {
   // Check if all uses are loads or stores
   int stores = 0;
   int loads = 0;
-  for (OpOperand &use : fieldOp.res()->getUses()) {
+  for (OpOperand &use : assertOp.field()->getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
       stores++;
     if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
@@ -82,10 +94,13 @@ static LogicalResult verify(stencil::FieldOp fieldOp) {
   }
   // Check if input and output
   if (loads > 0 && stores > 0)
-    return fieldOp.emitOpError("field cannot by input and output");
+    return assertOp.emitOpError("field cannot by input and output");
   // Check if multiple stores
   if (stores > 1)
-    return fieldOp.emitOpError("field written multiple times");
+    return assertOp.emitOpError("field written multiple times");
+
+  // TODO possibly check the range is large enough
+
   return success();
 }
 

@@ -1,9 +1,9 @@
 // RUN: oec-opt %s --stencil-shape-inference | oec-opt | FileCheck %s
 
-func @lap_stencil()
+func @lap_stencil(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
-      %in = stencil.field "in" ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-	%out = stencil.field "out" ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+	stencil.assert %in ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+	stencil.assert %out ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
 	%0 = stencil.load %in : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
 	%1 = stencil.apply %in1 = %0 : !stencil.view<ijk,f64> {  
       %10 = stencil.access %in1[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -37,9 +37,9 @@ func @lap_stencil()
 	return
 }
 
-// CHECK-LABEL: func @lap_stencil() attributes {stencil.program} {
-//  CHECK-NEXT: %{{.*}} = stencil.field "in" ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: %{{.*}} = stencil.field "out" ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+// CHECK-LABEL: func @lap_stencil(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
+//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} ([-2, -2, 0]:[66, 66, 60]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
 
 //       CHECK: } to ([-1, -1, 0]:[65, 65, 60]) : !stencil.view<ijk,f64>

@@ -10,13 +10,17 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
+#include "llvm/Support/raw_ostream.h"
+//#include <bits/stdint-intn.h>
 
 using namespace mlir;
 
@@ -26,38 +30,64 @@ namespace {
 // Rewriting Pattern
 //===----------------------------------------------------------------------===//
 
-class FuncOpLowering : public ConversionPattern {
-public:
-  explicit FuncOpLowering(MLIRContext *context)
-      : ConversionPattern(FuncOp::getOperationName(), 1, context) {}
+// class FieldOpLowering : public ConversionPattern {
+// public:
+//   explicit FieldOpLowering(MLIRContext *context)
+//       : ConversionPattern(stencil::FieldOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto funcOp = cast<FuncOp>(operation);
-    auto funcType = funcOp.getType();
+//   PatternMatchResult
+//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+//                   ConversionPatternRewriter &rewriter) const override {
 
-    auto newFuncOp = rewriter.create<FuncOp>(
-        operation->getLoc(),
-        funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
-            .getValue(),
-        funcOp.getType(), llvm::None);
+//     // Compute the memref type
+//     stencil::FieldOp fieldOp = cast<stencil::FieldOp>(operation);
+//     SmallVector<int64_t, 3> shape = {0, 0, 0};
+//     llvm::transform(llvm::zip(fieldOp.getUB(), fieldOp.getLB()), shape.begin(),
+//                     [](std::tuple<int64_t, int64_t> x) {
+//                       return std::get<0>(x) - std::get<1>(x);
+//                     });
+//     Type elementType = fieldOp.getFieldType().getElementType();
+//     MemRefType fieldType = MemRefType::get(shape, elementType);
+
     
-    Block *entryBlock = newFuncOp.addEntryBlock();
 
-    for (int i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
-      funcOp.getArgument(i)->replaceAllUsesWith(entryBlock->getArgument(i));
-    }
+//     // Insert
+//     auto funcName = (Twine("get_") + Twine(fieldOp.name()) + Twine("_field")).str();
+//     auto parentOp = operation->getParentOfType<FuncOp>();
+//     rewriter.setInsertionPoint(parentOp);
+//     auto funcType = rewriter.getFunctionType({}, {fieldType});
+//     auto funcOp = rewriter.create<FuncOp>(operation->getLoc(), funcName, funcType, llvm::None);
 
-    entryBlock->getOperations().splice(
-        entryBlock->begin(),
-        funcOp.getOperation()->getRegion(0).front().getOperations());
+    
+//     rewriter.setInsertionPoint(operation);
+//     auto callOp = rewriter.create<CallOp>(operation->getLoc(), funcOp);
+//     operation->getResult(0)->replaceAllUsesWith(callOp.getResult(0));
+    
+//     rewriter.eraseOp(operation);
 
-    rewriter.eraseOp(operation);
+//     callOp.getParentOp()->getParentOp()->dump();
 
-    return matchSuccess();
-  }
-};
+
+// //     auto newFuncType = rewriter.getFunctionType(inputs,
+// //     funcType.getResults()); auto newFuncOp = rewriter.create<FuncOp>(
+// //         operation->getLoc(),
+// //         funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
+// //             .getValue(),
+// //         newFuncType, llvm::None);
+
+//         // create a function declaration
+
+//         // stencil::ViewType viewType =
+//         //     cast<stencil::LoadOp>(operation).getResultViewType();
+//         // rewriter.replaceOpWithNewOp<MemRefCastOp>(
+//         //     operation, operands[0],
+//         //     MemRefType::get(viewType.getShape(), viewType.getElementType()));
+
+//         // MemRefType::get()
+
+//     return matchSuccess();
+//   }
+// };
 
 // class FuncOpLowering : public ConversionPattern {
 // public:
@@ -341,39 +371,39 @@ public:
   explicit StencilToStandardTarget(MLIRContext &context)
       : ConversionTarget(context) {}
 
-  bool isDynamicallyLegal(Operation *op) const override {
-    if (auto funcOp = dyn_cast<FuncOp>(op)) {
-      return !funcOp.getAttr(
-                 stencil::StencilDialect::getStencilProgramAttrName()) &&
-             !funcOp.getAttr(
-                 stencil::StencilDialect::getStencilProgramAttrName());
-    } else
-      return true;
-  }
+  // bool isDynamicallyLegal(Operation *op) const override {
+  //   if (auto funcOp = dyn_cast<FuncOp>(op)) {
+  //     return !funcOp.getAttr(
+  //                stencil::StencilDialect::getStencilProgramAttrName()) &&
+  //            !funcOp.getAttr(
+  //                stencil::StencilDialect::getStencilProgramAttrName());
+  //   } else
+  //     return true;
+  // }
 };
 
 //===----------------------------------------------------------------------===//
 // Rewriting Pass
 //===----------------------------------------------------------------------===//
 
-struct StencilToStandardPass : public FunctionPass<StencilToStandardPass> {
-  void runOnFunction() override;
+struct StencilToStandardPass : public ModulePass<StencilToStandardPass> {
+  void runOnModule() override;
 };
 
-void StencilToStandardPass::runOnFunction() {
+void StencilToStandardPass::runOnModule() {
   OwningRewritePatternList patterns;
-  auto function = getFunction();
+  auto module = getModule();
 
-  populateStencilToStandardConversionPatterns(patterns, function.getContext());
+  populateStencilToStandardConversionPatterns(patterns, module.getContext());
 
-  StencilToStandardTarget target(*(function.getContext()));
+  StencilToStandardTarget target(*(module.getContext()));
   target.addLegalDialect<AffineOpsDialect>();
   target.addLegalDialect<StandardOpsDialect>();
 
-  target.addLegalDialect<stencil::StencilDialect>();
-  target.addDynamicallyLegalOp<FuncOp>();
+  //target.addLegalDialect<stencil::StencilDialect>();
+  //target.addDynamicallyLegalOp<FuncOp>();
 
-  if (failed(applyPartialConversion(function, target, patterns)))
+  if (failed(applyPartialConversion(module, target, patterns)))
     signalPassFailure();
 }
 
@@ -383,10 +413,10 @@ void mlir::populateStencilToStandardConversionPatterns(
     mlir::OwningRewritePatternList &patterns, mlir::MLIRContext *ctx) {
   // patterns.insert<AccessOpLowering, ApplyOpLowering, FuncOpLowering,
   //                 LoadOpLowering, StoreOpLowering>(ctx);
-  patterns.insert<FuncOpLowering>(ctx);
+  //patterns.insert<FieldOpLowering>(ctx);
 }
 
-std::unique_ptr<OpPassBase<FuncOp>>
+std::unique_ptr<OpPassBase<ModuleOp>>
 mlir::stencil::createConvertStencilToStandardPass() {
   return std::make_unique<StencilToStandardPass>();
 }
