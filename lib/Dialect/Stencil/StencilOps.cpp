@@ -88,11 +88,14 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
   // Check if all uses are loads or stores
   int stores = 0;
   int loads = 0;
+  int asserts = 0;
   for (OpOperand &use : assertOp.field()->getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
       stores++;
     if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
       loads++;
+    if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
+      asserts++;
   }
   // Check if input and output
   if (loads > 0 && stores > 0)
@@ -100,6 +103,9 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
   // Check if multiple stores
   if (stores > 1)
     return assertOp.emitOpError("field written multiple times");
+  // Check if multiple asserts
+  if (asserts != 1)
+    return assertOp.emitOpError("multiple asserts for the same field");
 
   // Check if the field is large enough
   auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
@@ -303,6 +309,15 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
   if (fieldDimensions != viewDimensions)
     return loadOp.emitOpError("storage dimensions are inconsistent");
 
+  // Check if field assert exists
+  int asserts = 0;
+  for (OpOperand &use : loadOp.field()->getUses()) {
+    if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
+      asserts++;
+  }
+  if (asserts != 1)
+    return loadOp.emitOpError("assert for input field missing");
+
   return success();
 }
 
@@ -391,6 +406,19 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
   auto viewDimensions = viewType.getDimensions();
   if (fieldDimensions != viewDimensions)
     return storeOp.emitOpError("storage dimensions are inconsistent");
+
+  // Check view computed by apply
+  if(!dyn_cast<stencil::ApplyOp>(storeOp.view()->getDefiningOp()))
+    return storeOp.emitError("output view not result of an apply");
+
+  // Check if field assert exists
+  int asserts = 0;
+  for (OpOperand &use : storeOp.field()->getUses()) {
+    if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
+      asserts++;
+  }
+  if (asserts != 1)
+    return storeOp.emitOpError("assert for output field missing");
 
   return success();
 }
