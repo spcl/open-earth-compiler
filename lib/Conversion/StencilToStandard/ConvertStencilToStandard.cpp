@@ -2,6 +2,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/AffineExpr.h"
@@ -30,60 +31,135 @@ namespace {
 // Rewriting Pattern
 //===----------------------------------------------------------------------===//
 
-// class FieldOpLowering : public ConversionPattern {
+class FuncOpLowering : public ConversionPattern {
+public:
+  explicit FuncOpLowering(MLIRContext *context)
+      : ConversionPattern(FuncOp::getOperationName(), 1, context) {}
+
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Get the function type
+    auto funcOp = cast<FuncOp>(operation);
+
+    // Convert the input types
+    SmallVector<Type, 10> inputTypes;
+    for (auto argument : funcOp.getArguments()) {
+      Type argType = argument->getType();
+      // Verify no view types
+      if (argType.getKind() == stencil::StencilTypes::View) {
+        operation->emitError("unexpected argument type '") << argType << "'";
+        return matchFailure();
+      }
+
+      // Compute the input types of the converted stencil program
+      if (argType.getKind() == stencil::StencilTypes::Field) {
+        Type inputType = NoneType();
+        for (auto &use : argument->getUses()) {
+          if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
+            SmallVector<int64_t, 3> shape = {0, 0, 0};
+            llvm::transform(llvm::zip(assertOp.getUB(), assertOp.getLB()),
+                            shape.begin(), [](std::tuple<int64_t, int64_t> x) {
+                              return std::get<0>(x) - std::get<1>(x);
+                            });
+            Type elemType = argType.cast<stencil::FieldType>().getElementType();
+            inputType = MemRefType::get(shape, elemType);
+            break;
+          }
+        }
+        if (inputType == NoneType()) {
+          operation->emitError("failed to find stencil assert for input field");
+          return matchFailure();
+        }
+        inputTypes.push_back(inputType);
+      } else {
+        inputTypes.push_back(argType);
+      }
+    }
+    if (funcOp.getNumResults() > 0) {
+      operation->emitError("expected stencil programs return void");
+      return matchFailure();
+    }
+
+    // Compute replacement function
+    auto replacementType = rewriter.getFunctionType(inputTypes, {});
+    auto replacementOp = rewriter.create<FuncOp>(
+        operation->getLoc(),
+        funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
+            .getValue(),
+        replacementType, llvm::None);
+
+    // Replace the function body
+    Block *entryBlock = replacementOp.addEntryBlock();
+    for (int i = 0, e = funcOp.getNumArguments(); i < e; ++i)
+      funcOp.getArgument(i)->replaceAllUsesWith(entryBlock->getArgument(i));
+    auto &operations =
+        funcOp.getOperation()->getRegion(0).front().getOperations();
+    entryBlock->getOperations().splice(entryBlock->begin(), operations);
+
+    // Erase the original function op
+    rewriter.eraseOp(operation);
+
+    return matchSuccess();
+  }
+};
+
+// class AssertOpLowering : public ConversionPattern {
 // public:
-//   explicit FieldOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::FieldOp::getOperationName(), 1, context) {}
+//   explicit AssertOpLowering(MLIRContext *context)
+//       : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context)
+//       {}
 
 //   PatternMatchResult
 //   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
 //                   ConversionPatternRewriter &rewriter) const override {
-
 //     // Compute the memref type
-//     stencil::FieldOp fieldOp = cast<stencil::FieldOp>(operation);
+//     stencil::AssertOp assertOp = cast<stencil::AssertOp>(operation);
 //     SmallVector<int64_t, 3> shape = {0, 0, 0};
-//     llvm::transform(llvm::zip(fieldOp.getUB(), fieldOp.getLB()), shape.begin(),
-//                     [](std::tuple<int64_t, int64_t> x) {
+//     llvm::transform(llvm::zip(assertOp.getUB(), assertOp.getLB()),
+//                     shape.begin(), [](std::tuple<int64_t, int64_t> x) {
 //                       return std::get<0>(x) - std::get<1>(x);
 //                     });
-//     Type elementType = fieldOp.getFieldType().getElementType();
-//     MemRefType fieldType = MemRefType::get(shape, elementType);
+//     MemRefType fieldType =
+//         MemRefType::get(shape, assertOp.field()
+//                                    ->getType()
+//                                    .cast<stencil::FieldType>()
+//                                    .getElementType());
 
-    
+//     // Change type for all usages
 
-//     // Insert
-//     auto funcName = (Twine("get_") + Twine(fieldOp.name()) + Twine("_field")).str();
-//     auto parentOp = operation->getParentOfType<FuncOp>();
-//     rewriter.setInsertionPoint(parentOp);
-//     auto funcType = rewriter.getFunctionType({}, {fieldType});
-//     auto funcOp = rewriter.create<FuncOp>(operation->getLoc(), funcName, funcType, llvm::None);
+//     // auto funcName =
+//     //     (Twine("get_") + Twine(fieldOp.name()) + Twine("_field")).str();
+//     // auto parentOp = operation->getParentOfType<FuncOp>();
+//     // rewriter.setInsertionPoint(parentOp);
+//     // auto funcType = rewriter.getFunctionType({}, {fieldType});
+//     // auto funcOp = rewriter.create<FuncOp>(operation->getLoc(), funcName,
+//     //                                       funcType, llvm::None);
 
-    
-//     rewriter.setInsertionPoint(operation);
-//     auto callOp = rewriter.create<CallOp>(operation->getLoc(), funcOp);
-//     operation->getResult(0)->replaceAllUsesWith(callOp.getResult(0));
-    
+//     // rewriter.setInsertionPoint(operation);
+//     // auto callOp = rewriter.create<CallOp>(operation->getLoc(), funcOp);
+//     // operation->getResult(0)->replaceAllUsesWith(callOp.getResult(0));
+
 //     rewriter.eraseOp(operation);
 
-//     callOp.getParentOp()->getParentOp()->dump();
+//     //callOp.getParentOp()->getParentOp()->dump();
 
+//     //     auto newFuncType = rewriter.getFunctionType(inputs,
+//     //     funcType.getResults()); auto newFuncOp = rewriter.create<FuncOp>(
+//     //         operation->getLoc(),
+//     // funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
+//     //             .getValue(),
+//     //         newFuncType, llvm::None);
 
-// //     auto newFuncType = rewriter.getFunctionType(inputs,
-// //     funcType.getResults()); auto newFuncOp = rewriter.create<FuncOp>(
-// //         operation->getLoc(),
-// //         funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
-// //             .getValue(),
-// //         newFuncType, llvm::None);
+//     // create a function declaration
 
-//         // create a function declaration
+//     // stencil::ViewType viewType =
+//     //     cast<stencil::LoadOp>(operation).getResultViewType();
+//     // rewriter.replaceOpWithNewOp<MemRefCastOp>(
+//     //     operation, operands[0],
+//     //     MemRefType::get(viewType.getShape(), viewType.getElementType()));
 
-//         // stencil::ViewType viewType =
-//         //     cast<stencil::LoadOp>(operation).getResultViewType();
-//         // rewriter.replaceOpWithNewOp<MemRefCastOp>(
-//         //     operation, operands[0],
-//         //     MemRefType::get(viewType.getShape(), viewType.getElementType()));
-
-//         // MemRefType::get()
+//     // MemRefType::get()
 
 //     return matchSuccess();
 //   }
@@ -362,6 +438,19 @@ namespace {
 //   }
 // };
 
+class AssertOpLowering : public ConversionPattern {
+public:
+  explicit AssertOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context) {}
+
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(operation);
+    return matchSuccess();
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // Conversion Target
 //===----------------------------------------------------------------------===//
@@ -371,15 +460,15 @@ public:
   explicit StencilToStandardTarget(MLIRContext &context)
       : ConversionTarget(context) {}
 
-  // bool isDynamicallyLegal(Operation *op) const override {
-  //   if (auto funcOp = dyn_cast<FuncOp>(op)) {
-  //     return !funcOp.getAttr(
-  //                stencil::StencilDialect::getStencilProgramAttrName()) &&
-  //            !funcOp.getAttr(
-  //                stencil::StencilDialect::getStencilProgramAttrName());
-  //   } else
-  //     return true;
-  // }
+  bool isDynamicallyLegal(Operation *op) const override {
+    if (auto funcOp = dyn_cast<FuncOp>(op)) {
+      return !funcOp.getAttr(
+                 stencil::StencilDialect::getStencilProgramAttrName()) &&
+             !funcOp.getAttr(
+                 stencil::StencilDialect::getStencilFunctionAttrName());
+    } else
+      return true;
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -399,9 +488,7 @@ void StencilToStandardPass::runOnModule() {
   StencilToStandardTarget target(*(module.getContext()));
   target.addLegalDialect<AffineOpsDialect>();
   target.addLegalDialect<StandardOpsDialect>();
-
-  //target.addLegalDialect<stencil::StencilDialect>();
-  //target.addDynamicallyLegalOp<FuncOp>();
+  target.addDynamicallyLegalOp<FuncOp>();
 
   if (failed(applyPartialConversion(module, target, patterns)))
     signalPassFailure();
@@ -411,9 +498,7 @@ void StencilToStandardPass::runOnModule() {
 
 void mlir::populateStencilToStandardConversionPatterns(
     mlir::OwningRewritePatternList &patterns, mlir::MLIRContext *ctx) {
-  // patterns.insert<AccessOpLowering, ApplyOpLowering, FuncOpLowering,
-  //                 LoadOpLowering, StoreOpLowering>(ctx);
-  //patterns.insert<FieldOpLowering>(ctx);
+  patterns.insert<FuncOpLowering, AssertOpLowering>(ctx);
 }
 
 std::unique_ptr<OpPassBase<ModuleOp>>
