@@ -61,7 +61,7 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    // Get the function type
+    auto loc = operation->getLoc();
     auto funcOp = cast<FuncOp>(operation);
 
     // Convert the input types
@@ -107,7 +107,7 @@ public:
     // Compute replacement function
     auto replacementType = rewriter.getFunctionType(inputTypes, {});
     auto replacementOp = rewriter.create<FuncOp>(
-        operation->getLoc(),
+        loc,
         funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
             .getValue(),
         replacementType, llvm::None);
@@ -226,10 +226,11 @@ public:
       auto viewType = applyOp.getResult(i)->getType().cast<stencil::ViewType>();
       auto allocOp = rewriter.create<AllocOp>(
           loc, MemRefType::get(shape, viewType.getElementType()));
+      applyOp.getResult(i)->replaceAllUsesWith(allocOp.getResult());
       auto returnOp = allocOp.getParentRegion()->back().getTerminator();
       rewriter.setInsertionPoint(returnOp);
       rewriter.create<DeallocOp>(loc, allocOp.getResult());
-      rewriter.setInsertionPointAfter(allocOp);
+      rewriter.setInsertionPointAfter(allocOp);      
     }
 
     // Generate the apply loop nest
@@ -295,38 +296,31 @@ public:
   }
 };
 
-// class StoreOpLowering : public ConversionPattern {
-// public:
-//   explicit StoreOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::StoreOp::getOperationName(), 1, context)
-//       {}
+class StoreOpLowering : public ConversionPattern {
+public:
+  explicit StoreOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::StoreOp::getOperationName(), 1, context) {}
 
-//   PatternMatchResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     /*auto loc = operation->getLoc();
-//     auto storeOp = cast<stencil::StoreOp>(operation);
-//     stencil::FieldType fieldType = storeOp.getFieldType();
-//     ArrayRef<int64_t> shape = fieldType.getShape();
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto storeOp = cast<stencil::StoreOp>(operation);
 
-//     auto jLoop = rewriter.create<AffineForOp>(loc, 0, shape[1]);
-//     rewriter.setInsertionPointToStart(jLoop.getBody());
-//     auto iLoop = rewriter.create<AffineForOp>(loc, 0, shape[0]);
-//     rewriter.setInsertionPointToStart(iLoop.getBody());
-//     auto kLoop = rewriter.create<AffineForOp>(loc, 0, shape[2]);
-//     rewriter.setInsertionPointToStart(kLoop.getBody());*/
+    // Remove allocation and deallocation
+    rewriter.eraseOp(storeOp.view()->getDefiningOp());
+    for(auto &use : storeOp.view()->getUses()) {
+      if(auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
+        rewriter.eraseOp(deallocOp);
+    }
 
-//     // Replace all the uses of the source memref with the target memref
-//     Value *target = operands[0];
-//     Value *source = operands[1];
-//     source->replaceAllUsesWith(target);
-//     source->getDefiningOp()->erase();
+    // Replace all uses of the temporary storage by the output storage
+    storeOp.view()->replaceAllUsesWith(storeOp.field());
+    rewriter.eraseOp(operation);
 
-//     rewriter.eraseOp(operation);
-
-//     return matchSuccess();
-//   }
-// };
+    return matchSuccess();
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // Conversion Target
@@ -375,8 +369,9 @@ void StencilToStandardPass::runOnModule() {
 
 void mlir::populateStencilToStandardConversionPatterns(
     mlir::OwningRewritePatternList &patterns, mlir::MLIRContext *ctx) {
-  patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
-                  ApplyOpLowering, AccessOpLowering, ReturnOpLowering>(ctx);
+  patterns
+      .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
+              AccessOpLowering, StoreOpLowering, ReturnOpLowering>(ctx);
 }
 
 std::unique_ptr<OpPassBase<ModuleOp>>
