@@ -409,7 +409,7 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
     return storeOp.emitOpError("storage dimensions are inconsistent");
 
   // Check view computed by apply
-  if(!dyn_cast<stencil::ApplyOp>(storeOp.view()->getDefiningOp()))
+  if (!dyn_cast<stencil::ApplyOp>(storeOp.view()->getDefiningOp()))
     return storeOp.emitError("output view not result of an apply");
 
   // Check if field assert exists
@@ -470,6 +470,12 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<Type, 8> operandTypes;
   if (parser.parseColonTypeList(operandTypes))
     return failure();
+
+  if (operands.size() != operandTypes.size()) {
+    parser.emitError(parser.getCurrentLocation(), "expected ")
+        << operands.size() << " operand types";
+    return failure();
+  }
 
   // Parse the body region.
   SmallVector<Type, 8> resultTypes;

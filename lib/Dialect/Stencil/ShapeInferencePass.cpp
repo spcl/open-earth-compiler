@@ -24,8 +24,8 @@ namespace {
 class AccessExtents {
   // This struct stores the positive and negative extends
   struct Extent {
-    SmallVector<int64_t, 3> positive;
     SmallVector<int64_t, 3> negative;
+    SmallVector<int64_t, 3> positive;
   };
 
 public:
@@ -38,7 +38,13 @@ public:
       for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
         argumentsToOperands[applyOp.getBody()->getArgument(i)] =
             applyOp.operands()[i];
-        extents[operation][applyOp.operands()[i]] = {{0, 0, 0}, {0, 0, 0}};
+        extents[operation][applyOp.operands()[i]] = {
+            {std::numeric_limits<int64_t>::max(),
+             std::numeric_limits<int64_t>::max(),
+             std::numeric_limits<int64_t>::max()},
+            {std::numeric_limits<int64_t>::min(),
+             std::numeric_limits<int64_t>::min(),
+             std::numeric_limits<int64_t>::min()}};
       }
       // Walk the access ops and update the extent
       applyOp.walk([&](stencil::AccessOp accessOp) {
