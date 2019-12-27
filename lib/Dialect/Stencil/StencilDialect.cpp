@@ -8,6 +8,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
+#include <cstddef>
 
 using namespace mlir;
 using namespace mlir::stencil;
@@ -41,7 +42,7 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
   // Helper method converting a string to a dimension vector
   auto parseDimensions = [&](StringRef input) {
     std::vector<int> result;
-    for (int i = 0, e = input.size(); i != e; ++i) {
+    for (size_t i = 0, e = input.size(); i != e; ++i) {
       switch (input[i]) {
       case 'i':
         result.push_back(0);

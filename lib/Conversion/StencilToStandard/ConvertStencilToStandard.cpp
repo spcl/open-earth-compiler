@@ -22,11 +22,32 @@
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cstddef>
 //#include <bits/stdint-intn.h>
 
 using namespace mlir;
 
 namespace {
+
+// Helper method getting the parent loop nest
+SmallVector<AffineForOp, 3> getLoopNest(Operation *operation) {
+  AffineForOp iLoop = operation->getParentOfType<AffineForOp>();
+  if (!iLoop) {
+    operation->emitError("iLoop not found");
+    return {};
+  }
+  AffineForOp jLoop = iLoop.getOperation()->getParentOfType<AffineForOp>();
+  if (!jLoop) {
+    operation->emitError("jLoop not found");
+    return {};
+  }
+  AffineForOp kLoop = jLoop.getOperation()->getParentOfType<AffineForOp>();
+  if (!kLoop) {
+    operation->emitError("kLoop not found");
+    return {};
+  }
+  return {iLoop, jLoop, kLoop};
+}
 
 //===----------------------------------------------------------------------===//
 // Rewriting Pattern
@@ -93,7 +114,7 @@ public:
 
     // Replace the function body
     Block *entryBlock = replacementOp.addEntryBlock();
-    for (int i = 0, e = funcOp.getNumArguments(); i < e; ++i)
+    for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i)
       funcOp.getArgument(i)->replaceAllUsesWith(entryBlock->getArgument(i));
     auto &operations =
         funcOp.getOperation()->getRegion(0).front().getOperations();
@@ -143,8 +164,37 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    // TODO fix this
+    auto loc = operation->getLoc();
+    auto returnOp = cast<stencil::ReturnOp>(operation);
+
+    // Get the affine loops
+    SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
+    SmallVector<Value *, 3> loopIVs(loops.size(), nullptr);
+    llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
+      return affineForOp.getInductionVar();
+    });
+    if (loops.empty())
+      return matchFailure();
+
+    // Get temporary buffers
+    SmallVector<Operation *, 10> allocOps;
+    Operation *currentOp = loops.back().getOperation();
+    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
+      currentOp = currentOp->getPrevNode();
+      allocOps.push_back(currentOp);
+      assert(dyn_cast<AllocOp>(currentOp) &&
+             "failed to find allocation for results");
+    }
+    SmallVector<Value *, 10> allocVals(allocOps.size(), nullptr);
+    llvm::transform(llvm::reverse(allocOps), allocVals.begin(),
+                    [](Operation *allocOp) { return allocOp->getResult(0); });
+
+    // Replace the return op by store ops
+    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i)
+      rewriter.create<AffineStoreOp>(loc, returnOp.getOperand(i), allocVals[i],
+                                     loopIVs);
     rewriter.eraseOp(operation);
+
     return matchSuccess();
   }
 };
@@ -172,7 +222,7 @@ public:
                     [](std::tuple<int64_t, int64_t> x) {
                       return std::get<0>(x) - std::get<1>(x);
                     });
-    for (int i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+    for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
       auto viewType = applyOp.getResult(i)->getType().cast<stencil::ViewType>();
       auto allocOp = rewriter.create<AllocOp>(
           loc, MemRefType::get(shape, viewType.getElementType()));
@@ -182,18 +232,7 @@ public:
       rewriter.setInsertionPointAfter(allocOp);
     }
 
-    // The loop bounds are given by the shape of the resulting view
-    // stencil::ViewType resultViewType = applyOp.getResultViewType();
-    // ArrayRef<int64_t> resultViewShape = resultViewType.getShape();
-
-    // auto operandView =
-    //     rewriter
-    //         .create<AllocOp>(loc,
-    //                          MemRefType::get(resultViewShape,
-    //                                          resultViewType.getElementType()))
-    //         .getResult();
-
-    // Generate the loop nest
+    // Generate the apply loop nest
     auto kLoop = rewriter.create<AffineForOp>(loc, lb[2], ub[2]);
     rewriter.setInsertionPointToStart(kLoop.getBody());
     auto jLoop = rewriter.create<AffineForOp>(loc, lb[1], ub[1]);
@@ -202,17 +241,14 @@ public:
     rewriter.setInsertionPointToStart(iLoop.getBody());
 
     // Forward the apply operands and copy the body
-    for (int i = 0, e = applyOp.operands().size(); i < e; ++i) {
+    for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
       applyOp.getBody()->getArgument(i)->replaceAllUsesWith(
           applyOp.getOperand(i));
     }
     Block *entryBlock = iLoop.getBody();
     auto &operations = applyOp.getBody()->getOperations();
     entryBlock->getOperations().splice(entryBlock->begin(), operations);
-
     rewriter.eraseOp(operation);
-
-    // kLoop.dump();
 
     return matchSuccess();
   }
@@ -230,31 +266,20 @@ public:
     auto accessOp = cast<stencil::AccessOp>(operation);
 
     // Get the affine loops
-    AffineForOp kLoop = operation->getParentOfType<AffineForOp>();
-    if (!kLoop) {
-      operation->emitError("kLoop not found");
+    SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
+    SmallVector<Value *, 3> loopIVs(loops.size(), nullptr);
+    llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
+      return affineForOp.getInductionVar();
+    });
+    if (loops.empty())
       return matchFailure();
-    }
-    AffineForOp jLoop = kLoop.getOperation()->getParentOfType<AffineForOp>();
-    if (!jLoop) {
-      operation->emitError("jLoop not found");
-      return matchFailure();
-    }
-    AffineForOp iLoop = jLoop.getOperation()->getParentOfType<AffineForOp>();
-    if (!iLoop) {
-      operation->emitError("iLoop not found");
-      return matchFailure();
-    }
 
     // Compute the access offsets
     auto addExpr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
     auto addMap = AffineMap::get(2, 0, addExpr);
     auto accessOffset = accessOp.getOffset();
     SmallVector<Value *, 3> loadOffset;
-    SmallVector<Value *, 3> loopIVs = {iLoop.getInductionVar(),
-                                       jLoop.getInductionVar(),
-                                       kLoop.getInductionVar()};
-    for (int i = 0, e = accessOffset.size(); i != e; ++i) {
+    for (size_t i = 0, e = accessOffset.size(); i != e; ++i) {
       auto constantOp = rewriter.create<ConstantIndexOp>(loc, accessOffset[i]);
       auto affineApplyOp = rewriter.create<AffineApplyOp>(
           loc, addMap,

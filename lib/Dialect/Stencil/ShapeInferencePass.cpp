@@ -11,6 +11,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/MapVector.h"
 #include <bits/stdint-intn.h>
+#include <cstddef>
 #include <limits>
 
 using namespace mlir;
@@ -34,7 +35,7 @@ public:
       auto operation = applyOp.getOperation();
       // Compute mapping between operands and block arguments
       llvm::DenseMap<Value *, Value *> argumentsToOperands;
-      for (int i = 0, e = applyOp.operands().size(); i != e; ++i) {
+      for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
         argumentsToOperands[applyOp.getBody()->getArgument(i)] =
             applyOp.operands()[i];
         extents[operation][applyOp.operands()[i]] = {{0, 0, 0}, {0, 0, 0}};
@@ -119,7 +120,7 @@ void extendBounds(OpOperand &use, const AccessExtents &extents,
 bool isEmpty(SmallVector<int64_t, 3> lower, SmallVector<int64_t, 3> upper) {
   assert(lower.size() == upper.size() &&
          "expected both vectors have equal size");
-  for (int i = 0, e = lower.size(); i != e; ++i) {
+  for (size_t i = 0, e = lower.size(); i != e; ++i) {
     if (lower[i] >= upper[i])
       return true;
   }

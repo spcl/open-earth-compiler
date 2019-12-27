@@ -17,6 +17,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
+#include <cstddef>
 
 using namespace mlir;
 
@@ -432,7 +433,7 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
   result.addOperands(operands);
 
   // Check the arguments and extract the return types
-  for (int i = 0, e = operands.size(); i != e; ++i)
+  for (size_t i = 0, e = operands.size(); i != e; ++i)
     assert(operands[i]->getType() != body->getArgument(i)->getType() &&
            "expected matching operand and block argument types");
   stencil::ReturnOp returnOp = cast<stencil::ReturnOp>(body->back());
