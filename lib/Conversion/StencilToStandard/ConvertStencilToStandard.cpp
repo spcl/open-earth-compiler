@@ -20,6 +20,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/raw_ostream.h"
 //#include <bits/stdint-intn.h>
 
@@ -62,8 +63,9 @@ public:
                             shape.begin(), [](std::tuple<int64_t, int64_t> x) {
                               return std::get<0>(x) - std::get<1>(x);
                             });
-            Type elemType = argType.cast<stencil::FieldType>().getElementType();
-            inputType = MemRefType::get(shape, elemType);
+            Type elementType =
+                argType.cast<stencil::FieldType>().getElementType();
+            inputType = MemRefType::get(shape, elementType);
             break;
           }
         }
@@ -104,306 +106,169 @@ public:
   }
 };
 
-// class AssertOpLowering : public ConversionPattern {
-// public:
-//   explicit AssertOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context)
-//       {}
+class AssertOpLowering : public ConversionPattern {
+public:
+  explicit AssertOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context) {}
 
-//   PatternMatchResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     // Compute the memref type
-//     stencil::AssertOp assertOp = cast<stencil::AssertOp>(operation);
-//     SmallVector<int64_t, 3> shape = {0, 0, 0};
-//     llvm::transform(llvm::zip(assertOp.getUB(), assertOp.getLB()),
-//                     shape.begin(), [](std::tuple<int64_t, int64_t> x) {
-//                       return std::get<0>(x) - std::get<1>(x);
-//                     });
-//     MemRefType fieldType =
-//         MemRefType::get(shape, assertOp.field()
-//                                    ->getType()
-//                                    .cast<stencil::FieldType>()
-//                                    .getElementType());
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(operation);
+    return matchSuccess();
+  }
+};
 
-//     // Change type for all usages
+class LoadOpLowering : public ConversionPattern {
+public:
+  explicit LoadOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::LoadOp::getOperationName(), 1, context) {}
 
-//     // auto funcName =
-//     //     (Twine("get_") + Twine(fieldOp.name()) + Twine("_field")).str();
-//     // auto parentOp = operation->getParentOfType<FuncOp>();
-//     // rewriter.setInsertionPoint(parentOp);
-//     // auto funcType = rewriter.getFunctionType({}, {fieldType});
-//     // auto funcOp = rewriter.create<FuncOp>(operation->getLoc(), funcName,
-//     //                                       funcType, llvm::None);
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Remove the operation and replace the result with the field operand
+    operation->getOpResult(0).replaceAllUsesWith(
+        operation->getOpOperand(0).get());
+    rewriter.eraseOp(operation);
+    return matchSuccess();
+  }
+};
 
-//     // rewriter.setInsertionPoint(operation);
-//     // auto callOp = rewriter.create<CallOp>(operation->getLoc(), funcOp);
-//     // operation->getResult(0)->replaceAllUsesWith(callOp.getResult(0));
+class ReturnOpLowering : public ConversionPattern {
+public:
+  explicit ReturnOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::ReturnOp::getOperationName(), 1, context) {}
 
-//     rewriter.eraseOp(operation);
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    // TODO fix this
+    rewriter.eraseOp(operation);
+    return matchSuccess();
+  }
+};
 
-//     //callOp.getParentOp()->getParentOp()->dump();
+class ApplyOpLowering : public ConversionPattern {
+public:
+  explicit ApplyOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::ApplyOp::getOperationName(), 1, context) {}
 
-//     //     auto newFuncType = rewriter.getFunctionType(inputs,
-//     //     funcType.getResults()); auto newFuncOp = rewriter.create<FuncOp>(
-//     //         operation->getLoc(),
-//     // funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
-//     //             .getValue(),
-//     //         newFuncType, llvm::None);
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto applyOp = cast<stencil::ApplyOp>(operation);
 
-//     // create a function declaration
+    // Get the loop bounds of the apply op
+    assert(applyOp.lb().hasValue() && applyOp.ub().hasValue() &&
+           "expected apply to have valid bounds");
+    auto lb = applyOp.getLB();
+    auto ub = applyOp.getUB();
 
-//     // stencil::ViewType viewType =
-//     //     cast<stencil::LoadOp>(operation).getResultViewType();
-//     // rewriter.replaceOpWithNewOp<MemRefCastOp>(
-//     //     operation, operands[0],
-//     //     MemRefType::get(viewType.getShape(), viewType.getElementType()));
+    // Allocate and deallocate storage for every output
+    SmallVector<int64_t, 3> shape = {0, 0, 0};
+    llvm::transform(llvm::zip(ub, lb), shape.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::get<0>(x) - std::get<1>(x);
+                    });
+    for (int i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+      auto viewType = applyOp.getResult(i)->getType().cast<stencil::ViewType>();
+      auto allocOp = rewriter.create<AllocOp>(
+          loc, MemRefType::get(shape, viewType.getElementType()));
+      auto returnOp = allocOp.getParentRegion()->back().getTerminator();
+      rewriter.setInsertionPoint(returnOp);
+      rewriter.create<DeallocOp>(loc, allocOp.getResult());
+      rewriter.setInsertionPointAfter(allocOp);
+    }
 
-//     // MemRefType::get()
+    // The loop bounds are given by the shape of the resulting view
+    // stencil::ViewType resultViewType = applyOp.getResultViewType();
+    // ArrayRef<int64_t> resultViewShape = resultViewType.getShape();
 
-//     return matchSuccess();
-//   }
-// };
+    // auto operandView =
+    //     rewriter
+    //         .create<AllocOp>(loc,
+    //                          MemRefType::get(resultViewShape,
+    //                                          resultViewType.getElementType()))
+    //         .getResult();
 
-// class FuncOpLowering : public ConversionPattern {
-// public:
-//   explicit FuncOpLowering(MLIRContext *context)
-//       : ConversionPattern(FuncOp::getOperationName(), 1, context) {}
+    // Generate the loop nest
+    auto kLoop = rewriter.create<AffineForOp>(loc, lb[2], ub[2]);
+    rewriter.setInsertionPointToStart(kLoop.getBody());
+    auto jLoop = rewriter.create<AffineForOp>(loc, lb[1], ub[1]);
+    rewriter.setInsertionPointToStart(jLoop.getBody());
+    auto iLoop = rewriter.create<AffineForOp>(loc, lb[0], ub[0]);
+    rewriter.setInsertionPointToStart(iLoop.getBody());
 
-//   PatternMatchResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto funcOp = cast<FuncOp>(operation);
-//     auto funcType = funcOp.getType();
+    // Forward the apply operands and copy the body
+    for (int i = 0, e = applyOp.operands().size(); i < e; ++i) {
+      applyOp.getBody()->getArgument(i)->replaceAllUsesWith(
+          applyOp.getOperand(i));
+    }
+    Block *entryBlock = iLoop.getBody();
+    auto &operations = applyOp.getBody()->getOperations();
+    entryBlock->getOperations().splice(entryBlock->begin(), operations);
 
-//     SmallVector<Type, 3> inputs;
-//     for (const auto &type : funcType.getInputs()) {
-//       if (auto fieldType = type.dyn_cast<stencil::FieldType>()) {
-//         inputs.push_back(
-//             MemRefType::get(fieldType.getShape(),
-//             fieldType.getElementType()));
-//       } else if (auto viewType = type.dyn_cast<stencil::ViewType>()) {
-//         inputs.push_back(
-//             MemRefType::get(viewType.getShape(), viewType.getElementType()));
-//       } else
-//         operation->emitError("unexpected argument type '") << type << "'";
+    rewriter.eraseOp(operation);
 
-//       // For stencil functions, add three parameters for each operand to pass
-//       // the i, j and k coordinates of its origin
-//       if (stencil::StencilDialect::isStencilFunction(funcOp)) {
-//         for (int i = 0; i < 3; ++i)
-//           inputs.push_back(IndexType::get(operation->getContext()));
-//       }
-//     }
+    // kLoop.dump();
 
-//     auto newFuncType = rewriter.getFunctionType(inputs,
-//     funcType.getResults()); auto newFuncOp = rewriter.create<FuncOp>(
-//         operation->getLoc(),
-//         funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
-//             .getValue(),
-//         newFuncType, llvm::None);
+    return matchSuccess();
+  }
+};
 
-//     Block *entryBlock = newFuncOp.addEntryBlock();
+class AccessOpLowering : public ConversionPattern {
+public:
+  explicit AccessOpLowering(MLIRContext *context)
+      : ConversionPattern(stencil::AccessOp::getOperationName(), 1, context) {}
 
-//     for (int i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
-//       if (stencil::StencilDialect::isStencilFunction(funcOp)) {
-//         funcOp.getArgument(i)->replaceAllUsesWith(
-//             entryBlock->getArgument(i * 4));
-//       } else {
-//         funcOp.getArgument(i)->replaceAllUsesWith(entryBlock->getArgument(i));
-//       }
-//     }
-//     auto &operations =
-//         funcOp.getOperation()->getRegion(0).front().getOperations();
-//     entryBlock->getOperations().splice(entryBlock->begin(), operations);
+  PatternMatchResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto accessOp = cast<stencil::AccessOp>(operation);
 
-//     rewriter.eraseOp(operation);
+    // Get the affine loops
+    AffineForOp kLoop = operation->getParentOfType<AffineForOp>();
+    if (!kLoop) {
+      operation->emitError("kLoop not found");
+      return matchFailure();
+    }
+    AffineForOp jLoop = kLoop.getOperation()->getParentOfType<AffineForOp>();
+    if (!jLoop) {
+      operation->emitError("jLoop not found");
+      return matchFailure();
+    }
+    AffineForOp iLoop = jLoop.getOperation()->getParentOfType<AffineForOp>();
+    if (!iLoop) {
+      operation->emitError("iLoop not found");
+      return matchFailure();
+    }
 
-//     return matchSuccess();
-//   }
-// };
+    // Compute the access offsets
+    auto addExpr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+    auto addMap = AffineMap::get(2, 0, addExpr);
+    auto accessOffset = accessOp.getOffset();
+    SmallVector<Value *, 3> loadOffset;
+    SmallVector<Value *, 3> loopIVs = {iLoop.getInductionVar(),
+                                       jLoop.getInductionVar(),
+                                       kLoop.getInductionVar()};
+    for (int i = 0, e = accessOffset.size(); i != e; ++i) {
+      auto constantOp = rewriter.create<ConstantIndexOp>(loc, accessOffset[i]);
+      auto affineApplyOp = rewriter.create<AffineApplyOp>(
+          loc, addMap,
+          llvm::makeArrayRef({loopIVs[i], constantOp.getResult()}));
+      loadOffset.push_back(affineApplyOp.getResult());
+    }
 
-// class LoadOpLowering : public ConversionPattern {
-// public:
-//   explicit LoadOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::LoadOp::getOperationName(), 1, context) {}
+    // Replace the access op by a load op
+    rewriter.replaceOpWithNewOp<AffineLoadOp>(operation, accessOp.view(),
+                                              loadOffset);
 
-//   PatternMatchResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     stencil::ViewType viewType =
-//         cast<stencil::LoadOp>(operation).getResultViewType();
-//     rewriter.replaceOpWithNewOp<MemRefCastOp>(
-//         operation, operands[0],
-//         MemRefType::get(viewType.getShape(), viewType.getElementType()));
-
-//     return matchSuccess();
-//   }
-// };
-
-// class AccessOpLowering : public ConversionPattern {
-// public:
-//   explicit AccessOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::AccessOp::getOperationName(), 1, context)
-//       {}
-
-//   PatternMatchResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto loc = operation->getLoc();
-//     auto accessOp = cast<stencil::AccessOp>(operation);
-
-//     FuncOp funcOp = operation->getParentOfType<FuncOp>();
-//     if (!funcOp) {
-//       operation->emitError("expected parent function operation");
-//       return matchFailure();
-//     }
-
-//     // Assume that the view is always a function argument
-//     auto viewOperandIterator = llvm::find(funcOp.getArguments(),
-//     operands[0]); size_t viewOperandPosition =
-//         std::distance(funcOp.getArguments().begin(), viewOperandIterator);
-
-//     // AccessOp can only appear in a stencil.function
-//     Value *iVal = funcOp.getArgument(viewOperandPosition + 1);
-//     Value *jVal = funcOp.getArgument(viewOperandPosition + 2);
-//     Value *kVal = funcOp.getArgument(viewOperandPosition + 3);
-
-//     ArrayRef<int64_t> offset = accessOp.getOffset();
-//     auto iOffset = rewriter.create<ConstantIndexOp>(loc,
-//     offset[0]).getResult(); auto jOffset =
-//     rewriter.create<ConstantIndexOp>(loc, offset[1]).getResult(); auto
-//     kOffset = rewriter.create<ConstantIndexOp>(loc, offset[2]).getResult();
-
-//     AffineExpr addOffsetExpr =
-//         rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-//     auto addOffsetMap = AffineMap::get(2, 0, addOffsetExpr);
-
-//     auto i = rewriter
-//                  .create<AffineApplyOp>(operation->getLoc(), addOffsetMap,
-//                                         llvm::makeArrayRef({iVal, iOffset}))
-//                  .getResult();
-//     auto j = rewriter
-//                  .create<AffineApplyOp>(operation->getLoc(), addOffsetMap,
-//                                         llvm::makeArrayRef({jVal, jOffset}))
-//                  .getResult();
-//     auto k = rewriter
-//                  .create<AffineApplyOp>(operation->getLoc(), addOffsetMap,
-//                                         llvm::makeArrayRef({kVal, kOffset}))
-//                  .getResult();
-
-//     rewriter.replaceOpWithNewOp<LoadOp>(operation, operands[0],
-//                                         llvm::makeArrayRef({i, j, k}));
-
-//     return matchSuccess();
-//   }
-// };
-
-// class ApplyOpLowering : public ConversionPattern {
-// public:
-//   explicit ApplyOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::ApplyOp::getOperationName(), 1, context)
-//       {}
-
-//   PatternMatchResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto loc = operation->getLoc();
-//     auto applyOp = cast<stencil::ApplyOp>(operation);
-
-//     // The apply operation should have an 'offsets' attribute that was
-//     computed
-//     // by the shape inference pass
-//     auto offsetsAttr = applyOp.getAttrOfType<ArrayAttr>("offsets");
-//     if (!offsetsAttr) {
-//       operation->emitError("expected 'offsets' attribute");
-//       return matchFailure();
-//     }
-//     SmallVector<DictionaryAttr, 3> offsets;
-//     for (auto attr : offsetsAttr.getValue()) {
-//       offsets.push_back(attr.cast<DictionaryAttr>());
-//     }
-
-//     // The loop bounds are given by the shape of the resulting view
-//     stencil::ViewType resultViewType = applyOp.getResultViewType();
-//     ArrayRef<int64_t> resultViewShape = resultViewType.getShape();
-
-//     auto operandView =
-//         rewriter
-//             .create<AllocOp>(loc,
-//                              MemRefType::get(resultViewShape,
-//                                              resultViewType.getElementType()))
-//             .getResult();
-
-//     auto jLoop = rewriter.create<AffineForOp>(loc, 0, resultViewShape[1]);
-//     rewriter.setInsertionPointToStart(jLoop.getBody());
-//     auto iLoop = rewriter.create<AffineForOp>(loc, 0, resultViewShape[0]);
-//     rewriter.setInsertionPointToStart(iLoop.getBody());
-//     auto kLoop = rewriter.create<AffineForOp>(loc, 0, resultViewShape[2]);
-//     rewriter.setInsertionPointToStart(kLoop.getBody());
-
-//     AffineExpr addOffsetExpr =
-//         rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-//     auto addOffsetMap = AffineMap::get(2, 0, addOffsetExpr);
-
-//     SmallVector<Value *, 12> callOperands;
-//     for (int operand = 0, e = applyOp.getNumOperands(); operand < e;
-//          ++operand) {
-//       // Cast away the static size
-//       SmallVector<int64_t, 3> dynamicShape(resultViewType.getShape().size(),
-//                                            -1);
-//       auto dynamicSizeOperand =
-//           rewriter
-//               .create<MemRefCastOp>(
-//                   loc, applyOp.getOperand(operand),
-//                   MemRefType::get(dynamicShape,
-//                                   resultViewType.getElementType()))
-//               .getResult();
-//       callOperands.push_back(dynamicSizeOperand);
-
-//       DictionaryAttr operandOffsets = offsets[operand];
-//       auto iOffsetAttr = operandOffsets.get("ioffset").cast<IntegerAttr>();
-//       auto iOffset = rewriter.create<ConstantIndexOp>(loc,
-//       iOffsetAttr.getInt())
-//                          .getResult();
-//       auto jOffsetAttr = operandOffsets.get("joffset").cast<IntegerAttr>();
-//       auto jOffset = rewriter.create<ConstantIndexOp>(loc,
-//       jOffsetAttr.getInt())
-//                          .getResult();
-//       auto kOffsetAttr = operandOffsets.get("koffset").cast<IntegerAttr>();
-//       auto kOffset = rewriter.create<ConstantIndexOp>(loc,
-//       kOffsetAttr.getInt())
-//                          .getResult();
-
-//       auto i = rewriter.create<AffineApplyOp>(
-//           loc, addOffsetMap,
-//           llvm::makeArrayRef({iLoop.getInductionVar(), iOffset}));
-//       auto j = rewriter.create<AffineApplyOp>(
-//           loc, addOffsetMap,
-//           llvm::makeArrayRef({jLoop.getInductionVar(), jOffset}));
-//       auto k = rewriter.create<AffineApplyOp>(
-//           loc, addOffsetMap,
-//           llvm::makeArrayRef({kLoop.getInductionVar(), kOffset}));
-
-//       callOperands.push_back(i);
-//       callOperands.push_back(j);
-//       callOperands.push_back(k);
-//     }
-
-//     auto callOp =
-//         rewriter.create<CallOp>(loc, applyOp.getCallee(), callOperands);
-
-//     auto i = iLoop.getInductionVar();
-//     auto j = jLoop.getInductionVar();
-//     auto k = kLoop.getInductionVar();
-//     rewriter.create<StoreOp>(loc, callOp.getResult(0), operandView,
-//                              llvm::makeArrayRef({i, j, k}));
-
-//     rewriter.replaceOp(operation, operandView);
-
-//     return matchSuccess();
-//   }
-// };
+    return matchSuccess();
+  }
+};
 
 // class StoreOpLowering : public ConversionPattern {
 // public:
@@ -437,19 +302,6 @@ public:
 //     return matchSuccess();
 //   }
 // };
-
-class AssertOpLowering : public ConversionPattern {
-public:
-  explicit AssertOpLowering(MLIRContext *context)
-      : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context) {}
-
-  PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.eraseOp(operation);
-    return matchSuccess();
-  }
-};
 
 //===----------------------------------------------------------------------===//
 // Conversion Target
@@ -498,7 +350,8 @@ void StencilToStandardPass::runOnModule() {
 
 void mlir::populateStencilToStandardConversionPatterns(
     mlir::OwningRewritePatternList &patterns, mlir::MLIRContext *ctx) {
-  patterns.insert<FuncOpLowering, AssertOpLowering>(ctx);
+  patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
+                  ApplyOpLowering, AccessOpLowering, ReturnOpLowering>(ctx);
 }
 
 std::unique_ptr<OpPassBase<ModuleOp>>
