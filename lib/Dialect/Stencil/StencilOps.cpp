@@ -429,7 +429,7 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::ApplyOp::build(Builder *builder, OperationState &result,
-                             Block *body, ArrayRef<Value> operands) {
+                             Block *body, ValueRange operands) {
   result.addOperands(operands);
 
   // Check the arguments and extract the return types
@@ -578,7 +578,7 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
 void stencil::CallOp::build(Builder *builder, OperationState &result,
                             FuncOp callee, stencil::ViewType viewType,
                             ArrayRef<int64_t> offset,
-                            ArrayRef<Value> operands) {
+                            ValueRange operands) {
   assert(offset.size() == 3 && "expected offset with 3 elements");
   assert(
       callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()) &&

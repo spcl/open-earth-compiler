@@ -158,7 +158,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
 
   let builders = [
     OpBuilder<"Builder *builder, OperationState &result,"
-              "Block *body, ArrayRef<Value> operands = {}">];
+              "Block *body, ValueRange operands">];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -203,7 +203,7 @@ def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
   let builders = [
     OpBuilder<"Builder *builder, OperationState &result, FuncOp callee,"
               "stencil::ViewType viewType, ArrayRef<int64_t> offset,"
-              "ArrayRef<Value> operands = {}">];
+              "ValueRange operands">];
 
   let extraClassDeclaration = [{
     stencil::ViewType getResultViewType() {
