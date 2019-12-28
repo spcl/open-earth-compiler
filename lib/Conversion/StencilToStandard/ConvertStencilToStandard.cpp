@@ -21,7 +21,9 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include <bits/stdint-intn.h>
 #include <cstddef>
 //#include <bits/stdint-intn.h>
 
@@ -31,22 +33,42 @@ namespace {
 
 // Helper method getting the parent loop nest
 SmallVector<AffineForOp, 3> getLoopNest(Operation *operation) {
-  AffineForOp iLoop = operation->getParentOfType<AffineForOp>();
-  if (!iLoop) {
-    operation->emitError("iLoop not found");
-    return {};
+  SmallVector<AffineForOp, 3> result;
+  Operation *current = operation;
+  while (AffineForOp loop = current->getParentOfType<AffineForOp>()) {
+    current = loop.getOperation();
+    result.push_back(loop);
   }
-  AffineForOp jLoop = iLoop.getOperation()->getParentOfType<AffineForOp>();
-  if (!jLoop) {
-    operation->emitError("jLoop not found");
-    return {};
-  }
-  AffineForOp kLoop = jLoop.getOperation()->getParentOfType<AffineForOp>();
-  if (!kLoop) {
-    operation->emitError("kLoop not found");
-    return {};
-  }
-  return {iLoop, jLoop, kLoop};
+  return result;
+}
+
+// Helper method computing a memref type
+MemRefType getMemRefType(ArrayRef<int64_t> lb, ArrayRef<int64_t> ub,
+                         Type elementType, MLIRContext *context) {
+  assert(lb.size() == ub.size() && "expected bounds to have the same size");
+  assert(lb.size() >= 1 && "expected bounds to have at least one dimension");
+
+  // Compute the array shape
+  SmallVector<int64_t, 3> shape(lb.size());
+  llvm::transform(llvm::zip(ub, lb), shape.begin(),
+                  [](std::tuple<int64_t, int64_t> x) {
+                    return std::get<0>(x) - std::get<1>(x);
+                  });
+
+  // Compute strides
+  SmallVector<int64_t, 3> strides(lb.size());
+  strides[0] = 1;
+  for (size_t i = 1, e = strides.size(); i != e; ++i)
+    strides[i] = strides[i - 1] * shape[i - 1];
+
+  // Compute offset
+  int64_t offset = 0;
+  for (size_t i = 0, e = strides.size(); i != e; ++i)
+    offset += strides[i] * -lb[i];
+
+  // Compute an index map that indexes starting from the origin
+  AffineMap indexMap = makeStridedLinearLayoutMap(strides, offset, context);
+  return MemRefType::get(shape, elementType, indexMap, 0);
 }
 
 //===----------------------------------------------------------------------===//
@@ -79,14 +101,10 @@ public:
         Type inputType = NoneType();
         for (auto &use : argument->getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
-            SmallVector<int64_t, 3> shape = {0, 0, 0};
-            llvm::transform(llvm::zip(assertOp.getUB(), assertOp.getLB()),
-                            shape.begin(), [](std::tuple<int64_t, int64_t> x) {
-                              return std::get<0>(x) - std::get<1>(x);
-                            });
             Type elementType =
                 argType.cast<stencil::FieldType>().getElementType();
-            inputType = MemRefType::get(shape, elementType);
+            inputType = getMemRefType(assertOp.getLB(), assertOp.getUB(),
+                                      elementType, assertOp.getContext());
             break;
           }
         }
@@ -106,11 +124,10 @@ public:
 
     // Compute replacement function
     auto replacementType = rewriter.getFunctionType(inputTypes, {});
+    auto replacementSymbol =
+        funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     auto replacementOp = rewriter.create<FuncOp>(
-        loc,
-        funcOp.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName())
-            .getValue(),
-        replacementType, llvm::None);
+        loc, replacementSymbol.getValue(), replacementType, llvm::None);
 
     // Replace the function body
     Block *entryBlock = replacementOp.addEntryBlock();
@@ -217,15 +234,11 @@ public:
     auto ub = applyOp.getUB();
 
     // Allocate and deallocate storage for every output
-    SmallVector<int64_t, 3> shape = {0, 0, 0};
-    llvm::transform(llvm::zip(ub, lb), shape.begin(),
-                    [](std::tuple<int64_t, int64_t> x) {
-                      return std::get<0>(x) - std::get<1>(x);
-                    });
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      auto viewType = applyOp.getResult(i)->getType().cast<stencil::ViewType>();
+      auto Type = applyOp.getResult(i)->getType();
+      auto elementType = Type.cast<stencil::ViewType>().getElementType();
       auto allocOp = rewriter.create<AllocOp>(
-          loc, MemRefType::get(shape, viewType.getElementType()));
+          loc, getMemRefType(lb, ub, elementType, applyOp.getContext()));
       applyOp.getResult(i)->replaceAllUsesWith(allocOp.getResult());
       auto returnOp = allocOp.getParentRegion()->back().getTerminator();
       rewriter.setInsertionPoint(returnOp);
@@ -234,19 +247,20 @@ public:
     }
 
     // Generate the apply loop nest
-    auto kLoop = rewriter.create<AffineForOp>(loc, lb[2], ub[2]);
-    rewriter.setInsertionPointToStart(kLoop.getBody());
-    auto jLoop = rewriter.create<AffineForOp>(loc, lb[1], ub[1]);
-    rewriter.setInsertionPointToStart(jLoop.getBody());
-    auto iLoop = rewriter.create<AffineForOp>(loc, lb[0], ub[0]);
-    rewriter.setInsertionPointToStart(iLoop.getBody());
+    assert(lb.size() == ub.size() && "expected bounds to have the same size");
+    assert(lb.size() >= 1 && "expected bounds to at least one dimension");
+    AffineForOp loop;
+    for (size_t i = 0, e = lb.size(); i != e; ++i) {
+      loop = rewriter.create<AffineForOp>(loc, lb.rbegin()[i], ub.rbegin()[i]);
+      rewriter.setInsertionPointToStart(loop.getBody());
+    }
 
     // Forward the apply operands and copy the body
     for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
       applyOp.getBody()->getArgument(i)->replaceAllUsesWith(
           applyOp.getOperand(i));
     }
-    Block *entryBlock = iLoop.getBody();
+    Block *entryBlock = loop.getBody();
     auto &operations = applyOp.getBody()->getOperations();
     entryBlock->getOperations().splice(entryBlock->begin(), operations);
     rewriter.eraseOp(operation);
@@ -274,6 +288,8 @@ public:
     });
     if (loops.empty())
       return matchFailure();
+    assert(loops.size() == accessOp.getOffset().size() &&
+           "expected loop nest and access offset to have the same size");
 
     // Compute the access offsets
     auto addExpr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
