@@ -40,8 +40,8 @@ void inlineCalls(stencil::CallOp callOp) {
 
   // Replace the arguments of the clone with the call op operands
   for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
-    Value *argument = funcOp.getArgument(i);
-    Value *replacement = callOp.getOperand(i);
+    Value argument = funcOp.getArgument(i);
+    Value replacement = callOp.getOperand(i);
     argument->replaceAllUsesWith(replacement);
   }
 
@@ -55,8 +55,8 @@ void inlineCalls(stencil::CallOp callOp) {
   // Remove the return op
   ReturnOp returnOp = cast<ReturnOp>(*std::prev(Block::iterator(callOp)));
   assert(returnOp.getNumOperands() == 1);
-  Value *result = returnOp.getOperand(0);
-  Value *old = callOp.getResult();
+  Value result = returnOp.getOperand(0);
+  Value old = callOp.getResult();
   old->replaceAllUsesWith(result);
 
   // Remove the call and the return operations

@@ -17,7 +17,7 @@ def Stencil_AssertOp : Stencil_Op<"assert", [NoSideEffect]> {
 
   let arguments = (ins Stencil_Field:$field, I64ArrayAttr:$lb, I64ArrayAttr:$ub);
 
-  let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
+  let builders = [OpBuilder<"Builder *, OperationState &, Value,"
                             "ArrayRef<int64_t>, ArrayRef<int64_t>">];
 
   let extraClassDeclaration = [{
@@ -48,7 +48,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   let arguments = (ins Stencil_View:$view, I64ArrayAttr:$offset);
   let results = (outs Stencil_ElementType:$res);
 
-  let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
+  let builders = [OpBuilder<"Builder *, OperationState &, Value,"
                             "ArrayRef<int64_t>">];
 
   let extraClassDeclaration = [{
@@ -74,7 +74,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
                         OptionalAttr<I64ArrayAttr>:$ub);
   let results = (outs Stencil_View:$res);
 
-  let builders = [OpBuilder<"Builder *, OperationState &, Value *">];
+  let builders = [OpBuilder<"Builder *, OperationState &, Value">];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -113,8 +113,8 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
                         I64ArrayAttr:$lb, I64ArrayAttr:$ub);
   let results = (outs);
 
-  let builders = [OpBuilder<"Builder *, OperationState &, Value *,"
-                            "Value *, ArrayRef<int64_t>, ArrayRef<int64_t>">];
+  let builders = [OpBuilder<"Builder *, OperationState &, Value,"
+                            "Value, ArrayRef<int64_t>, ArrayRef<int64_t>">];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -158,7 +158,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
 
   let builders = [
     OpBuilder<"Builder *builder, OperationState &result,"
-              "Block *body, ArrayRef<Value *> operands = {}">];
+              "Block *body, ArrayRef<Value> operands = {}">];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -203,7 +203,7 @@ def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
   let builders = [
     OpBuilder<"Builder *builder, OperationState &result, FuncOp callee,"
               "stencil::ViewType viewType, ArrayRef<int64_t> offset,"
-              "ArrayRef<Value *> operands = {}">];
+              "ArrayRef<Value> operands = {}">];
 
   let extraClassDeclaration = [{
     stencil::ViewType getResultViewType() {

@@ -59,7 +59,7 @@ public:
       : ConversionPattern(FuncOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto funcOp = cast<FuncOp>(operation);
@@ -133,7 +133,7 @@ public:
       : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.eraseOp(operation);
     return matchSuccess();
@@ -146,7 +146,7 @@ public:
       : ConversionPattern(stencil::LoadOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     // Remove the operation and replace the result with the field operand
     operation->getOpResult(0).replaceAllUsesWith(
@@ -162,14 +162,14 @@ public:
       : ConversionPattern(stencil::ReturnOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto returnOp = cast<stencil::ReturnOp>(operation);
 
     // Get the affine loops
     SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
-    SmallVector<Value *, 3> loopIVs(loops.size(), nullptr);
+    SmallVector<Value, 3> loopIVs(loops.size(), nullptr);
     llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
       return affineForOp.getInductionVar();
     });
@@ -185,7 +185,7 @@ public:
       assert(dyn_cast<AllocOp>(currentOp) &&
              "failed to find allocation for results");
     }
-    SmallVector<Value *, 10> allocVals(allocOps.size(), nullptr);
+    SmallVector<Value, 10> allocVals(allocOps.size());
     llvm::transform(llvm::reverse(allocOps), allocVals.begin(),
                     [](Operation *allocOp) { return allocOp->getResult(0); });
 
@@ -205,7 +205,7 @@ public:
       : ConversionPattern(stencil::ApplyOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto applyOp = cast<stencil::ApplyOp>(operation);
@@ -230,7 +230,7 @@ public:
       auto returnOp = allocOp.getParentRegion()->back().getTerminator();
       rewriter.setInsertionPoint(returnOp);
       rewriter.create<DeallocOp>(loc, allocOp.getResult());
-      rewriter.setInsertionPointAfter(allocOp);      
+      rewriter.setInsertionPointAfter(allocOp);
     }
 
     // Generate the apply loop nest
@@ -261,14 +261,14 @@ public:
       : ConversionPattern(stencil::AccessOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto accessOp = cast<stencil::AccessOp>(operation);
 
     // Get the affine loops
     SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
-    SmallVector<Value *, 3> loopIVs(loops.size(), nullptr);
+    SmallVector<Value, 3> loopIVs(loops.size());
     llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
       return affineForOp.getInductionVar();
     });
@@ -279,12 +279,12 @@ public:
     auto addExpr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
     auto addMap = AffineMap::get(2, 0, addExpr);
     auto accessOffset = accessOp.getOffset();
-    SmallVector<Value *, 3> loadOffset;
+    SmallVector<Value, 3> loadOffset;
     for (size_t i = 0, e = accessOffset.size(); i != e; ++i) {
       auto constantOp = rewriter.create<ConstantIndexOp>(loc, accessOffset[i]);
-      auto affineApplyOp = rewriter.create<AffineApplyOp>(
-          loc, addMap,
-          llvm::makeArrayRef({loopIVs[i], constantOp.getResult()}));
+      ValueRange addParams = {loopIVs[i], constantOp.getResult()};
+      auto affineApplyOp =
+          rewriter.create<AffineApplyOp>(loc, addMap, addParams);
       loadOffset.push_back(affineApplyOp.getResult());
     }
 
@@ -302,15 +302,15 @@ public:
       : ConversionPattern(stencil::StoreOp::getOperationName(), 1, context) {}
 
   PatternMatchResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value *> operands,
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto storeOp = cast<stencil::StoreOp>(operation);
 
     // Remove allocation and deallocation
     rewriter.eraseOp(storeOp.view()->getDefiningOp());
-    for(auto &use : storeOp.view()->getUses()) {
-      if(auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
+    for (auto &use : storeOp.view()->getUses()) {
+      if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
         rewriter.eraseOp(deallocOp);
     }
 

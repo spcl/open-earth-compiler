@@ -34,7 +34,7 @@ public:
     op->walk([&](stencil::ApplyOp applyOp) {
       auto operation = applyOp.getOperation();
       // Compute mapping between operands and block arguments
-      llvm::DenseMap<Value *, Value *> argumentsToOperands;
+      llvm::DenseMap<Value, Value> argumentsToOperands;
       for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
         argumentsToOperands[applyOp.getBody()->getArgument(i)] =
             applyOp.operands()[i];
@@ -63,7 +63,7 @@ public:
     });
   }
 
-  const Extent *lookupExtent(Operation *op, Value *value) const {
+  const Extent *lookupExtent(Operation *op, Value value) const {
     auto operation = extents.find(op);
     if (operation == extents.end())
       return nullptr;
@@ -74,7 +74,7 @@ public:
   }
 
 private:
-  llvm::DenseMap<Operation *, llvm::DenseMap<Value *, Extent>> extents;
+  llvm::DenseMap<Operation*, llvm::DenseMap<Value, Extent>> extents;
 };
 
 struct ShapeInferencePass : public FunctionPass<ShapeInferencePass> {

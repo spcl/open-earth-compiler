@@ -26,7 +26,7 @@ using namespace mlir;
 //===----------------------------------------------------------------------===//
 
 void stencil::AssertOp::build(Builder *builder, OperationState &state,
-                              Value *field, ArrayRef<int64_t> lb,
+                              Value field, ArrayRef<int64_t> lb,
                               ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
   assert(lb.size() == 3 && ub.size() == 3 && "expected bounds with 3 elements");
@@ -68,7 +68,7 @@ static ParseResult parseAssertOp(OpAsmParser &parser, OperationState &state) {
 }
 
 static void print(stencil::AssertOp assertOp, OpAsmPrinter &printer) {
-  Value *field = assertOp.field();
+  Value field = assertOp.field();
   ArrayAttr lb = assertOp.lb();
   ArrayAttr ub = assertOp.ub();
 
@@ -142,7 +142,7 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::AccessOp::build(Builder *builder, OperationState &state,
-                              Value *view, ArrayRef<int64_t> offset) {
+                              Value view, ArrayRef<int64_t> offset) {
   // Make sure that the offset has the right size
   assert(offset.size() == 3 && "expected offset with 3 elements");
 
@@ -190,7 +190,7 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
 
 static void print(stencil::AccessOp accessOp, OpAsmPrinter &printer) {
   // Use the TableGen'd accessors to operands
-  Value *view = accessOp.view();
+  Value view = accessOp.view();
   Attribute offset = accessOp.offset();
 
   printer << stencil::AccessOp::getOperationName() << ' ' << *view;
@@ -221,7 +221,7 @@ static LogicalResult verify(stencil::AccessOp accessOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::LoadOp::build(Builder *builder, OperationState &state,
-                            Value *field) {
+                            Value field) {
   Type elementType =
       field->getType().cast<stencil::FieldType>().getElementType();
   ArrayRef<int> dimensions =
@@ -268,7 +268,7 @@ static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
 }
 
 static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
-  Value *field = loadOp.field();
+  Value field = loadOp.field();
   Type fieldType = field->getType();
   Type viewType = loadOp.res()->getType();
 
@@ -327,7 +327,7 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::StoreOp::build(Builder *builder, OperationState &state,
-                             Value *view, Value *field, ArrayRef<int64_t> lb,
+                             Value view, Value field, ArrayRef<int64_t> lb,
                              ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
   assert(lb.size() == 3 && ub.size() == 3 && "expected bounds with 3 elements");
@@ -371,8 +371,8 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
 }
 
 static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
-  Value *field = storeOp.field();
-  Value *view = storeOp.view();
+  Value field = storeOp.field();
+  Value view = storeOp.view();
   ArrayAttr lb = storeOp.lb();
   ArrayAttr ub = storeOp.ub();
 
@@ -429,7 +429,7 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::ApplyOp::build(Builder *builder, OperationState &result,
-                             Block *body, ArrayRef<Value *> operands) {
+                             Block *body, ArrayRef<Value> operands) {
   result.addOperands(operands);
 
   // Check the arguments and extract the return types
@@ -578,7 +578,7 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
 void stencil::CallOp::build(Builder *builder, OperationState &result,
                             FuncOp callee, stencil::ViewType viewType,
                             ArrayRef<int64_t> offset,
-                            ArrayRef<Value *> operands) {
+                            ArrayRef<Value> operands) {
   assert(offset.size() == 3 && "expected offset with 3 elements");
   assert(
       callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()) &&
@@ -588,7 +588,7 @@ void stencil::CallOp::build(Builder *builder, OperationState &result,
   assert(callee.getType().getResult(0) == viewType.getElementType() &&
          "incompatible stencil function return type "
          "and view type");
-
+ValueRange test;
   result.addOperands(operands);
   result.addAttribute(getCalleeAttrName(), builder->getSymbolRefAttr(callee));
   result.addAttribute(getOffsetAttrName(), builder->getI64ArrayAttr(offset));
