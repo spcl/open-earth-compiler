@@ -1,3 +1,4 @@
+// RUN: oec-opt %s 
 
 func @lap_stencil(%uin : !stencil.field<ijk,f64>, %mask : !stencil.field<ijk,f64>, %uout : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
