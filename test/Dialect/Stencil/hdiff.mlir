@@ -1,6 +1,6 @@
 // RUN: oec-opt %s 
 
-func @lap_stencil(%uin : !stencil.field<ijk,f64>, %mask : !stencil.field<ijk,f64>, %uout : !stencil.field<ijk,f64>)
+func @hdiff(%uin : !stencil.field<ijk,f64>, %mask : !stencil.field<ijk,f64>, %uout : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
 	stencil.assert %uin ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
   stencil.assert %mask ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>

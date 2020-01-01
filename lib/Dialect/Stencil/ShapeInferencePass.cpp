@@ -8,8 +8,10 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <limits>
@@ -38,27 +40,29 @@ public:
       for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
         argumentsToOperands[applyOp.getBody()->getArgument(i)] =
             applyOp.operands()[i];
-        extents[operation][applyOp.operands()[i]] = {
-            {std::numeric_limits<int64_t>::max(),
-             std::numeric_limits<int64_t>::max(),
-             std::numeric_limits<int64_t>::max()},
-            {std::numeric_limits<int64_t>::min(),
-             std::numeric_limits<int64_t>::min(),
-             std::numeric_limits<int64_t>::min()}};
       }
       // Walk the access ops and update the extent
       applyOp.walk([&](stencil::AccessOp accessOp) {
         auto offset = accessOp.getOffset();
         auto argument = accessOp.getOperand();
-        auto &ext = extents[operation][argumentsToOperands[argument]];
-        llvm::transform(llvm::zip(ext.negative, offset), ext.negative.begin(),
-                        [](std::tuple<int64_t, int64_t> x) {
-                          return std::min(std::get<0>(x), std::get<1>(x));
-                        });
-        llvm::transform(llvm::zip(ext.positive, offset), ext.positive.begin(),
-                        [](std::tuple<int64_t, int64_t> x) {
-                          return std::max(std::get<0>(x), std::get<1>(x));
-                        });
+        if (extents[operation].count(argumentsToOperands[argument]) == 0) {
+          // Initialize the extents with the current offset
+          extents[operation][argumentsToOperands[argument]].negative = offset;
+          extents[operation][argumentsToOperands[argument]].positive = offset;
+        } else {
+          // Extend the extents with the current offset
+          auto &extent = extents[operation][argumentsToOperands[argument]];
+          llvm::transform(llvm::zip(extent.negative, offset),
+                          extent.negative.begin(),
+                          [](std::tuple<int64_t, int64_t> x) {
+                            return std::min(std::get<0>(x), std::get<1>(x));
+                          });
+          llvm::transform(llvm::zip(extent.positive, offset),
+                          extent.positive.begin(),
+                          [](std::tuple<int64_t, int64_t> x) {
+                            return std::max(std::get<0>(x), std::get<1>(x));
+                          });
+        }
       });
     });
   }
@@ -74,7 +78,7 @@ public:
   }
 
 private:
-  llvm::DenseMap<Operation*, llvm::DenseMap<Value, Extent>> extents;
+  llvm::DenseMap<Operation *, llvm::DenseMap<Value, Extent>> extents;
 };
 
 struct ShapeInferencePass : public FunctionPass<ShapeInferencePass> {
@@ -82,9 +86,10 @@ struct ShapeInferencePass : public FunctionPass<ShapeInferencePass> {
 };
 
 /// Extend the loop bounds for the given use
-void extendBounds(OpOperand &use, const AccessExtents &extents,
-                  SmallVector<int64_t, 3> &lower,
-                  SmallVector<int64_t, 3> &upper) {
+LogicalResult extendBounds(Operation *op, OpOperand &use,
+                           const AccessExtents &extents,
+                           SmallVector<int64_t, 3> &lower,
+                           SmallVector<int64_t, 3> &upper) {
   // Copy the bounds of store ops
   if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
     llvm::transform(llvm::zip(lower, storeOp.getLB()), lower.begin(),
@@ -102,7 +107,9 @@ void extendBounds(OpOperand &use, const AccessExtents &extents,
     auto ub = applyOp.getUB();
     // Extend loop bounds by extents
     auto opExtents = extents.lookupExtent(applyOp.getOperation(), use.get());
-    assert(opExtents && "expected valid access extent analysis");
+    if (!opExtents) {
+      return op->emitError("cannot compute valid extents");
+    }
     llvm::transform(llvm::zip(lb, opExtents->negative), lb.begin(),
                     [](std::tuple<int64_t, int64_t> x) {
                       return std::get<0>(x) + std::get<1>(x);
@@ -120,6 +127,7 @@ void extendBounds(OpOperand &use, const AccessExtents &extents,
                       return std::max(std::get<0>(x), std::get<1>(x));
                     });
   }
+  return success();
 }
 
 /// Check if the range is empty
@@ -133,7 +141,8 @@ bool isEmpty(SmallVector<int64_t, 3> lower, SmallVector<int64_t, 3> upper) {
   return false;
 }
 
-bool inferShapes(stencil::ApplyOp applyOp, const AccessExtents &extents) {
+LogicalResult inferShapes(stencil::ApplyOp applyOp,
+                          const AccessExtents &extents) {
   // Initial lower and upper bounds
   SmallVector<int64_t, 3> lower = {std::numeric_limits<int64_t>::max(),
                                    std::numeric_limits<int64_t>::max(),
@@ -141,22 +150,27 @@ bool inferShapes(stencil::ApplyOp applyOp, const AccessExtents &extents) {
   SmallVector<int64_t, 3> upper = {std::numeric_limits<int64_t>::min(),
                                    std::numeric_limits<int64_t>::min(),
                                    std::numeric_limits<int64_t>::min()};
+  // Check the results of the apply op are used
+  if (llvm::all_of(applyOp.getResults(),
+                   [](Value result) { return result->getUses().empty(); }))
+    return applyOp.emitError("failed to find use for apply op");
+
   // Iterate all uses and extend the bounds
   for (auto result : applyOp.getResults()) {
     for (OpOperand &use : result->getUses()) {
-      extendBounds(use, extents, lower, upper);
+      if (failed(
+              extendBounds(applyOp.getOperation(), use, extents, lower, upper)))
+        return failure();
     }
   }
-  if (isEmpty(lower, upper)) {
-    applyOp.emitError("failed to derive non empty bounds");
-    return false;
-  }
+  assert(!isEmpty(lower, upper) && "failed to derive valid bounds");
   applyOp.setLB(lower);
   applyOp.setUB(upper);
-  return true;
+  return success();
 }
 
-bool inferShapes(stencil::LoadOp loadOp, const AccessExtents &extents) {
+LogicalResult inferShapes(stencil::LoadOp loadOp,
+                          const AccessExtents &extents) {
   // Initial lower and upper bounds
   SmallVector<int64_t, 3> lower = {std::numeric_limits<int64_t>::max(),
                                    std::numeric_limits<int64_t>::max(),
@@ -164,17 +178,51 @@ bool inferShapes(stencil::LoadOp loadOp, const AccessExtents &extents) {
   SmallVector<int64_t, 3> upper = {std::numeric_limits<int64_t>::min(),
                                    std::numeric_limits<int64_t>::min(),
                                    std::numeric_limits<int64_t>::min()};
+  // Check the result of the load op is used
+  if (loadOp.getResult()->getUses().empty())
+    return loadOp.emitError("failed to find use for load op");
+
   // Iterate all uses and extend the bounds
   for (OpOperand &use : loadOp.getResult()->getUses()) {
-    extendBounds(use, extents, lower, upper);
+    if (failed(extendBounds(loadOp.getOperation(), use, extents, lower, upper)))
+      return failure();
   }
-  if (isEmpty(lower, upper)) {
-    loadOp.emitError("failed to derive non empty bounds");
-    return false;
-  }
+  assert(!isEmpty(lower, upper) && "failed to derive valid bounds");
   loadOp.setLB(lower);
   loadOp.setUB(upper);
-  return true;
+  return success();
+}
+
+LogicalResult assertShape(stencil::AssertOp assertOp,
+                          const AccessExtents &extents) {
+  // Helper lambda to check bounds
+  auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
+                          const SmallVector<int64_t, 3> &ub) {
+    if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
+                     [](std::tuple<int64_t, int64_t> x) {
+                       return std::get<0>(x) < std::get<1>(x);
+                     }) ||
+        llvm::any_of(llvm::zip(ub, assertOp.getUB()),
+                     [](std::tuple<int64_t, int64_t> x) {
+                       return std::get<0>(x) > std::get<1>(x);
+                     }))
+      return false;
+    return true;
+  };
+
+  // Verify for every use that the access bounds fit the field
+  for (OpOperand &use : assertOp.field()->getUses()) {
+    if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
+      if (!verifyBounds(storeOp.getLB(), storeOp.getUB()))
+        return assertOp.emitOpError("inferred shapes too large");
+    }
+    if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
+      if (!verifyBounds(loadOp.getLB(), loadOp.getUB()))
+        return assertOp.emitOpError("inferred shapes too large");
+    }
+  }
+
+  return success();
 }
 
 } // namespace
@@ -193,15 +241,20 @@ void ShapeInferencePass::runOnFunction() {
   Block &entryBlock = funcOp.getOperation()->getRegion(0).front();
   for (auto op = entryBlock.rbegin(); op != entryBlock.rend(); ++op) {
     if (auto applyOp = dyn_cast<stencil::ApplyOp>(*op)) {
-      if (!inferShapes(applyOp, extents))
+      if (failed(inferShapes(applyOp, extents)))
         signalPassFailure();
     }
     if (auto loadOp = dyn_cast<stencil::LoadOp>(*op)) {
-      if (!inferShapes(loadOp, extents))
+      if (failed(inferShapes(loadOp, extents)))
+        signalPassFailure();
+    }
+    if (auto assertOp = dyn_cast<stencil::AssertOp>(*op)) {
+      if (failed(assertShape(assertOp, extents)))
         signalPassFailure();
     }
   }
 }
 
 static PassRegistration<ShapeInferencePass>
-    pass("stencil-shape-inference", "Infer the shapes of views and fields.");
+    pass("stencil-shape-inference",
+         "Infer the shapes of views and fields and shift the access offsets.");
