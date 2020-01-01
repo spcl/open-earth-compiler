@@ -22,7 +22,7 @@ using namespace stencil;
 namespace {
 
 /// This class computes for every stencil apply operand
-/// the minimal bounding box containing all access offsets.
+/// the minimal bounding box containing all access offsets
 class AccessExtents {
   // This struct stores the positive and negative extends
   struct Extent {
@@ -257,4 +257,4 @@ void ShapeInferencePass::runOnFunction() {
 
 static PassRegistration<ShapeInferencePass>
     pass("stencil-shape-inference",
-         "Infer the shapes of views and fields and shift the access offsets.");
+         "Infer the shapes of stencil loads and stencil applies.");

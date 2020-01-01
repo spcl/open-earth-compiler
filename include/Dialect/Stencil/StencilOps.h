@@ -13,7 +13,7 @@ namespace stencil {
 
 namespace {
 /// Helper methods to convert between vectors and attributes
-ArrayAttr convertSmallVectorToArrayAttr(const SmallVector<int64_t, 3> &vector,
+ArrayAttr convertSmallVectorToArrayAttr(ArrayRef<int64_t> vector,
                                         MLIRContext *context) {
   SmallVector<Attribute, 3> result;
   for (int64_t value : vector) {

@@ -56,6 +56,9 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
     SmallVector<int64_t, 3> getOffset() {
       return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), getContext());
     }
+    void setOffset(ArrayRef<int64_t> bound) {
+      setAttr(stencil::AccessOp::getOffsetAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
   }];
 }
 
@@ -87,10 +90,10 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
       assert(ub().hasValue() && "expected ub to have value");
       return convertArrayAttrToSmallVector(ub().getValue(), getContext());
     }
-    void setLB(SmallVector<int64_t, 3> bound) {
+    void setLB(ArrayRef<int64_t> bound) {
       setAttr(stencil::LoadOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
-    void setUB(SmallVector<int64_t, 3> bound) {
+    void setUB(ArrayRef<int64_t> bound) {
       setAttr(stencil::LoadOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::ViewType getResultViewType() {
@@ -171,10 +174,10 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
       assert(ub().hasValue() && "expected ub to have value");
       return convertArrayAttrToSmallVector(ub().getValue(), getContext());
     }
-    void setLB(SmallVector<int64_t, 3> bound) {
+    void setLB(ArrayRef<int64_t> bound) {
       setAttr(stencil::ApplyOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
-    void setUB(SmallVector<int64_t, 3> bound) {
+    void setUB(ArrayRef<int64_t> bound) {
       setAttr(stencil::ApplyOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::ViewType getResultViewType(unsigned i) {
