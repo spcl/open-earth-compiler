@@ -273,8 +273,6 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Type viewType = loadOp.res()->getType();
 
   printer << stencil::LoadOp::getOperationName() << ' ' << *field;
-  assert(loadOp.lb().hasValue() == loadOp.ub().hasValue() &&
-         "expected both bounds have a value");
   if (loadOp.lb().hasValue() && loadOp.ub().hasValue()) {
     printer << " (";
     printer.printAttribute(loadOp.lb().getValue());
@@ -532,8 +530,6 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),
                       /*printEntryBlockArgs=*/false);
-  assert(applyOp.lb().hasValue() == applyOp.ub().hasValue() &&
-         "expected both bounds have a value");
   if (applyOp.lb().hasValue() && applyOp.ub().hasValue()) {
     printer << " to (";
     printer.printAttribute(applyOp.lb().getValue());

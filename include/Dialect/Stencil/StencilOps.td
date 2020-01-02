@@ -29,6 +29,12 @@ def Stencil_AssertOp : Stencil_Op<"assert", [NoSideEffect]> {
     SmallVector<int64_t, 3> getUB() {
       return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
     }
+    void setLB(ArrayRef<int64_t> bound) {
+      setAttr(stencil::AssertOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
+    void setUB(ArrayRef<int64_t> bound) {
+      setAttr(stencil::AssertOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
   }];
 }
 
@@ -127,6 +133,12 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
     }
     SmallVector<int64_t, 3> getUB() {
       return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
+    }
+    void setLB(ArrayRef<int64_t> bound) {
+      setAttr(stencil::StoreOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
+    void setUB(ArrayRef<int64_t> bound) {
+      setAttr(stencil::StoreOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::FieldType getFieldType() {
       return field()->getType().cast<stencil::FieldType>();
