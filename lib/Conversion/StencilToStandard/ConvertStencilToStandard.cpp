@@ -25,7 +25,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
-//#include <bits/stdint-intn.h>
 
 using namespace mlir;
 
@@ -42,33 +41,41 @@ SmallVector<AffineForOp, 3> getLoopNest(Operation *operation) {
   return result;
 }
 
-// Helper method computing a memref type
-MemRefType getMemRefType(ArrayRef<int64_t> lb, ArrayRef<int64_t> ub,
-                         Type elementType, MLIRContext *context) {
-  assert(lb.size() == ub.size() && "expected bounds to have the same size");
-  assert(lb.size() >= 1 && "expected bounds to have at least one dimension");
+// Helper method to check if lower bound is zero
+bool isZero(ArrayRef<int64_t> offset) {
+  return llvm::any_of(offset, [](int64_t x) { return x != 0; });
+}
 
-  // Compute the array shape
-  SmallVector<int64_t, 3> shape(lb.size());
-  llvm::transform(llvm::zip(ub, lb), shape.begin(),
+// Helper method computing the strides given the size
+SmallVector<int64_t, 3> computeStrides(ArrayRef<int64_t> shape) {
+  SmallVector<int64_t, 3> result(shape.size());
+  result[0] = 1;
+  for (size_t i = 1, e = result.size(); i != e; ++i)
+    result[i] = result[i - 1] * shape[i - 1];
+  return result;
+}
+
+// Helper method computing the shape given the range
+SmallVector<int64_t, 3> computeShape(ArrayRef<int64_t> begin,
+                                     ArrayRef<int64_t> end) {
+  assert(begin.size() == end.size() && "expected bounds to have the same size");
+  SmallVector<int64_t, 3> result(begin.size());
+  llvm::transform(llvm::zip(end, begin), result.begin(),
                   [](std::tuple<int64_t, int64_t> x) {
                     return std::get<0>(x) - std::get<1>(x);
                   });
+  return result;
+}
 
-  // Compute strides
-  SmallVector<int64_t, 3> strides(lb.size());
-  strides[0] = 1;
-  for (size_t i = 1, e = strides.size(); i != e; ++i)
-    strides[i] = strides[i - 1] * shape[i - 1];
-
-  // Compute offset
-  int64_t offset = 0;
-  for (size_t i = 0, e = strides.size(); i != e; ++i)
-    offset += strides[i] * -lb[i];
-
-  // Compute an index map that indexes starting from the origin
-  AffineMap indexMap = makeStridedLinearLayoutMap(strides, offset, context);
-  return MemRefType::get(shape, elementType, indexMap, 0);
+// Helper method computing linearizing the offset
+int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
+  assert(offset.size() == strides.size() &&
+         "expected offset and strides to have the same size");
+  int64_t result = 0;
+  for (size_t i = 0, e = strides.size(); i != e; ++i) {
+    result += offset[i] * strides[i];
+  }
+  return result;
 }
 
 //===----------------------------------------------------------------------===//
@@ -101,10 +108,18 @@ public:
         Type inputType = NoneType();
         for (auto &use : argument->getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
+            if (isZero(assertOp.getLB())) {
+              operation->emitError("expected zero lower bound");
+              return matchFailure();
+            }
             Type elementType =
                 argType.cast<stencil::FieldType>().getElementType();
-            inputType = getMemRefType(assertOp.getLB(), assertOp.getUB(),
-                                      elementType, assertOp.getContext());
+            ArrayRef<int64_t> shape = assertOp.getUB();
+            ArrayRef<int64_t> strides = computeStrides(shape);
+            inputType = MemRefType::get(
+                shape, elementType,
+                makeStridedLinearLayoutMap(strides, 0, rewriter.getContext()),
+                0);
             break;
           }
         }
@@ -139,7 +154,6 @@ public:
 
     // Erase the original function op
     rewriter.eraseOp(operation);
-
     return matchSuccess();
   }
 };
@@ -165,9 +179,23 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    // Remove the operation and replace the result with the field operand
-    operation->getOpResult(0).replaceAllUsesWith(
-        operation->getOpOperand(0).get());
+    // Replace the load operation with a memref cast
+    auto loc = operation->getLoc();
+    auto loadOp = cast<stencil::LoadOp>(operation);
+
+    // Compute the replacement type
+    auto inputType = loadOp.field().getType().cast<MemRefType>();
+    Type elementType = inputType.getElementType();
+    ArrayRef<int64_t> shape = computeShape(loadOp.getLB(), loadOp.getUB());
+    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
+    int64_t offset = computeOffset(loadOp.getLB(), strides);
+    auto outputType = MemRefType::get(
+        shape, elementType,
+        makeStridedLinearLayoutMap(strides, offset, rewriter.getContext()), 0);
+
+    // Replace the load op
+    auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
+    operation->getResult(0).replaceAllUsesWith(subViewOp.getResult());
     rewriter.eraseOp(operation);
     return matchSuccess();
   }
@@ -211,7 +239,6 @@ public:
       rewriter.create<AffineStoreOp>(loc, returnOp.getOperand(i), allocVals[i],
                                      loopIVs);
     rewriter.eraseOp(operation);
-
     return matchSuccess();
   }
 };
@@ -227,18 +254,21 @@ public:
     auto loc = operation->getLoc();
     auto applyOp = cast<stencil::ApplyOp>(operation);
 
-    // Get the loop bounds of the apply op
-    assert(applyOp.lb().hasValue() && applyOp.ub().hasValue() &&
-           "expected apply to have valid bounds");
-    auto lb = applyOp.getLB();
-    auto ub = applyOp.getUB();
+    // Verify the the lower bound is zero
+    if (isZero(applyOp.getLB())) {
+      operation->emitError("expected zero lower bound");
+      return matchFailure();
+    }
 
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      auto Type = applyOp.getResult(i)->getType();
-      auto elementType = Type.cast<stencil::ViewType>().getElementType();
-      auto allocOp = rewriter.create<AllocOp>(
-          loc, getMemRefType(lb, ub, elementType, applyOp.getContext()));
+      Type elementType = applyOp.getResultViewType(i).getElementType();
+      ArrayRef<int64_t> shape = applyOp.getUB();
+      ArrayRef<int64_t> strides = computeStrides(shape);
+      auto allocType = MemRefType::get(
+          shape, elementType,
+          makeStridedLinearLayoutMap(strides, 0, rewriter.getContext()), 0);
+      auto allocOp = rewriter.create<AllocOp>(loc, allocType);
       applyOp.getResult(i)->replaceAllUsesWith(allocOp.getResult());
       auto returnOp = allocOp.getParentRegion()->back().getTerminator();
       rewriter.setInsertionPoint(returnOp);
@@ -247,11 +277,11 @@ public:
     }
 
     // Generate the apply loop nest
-    assert(lb.size() == ub.size() && "expected bounds to have the same size");
-    assert(lb.size() >= 1 && "expected bounds to at least one dimension");
+    ArrayRef<int64_t> upper = applyOp.getUB();
+    assert(upper.size() >= 1 && "expected bounds to at least one dimension");
     AffineForOp loop;
-    for (size_t i = 0, e = lb.size(); i != e; ++i) {
-      loop = rewriter.create<AffineForOp>(loc, lb.rbegin()[i], ub.rbegin()[i]);
+    for (size_t i = 0, e = upper.size(); i != e; ++i) {
+      loop = rewriter.create<AffineForOp>(loc, 0, upper.rbegin()[i]);
       rewriter.setInsertionPointToStart(loop.getBody());
     }
 
@@ -264,7 +294,6 @@ public:
     auto &operations = applyOp.getBody()->getOperations();
     entryBlock->getOperations().splice(entryBlock->begin(), operations);
     rewriter.eraseOp(operation);
-
     return matchSuccess();
   }
 };
@@ -307,7 +336,6 @@ public:
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<AffineLoadOp>(operation, accessOp.view(),
                                               loadOffset);
-
     return matchSuccess();
   }
 };
@@ -323,17 +351,28 @@ public:
     auto loc = operation->getLoc();
     auto storeOp = cast<stencil::StoreOp>(operation);
 
-    // Remove allocation and deallocation
-    rewriter.eraseOp(storeOp.view()->getDefiningOp());
+    // Compute the replacement type
+    auto inputType = storeOp.field().getType().cast<MemRefType>();
+    Type elementType = inputType.getElementType();
+    ArrayRef<int64_t> shape = computeShape(storeOp.getLB(), storeOp.getUB());
+    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
+    int64_t offset = computeOffset(storeOp.getLB(), strides);
+    auto outputType = MemRefType::get(
+        shape, elementType,
+        makeStridedLinearLayoutMap(strides, offset, rewriter.getContext()), 0);
+
+    // Remove allocation and deallocation and insert memref cast
+    auto allocOp = storeOp.view()->getDefiningOp();
+    rewriter.setInsertionPoint(allocOp);
+    auto subViewOp =
+        rewriter.create<SubViewOp>(loc, outputType, storeOp.field());
+    allocOp->getResult(0).replaceAllUsesWith(subViewOp.getResult());
+    rewriter.eraseOp(allocOp);
     for (auto &use : storeOp.view()->getUses()) {
       if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
         rewriter.eraseOp(deallocOp);
     }
-
-    // Replace all uses of the temporary storage by the output storage
-    storeOp.view()->replaceAllUsesWith(storeOp.field());
     rewriter.eraseOp(operation);
-
     return matchSuccess();
   }
 };
