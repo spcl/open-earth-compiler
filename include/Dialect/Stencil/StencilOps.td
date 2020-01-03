@@ -5,7 +5,7 @@
 include "Dialect/Stencil/StencilBase.td"
 #endif // STENCIL_BASE
 
-def Stencil_AssertOp : Stencil_Op<"assert", [NoSideEffect]> {
+def Stencil_AssertOp : Stencil_Op<"assert", []> {
   let summary = "view access operation";
   let description = [{
     This operation asserts the size of input fields.
