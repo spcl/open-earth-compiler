@@ -8,6 +8,7 @@
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/Functional.h"
@@ -427,23 +428,18 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::ApplyOp::build(Builder *builder, OperationState &result,
-                             Block *body, ValueRange operands) {
+                             ValueRange operands, ValueRange results) {
   result.addOperands(operands);
 
-  // Check the arguments and extract the return types
-  for (size_t i = 0, e = operands.size(); i != e; ++i)
-    assert(operands[i]->getType() != body->getArgument(i)->getType() &&
-           "expected matching operand and block argument types");
-  stencil::ReturnOp returnOp = cast<stencil::ReturnOp>(body->back());
-  SmallVector<Type, 12> resultTypes;
-  for (auto operandType : returnOp.getOperandTypes()) {
-    resultTypes.push_back(
-        stencil::ViewType::get(builder->getContext(), operandType, {0, 1, 2}));
-  }
+  // Create an empty body
+  result.addRegion();
 
-  // Add the body and set the result types
-  Region *region = result.addRegion();
-  region->push_back(body);
+  // Add result types
+  SmallVector<Type, 3> resultTypes;
+  resultTypes.reserve(results.size());
+  for(auto result : results) {
+    resultTypes.push_back(result.getType());
+  }
   result.addTypes(resultTypes);
 }
 
@@ -667,6 +663,11 @@ static LogicalResult verify(stencil::CallOp callOp) {
 //===----------------------------------------------------------------------===//
 // stencil.return
 //===----------------------------------------------------------------------===//
+
+void stencil::ReturnOp::build(Builder *builder, OperationState &result) {
+  result.addOperands({});
+  result.addTypes({});
+}
 
 static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> operands;
