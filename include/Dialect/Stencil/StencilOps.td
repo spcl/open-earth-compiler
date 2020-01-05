@@ -173,7 +173,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
 
   let builders = [
     OpBuilder<"Builder *builder, OperationState &result,"
-              "Block *body, ValueRange operands">];
+              "ValueRange operands, ValueRange results">];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -255,6 +255,9 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator, HasParent<"ApplyOp">]> 
   }];
 
   let arguments = (ins Variadic<AnyType>:$operands);
+
+  let builders = [
+    OpBuilder<"Builder *builder, OperationState &result">];
 }
 
 #endif // STENCIL_OPS
