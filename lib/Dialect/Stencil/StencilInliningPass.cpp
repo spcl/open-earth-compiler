@@ -34,45 +34,44 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                                     stencil::ApplyOp consumerOp, Value edge,
                                     PatternRewriter &rewriter) const {
     // Computing of producer and consumer arguments to replacement
-    SmallVector<Value, 10> replacementOperands;
-    DenseMap<unsigned, unsigned> consumerArgMapping;
-    DenseMap<unsigned, unsigned> producerArgMapping;
-    unsigned idx = consumerOp.operands().size();
-    for (unsigned i = 0, e = consumerOp.operands().size(); i != e; ++i) {
-      if (consumerOp.getOperand(i) == edge)
-        continue;
-      replacementOperands.push_back(consumerOp.getOperand(i));
-      consumerArgMapping[i] = idx;
-      ++idx;
+    SmallVector<Value, 10> newOperands;
+    DenseMap<unsigned, unsigned> consumerMapping;
+    DenseMap<unsigned, unsigned> producerMapping;
+    unsigned offset = consumerOp.operands().size();
+    unsigned idx = offset;
+    for (unsigned i = 0, e = offset; i != e; ++i) {
+      if (consumerOp.getOperand(i) != edge) {
+        newOperands.push_back(consumerOp.getOperand(i));
+        consumerMapping[i] = idx++;
+      }
     }
     for (unsigned i = 0, e = producerOp.operands().size(); i != e; ++i) {
-      auto iter = llvm::find(replacementOperands, producerOp.getOperand(i));
-      if (iter == replacementOperands.end()) {
-        replacementOperands.push_back(producerOp.getOperand(i));
-        producerArgMapping[i] = idx;
+      auto iter = llvm::find(newOperands, producerOp.getOperand(i));
+      if (iter == newOperands.end()) {
+        newOperands.push_back(producerOp.getOperand(i));
+        producerMapping[i] = idx++;
         ++idx;
       } else {
-        producerArgMapping[i] =
-            std::distance(replacementOperands.begin(), iter);
+        producerMapping[i] = std::distance(newOperands.begin(), iter) + offset;
       }
     }
 
     // Clone the consumer op
     auto loc = consumerOp.getLoc();
     auto replacementOp = rewriter.create<stencil::ApplyOp>(
-        loc, replacementOperands, consumerOp.getResults());
+        loc, newOperands, consumerOp.getResults());
 
     BlockAndValueMapping mapping;
     consumerOp.region().cloneInto(&replacementOp.region(), mapping);
 
     // Add updated argument list at the end
-    for (auto operand : replacementOperands)
+    for (auto operand : newOperands)
       replacementOp.getBody()->addArgument(operand.getType());
 
     // Replace all argument uses with new arguments
     for (unsigned i = 0, e = consumerOp.operands().size(); i != e; ++i) {
-      if (consumerArgMapping.count(i) != 0) {
-        unsigned replacementIdx = consumerArgMapping[i];
+      if (consumerMapping.count(i) != 0) {
+        unsigned replacementIdx = consumerMapping[i];
         replacementOp.getBody()->getArgument(i).replaceAllUsesWith(
             replacementOp.getBody()->getArgument(replacementIdx));
       } else {
@@ -87,12 +86,12 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                i != e; ++i)
             mapper.map(
                 producerOp.getBody()->getArgument(i),
-                replacementOp.getBody()->getArgument(producerArgMapping[i]));
-          
+                replacementOp.getBody()->getArgument(producerMapping[i]));
+
           rewriter.setInsertionPointToStart(replacementOp.getBody());
           for (Operation &op : producerOp.getBody()->getOperations()) {
             auto clone = rewriter.clone(op, mapper);
-            if(auto accessOp = dyn_cast<stencil::AccessOp>(clone)) {
+            if (auto accessOp = dyn_cast<stencil::AccessOp>(clone)) {
               SmallVector<int64_t, 3> sum(offset.size());
               llvm::transform(llvm::zip(offset, accessOp.getOffset()),
                               sum.begin(), [](std::tuple<int64_t, int64_t> x) {
@@ -100,29 +99,34 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                               });
               accessOp.setOffset(sum);
             }
-            if(auto returnOp = dyn_cast<stencil::ReturnOp>(clone)) {
+            if (auto returnOp = dyn_cast<stencil::ReturnOp>(clone)) {
               accessOp.getResult()->replaceAllUsesWith(returnOp.getOperand(0));
               rewriter.eraseOp(returnOp);
               break;
             }
           }
           rewriter.eraseOp(accessOp);
+          rewriter.setInsertionPoint(consumerOp);
         }
       }
     }
+
+    replacementOp.dump();
 
     // Remove the original arguments of the consumer op
     for (unsigned i = 0, e = consumerOp.operands().size(); i != e; ++i)
       replacementOp.getBody()->eraseArgument(0);
 
     // Update the all uses and copy the loop bounds
-    for (size_t i = 0, e = consumerOp.getResults().size(); i != e; ++i) 
+    for (size_t i = 0, e = consumerOp.getResults().size(); i != e; ++i)
       consumerOp.getResult(i).replaceAllUsesWith(replacementOp.getResult(i));
-    
+
+    // TODO make proper use of pattern rewriter (cloneRegionBefore)
+
     // Erase the producer and consumer ops
     // rewriter.eraseOp(producerOp);
     // rewriter.eraseOp(consumerOp);
-    
+
     return matchSuccess();
   }
 
