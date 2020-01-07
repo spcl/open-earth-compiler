@@ -8,6 +8,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/StandardTypes.h"
@@ -32,17 +33,34 @@ namespace {
 struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
-  // TODO support multiple producer consumer edges
+  // Helper method replacing all uses of temporary by inline computation
+  void replaceAccess(stencil::ApplyOp consumerOp, stencil::AccessOp accessOp,
+                     ValueRange producerResults,
+                     ValueRange computedResults) const {
+    for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
+      if (consumerOp.getBody()->getArgument(i) == accessOp.view()) {
+        size_t index = std::distance(
+            producerResults.begin(),
+            llvm::find(producerResults, consumerOp.getOperand(i)));
+        assert(index < computedResults.size() &&
+               "failed to find inlined computation");
+        accessOp.getResult().replaceAllUsesWith(computedResults[index]);
+        break;
+      }
+    }
+  }
+
+  // Helper method inlining the producer computation
   PatternMatchResult inlineProducer(stencil::ApplyOp producerOp,
                                     stencil::ApplyOp consumerOp,
-                                    ArrayRef<Value> edges,
+                                    ValueRange producerResults,
                                     PatternRewriter &rewriter) const {
     // Compute the operand list for the fused apply op and the index mapping
     SmallVector<Value, 10> newOperands;
     SmallVector<int, 10> consumerIdx(consumerOp.operands().size());
     SmallVector<int, 10> producerIdx(producerOp.operands().size());
     llvm::transform(consumerOp.operands(), consumerIdx.begin(), [&](Value x) {
-      if (!llvm::is_contained(edges, x)) {
+      if (!llvm::is_contained(producerResults, x)) {
         newOperands.push_back(x);
         return static_cast<int>(newOperands.size()) - 1;
       }
@@ -91,38 +109,37 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
       }
     }
 
-    // TODO detect handle accesses of the same offset
     // Replace all producer accesses
+    DenseMap<ArrayRef<int64_t>, ValueRange> offsetCache;
     for (auto producerAccessOp : producerAccessOps) {
       // Clone the producer ops
       ArrayRef<int64_t> offset = producerAccessOp.getOffset();
-      rewriter.setInsertionPoint(producerAccessOp);
-      for (Operation &op : producerOp.getBody()->getOperations()) {
-        auto clonedOp = rewriter.clone(op, mapper);
-        // Shift all access ops
-        if (auto accessOp = dyn_cast<stencil::AccessOp>(clonedOp)) {
-          SmallVector<int64_t, 3> sum(offset.size());
-          llvm::transform(llvm::zip(offset, accessOp.getOffset()), sum.begin(),
-                          [](std::tuple<int64_t, int64_t> x) {
-                            return std::get<0>(x) + std::get<1>(x);
-                          });
-          accessOp.setOffset(sum);
-        }
-        // Replaces uses of accessOp with returnOp operand
-        if (auto returnOp = dyn_cast<stencil::ReturnOp>(clonedOp)) {
-          // Identify the producer consumer edge and replace the value
-          for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
-            if (consumerOp.getBody()->getArgument(i) ==
-                producerAccessOp.view()) {
-              size_t resultIdx = std::distance(
-                  edges.begin(), llvm::find(edges, consumerOp.getOperand(i)));
-              assert(resultIdx < returnOp.getNumOperands() &&
-                     "expected resultIdx to be lower than number of operands");
-              producerAccessOp.getResult().replaceAllUsesWith(
-                  returnOp.getOperand(resultIdx));
-            }
+      // Clone the producer into the consumer
+      if (offsetCache.count(offset) != 0) {
+        // Used cached values if possible
+        replaceAccess(consumerOp, producerAccessOp, producerResults,
+                      offsetCache[offset]);
+      } else {
+        // Otherwise clone all operations
+        rewriter.setInsertionPoint(producerAccessOp);
+        for (Operation &op : producerOp.getBody()->getOperations()) {
+          auto clonedOp = rewriter.clone(op, mapper);
+          // Shift all access ops
+          if (auto accessOp = dyn_cast<stencil::AccessOp>(clonedOp)) {
+            SmallVector<int64_t, 3> sum(offset.size());
+            llvm::transform(llvm::zip(offset, accessOp.getOffset()),
+                            sum.begin(), [](std::tuple<int64_t, int64_t> x) {
+                              return std::get<0>(x) + std::get<1>(x);
+                            });
+            accessOp.setOffset(sum);
           }
-          rewriter.eraseOp(returnOp);
+          // Replaces uses of accessOp with returnOp operand
+          if (auto returnOp = dyn_cast<stencil::ReturnOp>(clonedOp)) {
+            replaceAccess(consumerOp, producerAccessOp, producerResults,
+                          returnOp.getOperands());
+            offsetCache[offset] = returnOp.getOperands();
+            rewriter.eraseOp(returnOp);
+          }
         }
       }
       rewriter.eraseOp(producerAccessOp);
@@ -146,21 +163,18 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
               dyn_cast<stencil::ApplyOp>(operand->getDefiningOp())) {
         // Check only one consumer
         bool singleConsumer = true;
-        SmallVector<Value, 3> edges;
-        edges.reserve(producerOp.getNumResults());
         for (auto result : producerOp.getResults()) {
           for (auto user : result.getUsers()) {
-            if (isa<stencil::ApplyOp>(user) &&
-                user != applyOp.getOperation())
+            if (isa<stencil::ApplyOp>(user) && user != applyOp.getOperation())
               singleConsumer = false;
             if (isa<stencil::StoreOp>(user))
               singleConsumer = false;
           }
-          edges.push_back(result);
         }
         // Ready to perform inlining
         if (singleConsumer)
-          return inlineProducer(producerOp, applyOp, edges, rewriter);
+          return inlineProducer(producerOp, applyOp, producerOp.getResults(),
+                                rewriter);
       }
     }
     return matchFailure();
