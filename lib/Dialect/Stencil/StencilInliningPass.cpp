@@ -32,15 +32,17 @@ namespace {
 struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
+  // TODO support multiple producer consumer edges
   PatternMatchResult inlineProducer(stencil::ApplyOp producerOp,
-                                    stencil::ApplyOp consumerOp, Value edge,
+                                    stencil::ApplyOp consumerOp,
+                                    ArrayRef<Value> edges,
                                     PatternRewriter &rewriter) const {
     // Compute the operand list for the fused apply op and the index mapping
     SmallVector<Value, 10> newOperands;
     SmallVector<int, 10> consumerIdx(consumerOp.operands().size());
     SmallVector<int, 10> producerIdx(producerOp.operands().size());
     llvm::transform(consumerOp.operands(), consumerIdx.begin(), [&](Value x) {
-      if (x != edge) {
+      if (!llvm::is_contained(edges, x)) {
         newOperands.push_back(x);
         return static_cast<int>(newOperands.size()) - 1;
       }
@@ -60,7 +62,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
                                                    consumerOp.getResults());
     rewriter.eraseOp(newOp.getBody()->getTerminator());
-    
+
     // Compute the value mapping
     BlockAndValueMapping mapper;
     for (size_t i = 0, e = consumerIdx.size(); i != e; ++i) {
@@ -80,7 +82,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     rewriter.setInsertionPointToStart(newOp.getBody());
     for (Operation &op : consumerOp.getBody()->getOperations()) {
       auto clonedOp = rewriter.clone(op, mapper);
-      // Inline all the accesses of the producer
+      // Inline all producer accesses
       if (auto accessOp = dyn_cast<stencil::AccessOp>(clonedOp)) {
         if (llvm::is_contained(consumerOp.getBody()->getArguments(),
                                clonedOp->getOpOperand(0).get())) {
@@ -89,6 +91,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
       }
     }
 
+    // TODO detect handle accesses of the same offset
     // Replace all producer accesses
     for (auto producerAccessOp : producerAccessOps) {
       // Clone the producer ops
@@ -99,19 +102,29 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
         // Shift all access ops
         if (auto accessOp = dyn_cast<stencil::AccessOp>(clonedOp)) {
           SmallVector<int64_t, 3> sum(offset.size());
-          llvm::transform(llvm::zip(offset, accessOp.getOffset()),
-                          sum.begin(), [](std::tuple<int64_t, int64_t> x) {
+          llvm::transform(llvm::zip(offset, accessOp.getOffset()), sum.begin(),
+                          [](std::tuple<int64_t, int64_t> x) {
                             return std::get<0>(x) + std::get<1>(x);
                           });
           accessOp.setOffset(sum);
         }
         // Replaces uses of accessOp with returnOp operand
         if (auto returnOp = dyn_cast<stencil::ReturnOp>(clonedOp)) {
-          producerAccessOp.getResult().replaceAllUsesWith(
-              returnOp.getOperand(0));
+          // Identify the producer consumer edge and replace the value
+          for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
+            if (consumerOp.getBody()->getArgument(i) ==
+                producerAccessOp.view()) {
+              size_t resultIdx = std::distance(
+                  edges.begin(), llvm::find(edges, consumerOp.getOperand(i)));
+              assert(resultIdx < returnOp.getNumOperands() &&
+                     "expected resultIdx to be lower than number of operands");
+              producerAccessOp.getResult().replaceAllUsesWith(
+                  returnOp.getOperand(resultIdx));
+            }
+          }
           rewriter.eraseOp(returnOp);
         }
-      }    
+      }
       rewriter.eraseOp(producerAccessOp);
     }
 
