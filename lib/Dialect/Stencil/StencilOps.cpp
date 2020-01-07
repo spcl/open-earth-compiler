@@ -432,7 +432,11 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
   result.addOperands(operands);
 
   // Create an empty body
-  result.addRegion();
+  Region *body = result.addRegion();
+  ensureTerminator(*body, *builder, result.location);
+  for(auto operand : operands) {
+    body->front().addArgument(operand->getType());
+  }
 
   // Add result types
   SmallVector<Type, 3> resultTypes;
