@@ -4,18 +4,22 @@
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
+#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/STLExtras.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
@@ -434,14 +438,14 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
   // Create an empty body
   Region *body = result.addRegion();
   ensureTerminator(*body, *builder, result.location);
-  for(auto operand : operands) {
+  for (auto operand : operands) {
     body->front().addArgument(operand->getType());
   }
 
   // Add result types
   SmallVector<Type, 3> resultTypes;
   resultTypes.reserve(results.size());
-  for(auto result : results) {
+  for (auto result : results) {
     resultTypes.push_back(result.getType());
   }
   result.addTypes(resultTypes);
@@ -567,14 +571,69 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
   return success();
 }
 
+namespace {
+/// This is a pattern to remove duplicate arguments
+struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
+  using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
+
+  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                     PatternRewriter &rewriter) const override {
+    // Check if there are duplicates and then remove unnecessary operands
+    DenseSet<Value> operandSet;
+    operandSet.insert(applyOp.operand_begin(), applyOp.operand_end());
+    if (operandSet.size() < applyOp.getNumOperands()) {
+      // Compute the operands
+      SmallVector<Value, 10> newOperands;
+      newOperands.reserve(operandSet.size());
+      for(auto operand : operandSet) {
+        newOperands.push_back(operand);
+      }
+
+      // Create a new apply op
+      auto loc = applyOp.getLoc();
+      auto newOp = rewriter.create<stencil::ApplyOp>(
+          loc, newOperands,
+          applyOp.getResults());
+      rewriter.eraseOp(newOp.getBody()->getTerminator());
+
+      // Compute the new operand mapping
+      BlockAndValueMapping mapper;
+      for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
+        size_t index = std::distance(newOperands.begin(),
+                                     llvm::find(newOperands, applyOp.getOperand(i)));
+        mapper.map(applyOp.getBody()->getArgument(i),
+                   newOp.getBody()->getArgument(index));
+      }
+
+      // Clone the body and at the same time replace all operands
+      rewriter.setInsertionPointToStart(newOp.getBody());
+      for (Operation &op : applyOp.getBody()->getOperations()) {
+        rewriter.clone(op, mapper);
+      }
+
+      // Replace all uses of the applyOp results
+      for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i)
+        applyOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
+      rewriter.eraseOp(applyOp);
+      return matchSuccess();
+    }
+    return matchFailure();
+  }
+};
+} // end anonymous namespace
+
+void stencil::ApplyOp::getCanonicalizationPatterns(
+    OwningRewritePatternList &results, MLIRContext *context) {
+  results.insert<ApplyOpArgCleaner>(context);
+}
+
 //===----------------------------------------------------------------------===//
 // stencil.call
 //===----------------------------------------------------------------------===//
 
 void stencil::CallOp::build(Builder *builder, OperationState &result,
                             FuncOp callee, stencil::ViewType viewType,
-                            ArrayRef<int64_t> offset,
-                            ValueRange operands) {
+                            ArrayRef<int64_t> offset, ValueRange operands) {
   assert(offset.size() == 3 && "expected offset with 3 elements");
   assert(
       callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()) &&
@@ -584,7 +643,7 @@ void stencil::CallOp::build(Builder *builder, OperationState &result,
   assert(callee.getType().getResult(0) == viewType.getElementType() &&
          "incompatible stencil function return type "
          "and view type");
-ValueRange test;
+  ValueRange test;
   result.addOperands(operands);
   result.addAttribute(getCalleeAttrName(), builder->getSymbolRefAttr(callee));
   result.addAttribute(getOffsetAttrName(), builder->getI64ArrayAttr(offset));

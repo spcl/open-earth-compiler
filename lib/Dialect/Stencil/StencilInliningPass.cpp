@@ -30,8 +30,59 @@ using namespace mlir;
 
 namespace {
 
+// Pattern redirecting output edge via consumer
+// (assuming the producer has only a single consumer)
+struct RedirectRewrite : public OpRewritePattern<stencil::ApplyOp> {
+  RedirectRewrite(MLIRContext *context)
+      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
+
+  // Helper method inlining the producer computation
+  PatternMatchResult redirectStore(stencil::ApplyOp producerOp,
+                                   stencil::ApplyOp consumerOp,
+                                   stencil::StoreOp storeOp,
+                                   PatternRewriter &rewriter) const {
+    // Add additional identity node that reads all producer and consumer inputs
+
+    // helper to merge operand lists?
+
+    // Add access the additional parameter and return the result
+
+    return matchFailure();
+  }
+
+  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                     PatternRewriter &rewriter) const override {
+    // Match a producer consumer pair that stores producer outputs
+    for (auto operand : applyOp.operands()) {
+      if (auto producerOp =
+              dyn_cast<stencil::ApplyOp>(operand->getDefiningOp())) {
+        // Check one consumer and output
+        bool singleConsumer = true;
+        Operation *storeOp = nullptr;
+        for (auto result : producerOp.getResults()) {
+          for (auto user : result.getUsers()) {
+            if (isa<stencil::ApplyOp>(user) && user != applyOp.getOperation())
+              singleConsumer = false;
+            if (isa<stencil::StoreOp>(user))
+              storeOp = user;
+          }
+        }
+        // Redirect producer write
+        if (storeOp && singleConsumer) {
+          return redirectStore(producerOp, applyOp,
+                               cast<stencil::StoreOp>(storeOp), rewriter);
+        }
+      }
+    }
+    return matchFailure();
+  }
+};
+
+// Pattern inlining producer into consumer
+// (assuming the producer has only a single consumer)
 struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
-  using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
+  InliningRewrite(MLIRContext *context)
+      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
 
   // Helper method replacing all uses of temporary by inline computation
   void replaceAccess(stencil::ApplyOp consumerOp, stencil::AccessOp accessOp,
@@ -59,21 +110,17 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     SmallVector<Value, 10> newOperands;
     SmallVector<int, 10> consumerIdx(consumerOp.operands().size());
     SmallVector<int, 10> producerIdx(producerOp.operands().size());
-    llvm::transform(consumerOp.operands(), consumerIdx.begin(), [&](Value x) {
-      if (!llvm::is_contained(producerResults, x)) {
-        newOperands.push_back(x);
-        return static_cast<int>(newOperands.size()) - 1;
-      }
-      return -1;
-    });
-    llvm::transform(producerOp.operands(), producerIdx.begin(), [&](Value x) {
+    auto computeIdx = [&](Value x) {
+      if (llvm::is_contained(producerResults, x))
+        return -1;
       auto iter = llvm::find(newOperands, x);
-      if (iter == newOperands.end()) {
-        newOperands.push_back(x);
-        return static_cast<int>(newOperands.size()) - 1;
-      }
-      return static_cast<int>(std::distance(newOperands.begin(), iter));
-    });
+      if (iter != newOperands.end())
+        return static_cast<int>(std::distance(newOperands.begin(), iter));
+      newOperands.push_back(x);
+      return static_cast<int>(newOperands.size()) - 1;
+    };
+    llvm::transform(consumerOp.operands(), consumerIdx.begin(), computeIdx);
+    llvm::transform(producerOp.operands(), producerIdx.begin(), computeIdx);
 
     // Clone the consumer op
     auto loc = consumerOp.getLoc();

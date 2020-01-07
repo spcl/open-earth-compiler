@@ -176,6 +176,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
               "ValueRange operands, ValueRange results">];
 
   let extraClassDeclaration = [{
+    static void getCanonicalizationPatterns(OwningRewritePatternList &results, MLIRContext *context);
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     SmallVector<int64_t, 3> getLB() {
