@@ -146,16 +146,21 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
               dyn_cast<stencil::ApplyOp>(operand->getDefiningOp())) {
         // Check only one consumer
         bool singleConsumer = true;
-        for (auto &use : operand.getUses()) {
-          if (isa<stencil::ApplyOp>(use.getOwner()) &&
-              use.getOwner() != applyOp.getOperation())
-            singleConsumer = false;
-          if (isa<stencil::StoreOp>(use.getOwner()))
-            singleConsumer = false;
+        SmallVector<Value, 3> edges;
+        edges.reserve(producerOp.getNumResults());
+        for (auto result : producerOp.getResults()) {
+          for (auto user : result.getUsers()) {
+            if (isa<stencil::ApplyOp>(user) &&
+                user != applyOp.getOperation())
+              singleConsumer = false;
+            if (isa<stencil::StoreOp>(user))
+              singleConsumer = false;
+          }
+          edges.push_back(result);
         }
         // Ready to perform inlining
-        if (singleConsumer && producerOp.getNumResults() == 1)
-          return inlineProducer(producerOp, applyOp, operand, rewriter);
+        if (singleConsumer)
+          return inlineProducer(producerOp, applyOp, edges, rewriter);
       }
     }
     return matchFailure();
