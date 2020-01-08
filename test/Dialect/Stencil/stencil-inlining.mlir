@@ -118,7 +118,7 @@ func @avoid_redundant(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f
          %8 = addf %6, %7 : f64
          stencil.return %8 : f64
    	} : !stencil.view<ijk,f64>
-// 	stencil.store %1 to %out1 ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  	stencil.store %1 to %out1 ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   	stencil.store %5 to %out2 ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
     return
   }

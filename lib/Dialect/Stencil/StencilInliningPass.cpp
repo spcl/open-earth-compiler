@@ -80,8 +80,8 @@ struct RedirectRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
 // Pattern inlining producer into consumer
 // (assuming the producer has only a single consumer)
-struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
-  InliningRewrite(MLIRContext *context)
+struct ProducerInliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
+  ProducerInliningRewrite(MLIRContext *context)
       : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
 
   // Helper method replacing all uses of temporary by inline computation
@@ -106,91 +106,79 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                                     stencil::ApplyOp consumerOp,
                                     ValueRange producerResults,
                                     PatternRewriter &rewriter) const {
-    // Compute the operand list for the fused apply op and the index mapping
+    // Compute the operand list and an argument mapper befor cloning
+    BlockAndValueMapping mapper;
     SmallVector<Value, 10> newOperands;
-    SmallVector<int, 10> consumerIdx(consumerOp.operands().size());
-    SmallVector<int, 10> producerIdx(producerOp.operands().size());
-    auto computeIdx = [&](Value x) {
-      if (llvm::is_contained(producerResults, x))
-        return -1;
-      auto iter = llvm::find(newOperands, x);
-      if (iter != newOperands.end())
-        return static_cast<int>(std::distance(newOperands.begin(), iter));
-      newOperands.push_back(x);
-      return static_cast<int>(newOperands.size()) - 1;
-    };
-    llvm::transform(consumerOp.operands(), consumerIdx.begin(), computeIdx);
-    llvm::transform(producerOp.operands(), producerIdx.begin(), computeIdx);
+    for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
+      if (llvm::is_contained(producerResults, consumerOp.getOperand(i)))
+        mapper.map(consumerOp.getBody()->getArgument(i),
+                   consumerOp.getBody()->getArgument(i));
+      else
+        newOperands.push_back(consumerOp.getOperand(i));
+    }
+    for (unsigned i = 0, e = producerOp.getNumOperands(); i != e; ++i) {
+      if (!llvm::is_contained(newOperands, producerOp.getOperand(i))) {
+        newOperands.push_back(producerOp.getOperand(i));
+        consumerOp.getBody()->addArgument(producerOp.getOperand(i).getType());
+      }
+    }
 
     // Clone the consumer op
     auto loc = consumerOp.getLoc();
     auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
                                                    consumerOp.getResults());
-    rewriter.eraseOp(newOp.getBody()->getTerminator());
+    rewriter.cloneRegionBefore(consumerOp.region(), newOp.region(),
+                               newOp.region().begin(), mapper);
 
-    // Compute the value mapping
-    BlockAndValueMapping mapper;
-    for (size_t i = 0, e = consumerIdx.size(); i != e; ++i) {
-      if (consumerIdx[i] != -1)
-        mapper.map(consumerOp.getBody()->getArgument(i),
-                   newOp.getBody()->getArgument(consumerIdx[i]));
-    }
-    for (size_t i = 0, e = producerIdx.size(); i != e; ++i) {
-      assert(producerIdx[i] != -1 &&
-             "expected producer arguments to have a valid index");
-      mapper.map(producerOp.getBody()->getArgument(i),
-                 newOp.getBody()->getArgument(producerIdx[i]));
+    // Add mappings for the producer operands
+    for (unsigned i = 0, e = producerOp.getNumOperands(); i != e; ++i) {
+      auto it = llvm::find(newOperands, producerOp.getOperand(i));
+      assert(it != newOperands.end() && "expected to find producer operand");
+      mapper.map(
+          producerOp.getBody()->getArgument(i),
+          newOp.getBody()->getArgument(std::distance(newOperands.begin(), it)));
     }
 
-    // Clone the consumer op and store the producer accesses
-    SmallVector<stencil::AccessOp, 10> producerAccessOps;
-    rewriter.setInsertionPointToStart(newOp.getBody());
-    for (Operation &op : consumerOp.getBody()->getOperations()) {
-      auto clonedOp = rewriter.clone(op, mapper);
-      // Inline all producer accesses
-      if (auto accessOp = dyn_cast<stencil::AccessOp>(clonedOp)) {
-        if (llvm::is_contained(consumerOp.getBody()->getArguments(),
-                               clonedOp->getOpOperand(0).get())) {
-          producerAccessOps.push_back(accessOp);
-        }
-      }
-    }
-
-    // Replace all producer accesses
+    // Cache results for previously inlined offsets
     DenseMap<ArrayRef<int64_t>, ValueRange> offsetCache;
-    for (auto producerAccessOp : producerAccessOps) {
-      // Clone the producer ops
-      ArrayRef<int64_t> offset = producerAccessOp.getOffset();
-      // Clone the producer into the consumer
-      if (offsetCache.count(offset) != 0) {
-        // Used cached values if possible
-        replaceAccess(consumerOp, producerAccessOp, producerResults,
-                      offsetCache[offset]);
-      } else {
-        // Otherwise clone all operations
-        rewriter.setInsertionPoint(producerAccessOp);
-        for (Operation &op : producerOp.getBody()->getOperations()) {
-          auto clonedOp = rewriter.clone(op, mapper);
-          // Shift all access ops
-          if (auto accessOp = dyn_cast<stencil::AccessOp>(clonedOp)) {
+
+    // Walk accesses of producer results and replace them by computation
+    newOp.walk([&](stencil::AccessOp accessOp) {
+      if (llvm::count(newOp.getBody()->getArguments(), accessOp.view()) == 0) {
+        ArrayRef<int64_t> offset = accessOp.getOffset();
+        if (offsetCache.count(offset) != 0) {
+          // Used cached values if possible
+          replaceAccess(consumerOp, accessOp, producerResults,
+                        offsetCache[offset]);
+        } else {
+          // Clone the producer and shift the offsets
+          auto clonedOp = producerOp.getOperation()->clone(mapper);
+          clonedOp->walk([&](stencil::AccessOp accessOp) {
             SmallVector<int64_t, 3> sum(offset.size());
             llvm::transform(llvm::zip(offset, accessOp.getOffset()),
                             sum.begin(), [](std::tuple<int64_t, int64_t> x) {
                               return std::get<0>(x) + std::get<1>(x);
                             });
             accessOp.setOffset(sum);
-          }
-          // Replaces uses of accessOp with returnOp operand
-          if (auto returnOp = dyn_cast<stencil::ReturnOp>(clonedOp)) {
-            replaceAccess(consumerOp, producerAccessOp, producerResults,
-                          returnOp.getOperands());
-            offsetCache[offset] = returnOp.getOperands();
-            rewriter.eraseOp(returnOp);
-          }
+          });
+
+          // Copy the operations in after the access op and erase the cloned op
+          newOp.getBody()->getOperations().splice(
+              Block::iterator{accessOp},
+              clonedOp->getRegion(0).front().getOperations());
+
+          // Replace all uses of the accesOp results and cache computation
+          stencil::ReturnOp returnOp =
+              cast<stencil::ReturnOp>(*std::prev(Block::iterator(accessOp)));
+          replaceAccess(consumerOp, accessOp, producerResults,
+                        returnOp.getOperands());
+          offsetCache[offset] = returnOp.getOperands();
+          rewriter.eraseOp(returnOp);
+          clonedOp->erase();
         }
+        rewriter.eraseOp(accessOp);
       }
-      rewriter.eraseOp(producerAccessOp);
-    }
+    });
 
     // Update the all uses and copy the loop bounds
     for (size_t i = 0, e = consumerOp.getResults().size(); i != e; ++i)
@@ -235,7 +223,7 @@ struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
 void StencilInliningPass::runOnFunction() {
   FuncOp funcOp = getFunction();
   OwningRewritePatternList patterns;
-  patterns.insert<InliningRewrite>(&getContext());
+  patterns.insert<ProducerInliningRewrite>(&getContext());
   applyPatternsGreedily(funcOp, patterns);
 }
 

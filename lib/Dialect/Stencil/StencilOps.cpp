@@ -23,6 +23,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
+#include <llvm-9/llvm/ADT/STLExtras.h>
 
 using namespace mlir;
 
@@ -437,10 +438,10 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
 
   // Create an empty body
   Region *body = result.addRegion();
-  ensureTerminator(*body, *builder, result.location);
-  for (auto operand : operands) {
-    body->front().addArgument(operand->getType());
-  }
+  // ensureTerminator(*body, *builder, result.location);
+  // for (auto operand : operands) {
+  //   body->front().addArgument(operand->getType());
+  // }
 
   // Add result types
   SmallVector<Type, 3> resultTypes;
@@ -595,7 +596,7 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
           loc, newOperands,
           applyOp.getResults());
       rewriter.eraseOp(newOp.getBody()->getTerminator());
-
+      
       // Compute the new operand mapping
       BlockAndValueMapping mapper;
       for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
