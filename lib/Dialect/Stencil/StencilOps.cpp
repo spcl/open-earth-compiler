@@ -579,45 +579,49 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
 
   PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
                                      PatternRewriter &rewriter) const override {
-    // Check if there are duplicates and then remove unnecessary operands
-    DenseSet<Value> operandSet;
-    operandSet.insert(applyOp.operand_begin(), applyOp.operand_end());
-    if (operandSet.size() < applyOp.getNumOperands()) {
-      // Compute the operands
-      SmallVector<Value, 10> newOperands;
-      newOperands.reserve(operandSet.size());
-      for(auto operand : operandSet) {
-        newOperands.push_back(operand);
-      }
+    // Compute operand list and init the argument matcher
 
-      // Create a new apply op
-      auto loc = applyOp.getLoc();
-      auto newOp = rewriter.create<stencil::ApplyOp>(
-          loc, newOperands,
-          applyOp.getResults());
-      rewriter.eraseOp(newOp.getBody()->getTerminator());
+    // TODO fix this similar to stencil inlining
+    
+    // // Check if there are duplicates and then remove unnecessary operands
+    // DenseSet<Value> operandSet;
+    // operandSet.insert(applyOp.operand_begin(), applyOp.operand_end());
+    // if (operandSet.size() < applyOp.getNumOperands()) {
+    //   // Compute the operands
+    //   SmallVector<Value, 10> newOperands;
+    //   newOperands.reserve(operandSet.size());
+    //   for(auto operand : operandSet) {
+    //     newOperands.push_back(operand);
+    //   }
+
+    //   // Create a new apply op
+    //   auto loc = applyOp.getLoc();
+    //   auto newOp = rewriter.create<stencil::ApplyOp>(
+    //       loc, newOperands,
+    //       applyOp.getResults());
+    //   rewriter.eraseOp(newOp.getBody()->getTerminator());
       
-      // Compute the new operand mapping
-      BlockAndValueMapping mapper;
-      for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-        size_t index = std::distance(newOperands.begin(),
-                                     llvm::find(newOperands, applyOp.getOperand(i)));
-        mapper.map(applyOp.getBody()->getArgument(i),
-                   newOp.getBody()->getArgument(index));
-      }
+    //   // Compute the new operand mapping
+    //   BlockAndValueMapping mapper;
+    //   for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
+    //     size_t index = std::distance(newOperands.begin(),
+    //                                  llvm::find(newOperands, applyOp.getOperand(i)));
+    //     mapper.map(applyOp.getBody()->getArgument(i),
+    //                newOp.getBody()->getArgument(index));
+    //   }
 
-      // Clone the body and at the same time replace all operands
-      rewriter.setInsertionPointToStart(newOp.getBody());
-      for (Operation &op : applyOp.getBody()->getOperations()) {
-        rewriter.clone(op, mapper);
-      }
+    //   // Clone the body and at the same time replace all operands
+    //   rewriter.setInsertionPointToStart(newOp.getBody());
+    //   for (Operation &op : applyOp.getBody()->getOperations()) {
+    //     rewriter.clone(op, mapper);
+    //   }
 
-      // Replace all uses of the applyOp results
-      for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i)
-        applyOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
-      rewriter.eraseOp(applyOp);
-      return matchSuccess();
-    }
+    //   // Replace all uses of the applyOp results
+    //   for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i)
+    //     applyOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
+    //   rewriter.eraseOp(applyOp);
+    //   return matchSuccess();
+    // }
     return matchFailure();
   }
 };

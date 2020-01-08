@@ -139,50 +139,41 @@ struct ProducerInliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
           newOp.getBody()->getArgument(std::distance(newOperands.begin(), it)));
     }
 
-    // Cache results for previously inlined offsets
-    DenseMap<ArrayRef<int64_t>, ValueRange> offsetCache;
-
     // Walk accesses of producer results and replace them by computation
     newOp.walk([&](stencil::AccessOp accessOp) {
       if (llvm::count(newOp.getBody()->getArguments(), accessOp.view()) == 0) {
         ArrayRef<int64_t> offset = accessOp.getOffset();
-        if (offsetCache.count(offset) != 0) {
-          // Used cached values if possible
-          replaceAccess(consumerOp, accessOp, producerResults,
-                        offsetCache[offset]);
-        } else {
-          // Clone the producer and shift the offsets
-          auto clonedOp = producerOp.getOperation()->clone(mapper);
-          clonedOp->walk([&](stencil::AccessOp accessOp) {
-            SmallVector<int64_t, 3> sum(offset.size());
-            llvm::transform(llvm::zip(offset, accessOp.getOffset()),
-                            sum.begin(), [](std::tuple<int64_t, int64_t> x) {
-                              return std::get<0>(x) + std::get<1>(x);
-                            });
-            accessOp.setOffset(sum);
-          });
+        // Clone the producer and shift the offsets
+        auto clonedOp = producerOp.getOperation()->clone(mapper);
+        clonedOp->walk([&](stencil::AccessOp accessOp) {
+          SmallVector<int64_t, 3> sum(offset.size());
+          llvm::transform(llvm::zip(offset, accessOp.getOffset()), sum.begin(),
+                          [](std::tuple<int64_t, int64_t> x) {
+                            return std::get<0>(x) + std::get<1>(x);
+                          });
+          accessOp.setOffset(sum);
+        });
 
-          // Copy the operations in after the access op and erase the cloned op
-          newOp.getBody()->getOperations().splice(
-              Block::iterator{accessOp},
-              clonedOp->getRegion(0).front().getOperations());
+        // Copy the operations in after the access op
+        newOp.getBody()->getOperations().splice(
+            Block::iterator{accessOp},
+            clonedOp->getRegion(0).front().getOperations());
+        clonedOp->erase();
 
-          // Replace all uses of the accesOp results and cache computation
-          stencil::ReturnOp returnOp =
-              cast<stencil::ReturnOp>(*std::prev(Block::iterator(accessOp)));
-          replaceAccess(consumerOp, accessOp, producerResults,
-                        returnOp.getOperands());
-          offsetCache[offset] = returnOp.getOperands();
-          rewriter.eraseOp(returnOp);
-          clonedOp->erase();
-        }
+        // Replace all uses of the accesOp
+        stencil::ReturnOp returnOp =
+            cast<stencil::ReturnOp>(*std::prev(Block::iterator(accessOp)));
+        replaceAccess(consumerOp, accessOp, producerResults,
+                      returnOp.getOperands());
+        rewriter.eraseOp(returnOp);
         rewriter.eraseOp(accessOp);
       }
     });
 
     // Update the all uses and copy the loop bounds
-    for (size_t i = 0, e = consumerOp.getResults().size(); i != e; ++i)
+    for (size_t i = 0, e = consumerOp.getResults().size(); i != e; ++i) {
       consumerOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
+    }
 
     // Erase the producer and consumer ops
     rewriter.eraseOp(consumerOp);
