@@ -40,6 +40,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
   PatternMatchResult redirectStore(stencil::ApplyOp producerOp,
                                    stencil::ApplyOp consumerOp,
                                    PatternRewriter &rewriter) const {
+    // TODO only add results that have more than one usage!
     // Compute operand and result lists
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
     SmallVector<Value, 10> newResults = consumerOp.getResults();
@@ -84,16 +85,19 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
       consumerOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
     }
     for (size_t i = 0, e = producerOp.getResults().size(); i != e; ++i) {
-      // Keep use between producer and new op
-      for (auto &use : producerOp.getResult(i).getUses()) {
-        if (use.getOwner() != newOp.getOperation())
-          use.set(newOp.getResult(i + consumerOp.getNumResults()));
-      }
+      Value producerResult = producerOp.getResult(i);
+      size_t index = std::distance(newOp.operands().begin(), llvm::find(newOp.operands(), producerResult)); 
+      producerResult.replaceAllUsesWith(
+          newOp.getResult(i + consumerOp.getNumResults()));
+      newOp.setOperand(index, producerResult);
     }
 
     // Remove the consumer op
     rewriter.eraseOp(consumerOp);
-    return matchSuccess();
+
+    //newOp.getParentOp()->dump();
+    //exit(-1);
+    return matchFailure();
   }
 
   PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
@@ -110,7 +114,8 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Redirect outputs of the producer
     if (producerOps.size() == 1) {
       // TODO we may want to ensure that producer has multiple consumers
-      // (however as long as the inlining pattern has a higher benefit this is not needed)
+      // (however as long as the inlining pattern has a higher benefit this is
+      // not needed)
       return redirectStore(cast<stencil::ApplyOp>(producerOps.front()), applyOp,
                            rewriter);
     }
