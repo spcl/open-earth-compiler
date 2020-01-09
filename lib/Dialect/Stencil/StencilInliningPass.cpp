@@ -1,9 +1,6 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
-#include "mlir/IR/AffineExpr.h"
-#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
@@ -15,9 +12,6 @@
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Support/Functional.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -40,18 +34,25 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
   PatternMatchResult redirectStore(stencil::ApplyOp producerOp,
                                    stencil::ApplyOp consumerOp,
                                    PatternRewriter &rewriter) const {
-    // TODO only add results that have more than one usage!
     // Compute operand and result lists
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
     SmallVector<Value, 10> newResults = consumerOp.getResults();
     for (auto result : producerOp.getResults()) {
-      if (!llvm::is_contained(newOperands, result)) {
+      // Count the result uses
+      auto uses = result.getUses();
+      size_t count = std::distance(uses.begin(), uses.end());
+      // Add the result if multiple uses
+      if (llvm::is_contained(newOperands, result) && count > 1) {
+        newResults.push_back(result);
+      }
+      // Add parameter and result if not consumed but has uses
+      if (!llvm::is_contained(newOperands, result) && count > 0) {
         newOperands.push_back(result);
         consumerOp.getBody()->addArgument(result.getType());
+        newResults.push_back(result);
       }
-      newResults.push_back(result);
     }
-
+    
     // Clone the consumer op right after the producer op
     rewriter.setInsertionPointAfter(producerOp);
     auto loc = consumerOp.getLoc();
@@ -66,37 +67,42 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     rewriter.setInsertionPoint(returnOp);
 
     // Add access to load the rerouted parameters
-    SmallVector<Value, 10> retOperands = returnOp.getOperands();
+    SmallVector<Value, 10> returnOperands = returnOp.getOperands();
     for (auto result : producerOp.getResults()) {
-      auto it = llvm::find(newOperands, result);
-      size_t index = std::distance(newOperands.begin(), it);
-      auto accessOp = rewriter.create<stencil::AccessOp>(
-          loc, newOp.getBody()->getArgument(index),
-          llvm::makeArrayRef<int64_t>({0, 0, 0}));
-      retOperands.push_back(accessOp.getResult());
+      if (llvm::is_contained(newResults, result)) {
+        // Compute the argument index and add an access op
+        auto it = llvm::find(newOperands, result);
+        size_t index = std::distance(newOperands.begin(), llvm::find(newOperands, result));
+        auto accessOp = rewriter.create<stencil::AccessOp>(
+            loc, newOp.getBody()->getArgument(index),
+            llvm::makeArrayRef<int64_t>({0, 0, 0}));
+        returnOperands.push_back(accessOp.getResult());
+      }
     }
 
     // Replace the return op
-    rewriter.create<stencil::ReturnOp>(loc, retOperands);
+    rewriter.create<stencil::ReturnOp>(loc, returnOperands);
     rewriter.eraseOp(returnOp);
 
     // Replace all producer and consumer results
     for (size_t i = 0, e = consumerOp.getResults().size(); i != e; ++i) {
       consumerOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
     }
-    for (size_t i = 0, e = producerOp.getResults().size(); i != e; ++i) {
-      Value producerResult = producerOp.getResult(i);
-      size_t index = std::distance(newOp.operands().begin(), llvm::find(newOp.operands(), producerResult)); 
-      producerResult.replaceAllUsesWith(
-          newOp.getResult(i + consumerOp.getNumResults()));
-      newOp.setOperand(index, producerResult);
+    for (auto result : producerOp.getResults()) {
+      auto it = llvm::find(newResults, result);
+      if (it != newResults.end()) {
+        // Store the operand index
+        size_t index = std::distance(newOp.operands().begin(),
+                                     llvm::find(newOp.operands(), result));
+        result.replaceAllUsesWith(
+            newOp.getResult(std::distance(newResults.begin(), it)));
+        // Restore the operand after replacing all uses
+        newOp.setOperand(index, result);
+      }
     }
 
     // Remove the consumer op
     rewriter.eraseOp(consumerOp);
-
-    //newOp.getParentOp()->dump();
-    //exit(-1);
     return matchFailure();
   }
 
