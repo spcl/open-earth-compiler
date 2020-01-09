@@ -574,10 +574,58 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
 }
 
 namespace {
+/// This is a pattern to remove duplicate results
+struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
+  using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
+
+  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                     PatternRewriter &rewriter) const override {
+    // Get the terminator and compute the result list
+    auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+    SmallVector<Value, 10> oldOperands = returnOp.getOperands();
+    SmallVector<Value, 10> newOperands;
+    SmallVector<Value, 10> newResults;
+    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
+      if (!llvm::is_contained(newOperands, returnOp.getOperand(i))) {
+        newOperands.push_back(returnOp.getOperand(i));
+        newResults.push_back(applyOp.getResult(i));
+      }
+    }
+
+    // Remove duplicates if needed
+    if (newOperands.size() < returnOp.getNumOperands()) {
+      // Replace the return op
+      rewriter.setInsertionPoint(returnOp);
+      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands);
+      rewriter.eraseOp(returnOp);
+
+      // Clone the apply op
+      rewriter.setInsertionPoint(applyOp);
+      auto newOp = rewriter.create<stencil::ApplyOp>(
+          applyOp.getLoc(), applyOp.getOperands(), newResults);
+      rewriter.cloneRegionBefore(applyOp.region(), newOp.region(),
+                                 newOp.region().begin());
+
+      // Replace all uses of the applyOp results
+      for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i) {
+        auto it = llvm::find(newOperands, oldOperands[i]);
+        applyOp.getResult(i).replaceAllUsesWith(
+            newOp.getResult(std::distance(newOperands.begin(), it)));
+      }
+
+      // Remove old operations
+      rewriter.eraseOp(applyOp);
+      return matchSuccess();
+    }
+    return matchFailure();
+  }
+};
+
 /// This is a pattern to remove duplicate arguments
 struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
+  // Remove duplicates if needed
   PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
                                      PatternRewriter &rewriter) const override {
     // Compute operand list and init the argument matcher
@@ -625,7 +673,7 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
 
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<ApplyOpArgCleaner>(context);
+  results.insert<ApplyOpArgCleaner, ApplyOpResCleaner>(context);
 }
 
 //===----------------------------------------------------------------------===//
