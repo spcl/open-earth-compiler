@@ -100,7 +100,7 @@ func @avoid_redundant(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f
 //  CHECK-NEXT: %{{.*}} = addf %{{.*}}, %{{.*}} : f64
 //  CHECK-NEXT: stencil.return %{{.*}} : f64
 
-   func @redirect(%in : !stencil.field<ijk,f64>, %out1 : !stencil.field<ijk,f64>, %out2 : !stencil.field<ijk,f64>)
+   func @reroute(%in : !stencil.field<ijk,f64>, %out1 : !stencil.field<ijk,f64>, %out2 : !stencil.field<ijk,f64>)
      attributes { stencil.program } {
    	stencil.assert %in ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
     stencil.assert %out1 ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
@@ -123,7 +123,7 @@ func @avoid_redundant(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f
     return
   }
 
-// CHECK-LABEL: func @redirect(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
+// CHECK-LABEL: func @reroute(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
 //  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>

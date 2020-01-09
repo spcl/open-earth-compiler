@@ -109,6 +109,8 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Redirect outputs of the producer
     if (producerOps.size() == 1) {
+      // TODO we may want to ensure that producer has multiple consumers
+      // (however as long as the inlining pattern has a higher benefit this is not needed)
       return redirectStore(cast<stencil::ApplyOp>(producerOps.front()), applyOp,
                            rewriter);
     }
