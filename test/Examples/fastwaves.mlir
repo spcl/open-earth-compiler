@@ -15,7 +15,7 @@ func @fastwaves(
   %vout_fd : !stencil.field<ijk,f64>,
   %div_fd : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
-	// asserts
+  // asserts
   stencil.assert %uin_fd ([-3, -3, -1]:[67, 67, 61]) : !stencil.field<ijk,f64>
   stencil.assert %utens_fd ([-3, -3, -1]:[67, 67, 61]) : !stencil.field<ijk,f64>
   stencil.assert %vin_fd ([-3, -3, -1]:[67, 67, 61]) : !stencil.field<ijk,f64>
@@ -52,14 +52,14 @@ func @fastwaves(
       %5 = mulf %4, %3 : f64
       %6 = addf %2, %5 : f64
       stencil.return %6 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // ppgk
   %ppgc = stencil.apply %arg3 = %ppgk : !stencil.view<ijk,f64> {  
       %0 = stencil.access %arg3[0, 0, 1] : (!stencil.view<ijk,f64>) -> f64
       %1 = stencil.access %arg3[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %2 = subf %0, %1 : f64
       stencil.return %2 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // ppgu
   %ppgu = stencil.apply %arg4 = %ppuv, %arg5 = %ppgc, %arg6 = %hhl : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -88,7 +88,7 @@ func @fastwaves(
       %18 = mulf %6, %17 : f64
       %19 = addf %2, %18 : f64
       stencil.return %19 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // ppgv
   %ppgv = stencil.apply %arg7 = %ppuv, %arg8 = %ppgc, %arg9 = %hhl : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -117,7 +117,7 @@ func @fastwaves(
       %18 = mulf %6, %17 : f64
       %19 = addf %2, %18 : f64
       stencil.return %19 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // uout
   %uout = stencil.apply %arg10 = %uin, %arg11 = %utens, %arg12 = %ppgu, %arg13 = %rho : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -138,7 +138,7 @@ func @fastwaves(
       %9 = stencil.access %arg10[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %10 = addf %8, %9 : f64
       stencil.return %10 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // vout
   %vout = stencil.apply %arg14 = %vin, %arg15 = %vtens, %arg16 = %ppgv, %arg17 = %rho : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -159,7 +159,7 @@ func @fastwaves(
       %9 = stencil.access %arg14[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %10 = addf %8, %9 : f64
       stencil.return %10 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // udc
   %udc = stencil.apply %arg18 = %wgtfac, %arg19 = %uout : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -177,7 +177,7 @@ func @fastwaves(
       %8 = mulf %7, %5 : f64
       %9 = addf %6, %8 : f64
       stencil.return %9 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // vdc
   %vdc = stencil.apply %arg20 = %wgtfac, %arg21 = %vout : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -195,7 +195,7 @@ func @fastwaves(
       %8 = mulf %7, %5 : f64
       %9 = addf %6, %8 : f64
       stencil.return %9 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // div
   %div = stencil.apply %arg22 = %uout, %arg23 = %udc, %arg24 = %vout, %arg25 = %vdc, %arg26 = %dzdx, %arg27 = %dzdy : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
@@ -244,10 +244,10 @@ func @fastwaves(
       %34 = addf %23, %31 : f64
       %35 = addf %33, %34 : f64
       stencil.return %35 : f64
-	} : !stencil.view<ijk,f64>
+  } : !stencil.view<ijk,f64>
   // store results
-	stencil.store %uout to %uout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
-	stencil.store %vout to %vout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
-	stencil.store %div to %div_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %uout to %uout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %vout to %vout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %div to %div_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   return
 }
