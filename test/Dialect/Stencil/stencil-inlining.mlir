@@ -1,4 +1,4 @@
-// RUN: oec-opt %s --stencil-inlining | oec-opt | FileCheck %s
+// RUN: oec-opt %s --stencil-inlining -cse | oec-opt | FileCheck %s
 
 func @simple(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
