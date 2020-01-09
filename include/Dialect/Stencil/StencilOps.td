@@ -48,7 +48,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
 
     Example:
 
-      %0 = stencil.access %view[-1, 0, 0] : !stencil.view<ijk,f64>
+      %0 = stencil.access %view[-1, 0, 0] : !stencil.view<ijk,f64> -> f64
   }];
 
   let arguments = (ins Stencil_View:$view, I64ArrayAttr:$offset);
@@ -75,7 +75,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
 
     Example:
 
-      %0 = stencil.load %field : !stencil.view<ijk,f64>
+      %0 = stencil.load %field : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   }];
 
   let arguments = (ins Stencil_Field:$field,
@@ -115,7 +115,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
 
     Example:
 
-      %0 = stencil.store %view to %field[0,0,0][64,64,60] : !stencil.field<ijk,f64>
+      stencil.store %view to %field[0,0,0][64,64,60] : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   }];
 
   let arguments = (ins Stencil_View:$view, Stencil_Field:$field, 
