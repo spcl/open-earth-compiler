@@ -12,6 +12,7 @@
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -52,7 +53,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
         newResults.push_back(result);
       }
     }
-    
+
     // Clone the consumer op right after the producer op
     rewriter.setInsertionPointAfter(producerOp);
     auto loc = consumerOp.getLoc();
@@ -72,7 +73,8 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
       if (llvm::is_contained(newResults, result)) {
         // Compute the argument index and add an access op
         auto it = llvm::find(newOperands, result);
-        size_t index = std::distance(newOperands.begin(), llvm::find(newOperands, result));
+        size_t index =
+            std::distance(newOperands.begin(), llvm::find(newOperands, result));
         auto accessOp = rewriter.create<stencil::AccessOp>(
             loc, newOp.getBody()->getArgument(index),
             llvm::makeArrayRef<int64_t>({0, 0, 0}));
@@ -236,29 +238,24 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                                      PatternRewriter &rewriter) const override {
     // Search producer apply op
     for (auto operand : applyOp.operands()) {
-      if (auto producerOp =
-              dyn_cast<stencil::ApplyOp>(operand->getDefiningOp())) {
-        // Check only one consumer
-        bool singleConsumer = true;
-        for (auto result : producerOp.getResults()) {
-          for (auto user : result.getUsers()) {
-            if (isa<stencil::ApplyOp>(user) && user != applyOp.getOperation())
-              singleConsumer = false;
-            if (isa<stencil::StoreOp>(user))
-              singleConsumer = false;
-          }
+      if (isa<stencil::ApplyOp>(operand->getDefiningOp())) {
+        // Check if multiple consumers
+        auto producerResults = operand->getDefiningOp()->getResults();
+        for (auto result : producerResults) {
+          if (llvm::any_of(result.getUsers(), [&](Operation *op) {
+                return op != applyOp.getOperation();
+              }))
+            return matchFailure();
         }
 
-        // Ready to perform inlining
-        if (singleConsumer) {
-          return inlineProducer(producerOp, applyOp, producerOp.getResults(),
-                                rewriter);
-        }
+        // If there is only a single consumer perform the inlining
+        return inlineProducer(cast<stencil::ApplyOp>(operand->getDefiningOp()),
+                              applyOp, producerResults, rewriter);
       }
     }
     return matchFailure();
   }
-};
+}; // namespace
 
 struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
   void runOnFunction() override;
