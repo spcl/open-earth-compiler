@@ -1,4 +1,3 @@
-// RUN: oec-opt %s 
 
 func @fastwaves(
   %uin_fd : !stencil.field<ijk,f64>, 

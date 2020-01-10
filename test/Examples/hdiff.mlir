@@ -1,4 +1,3 @@
-// RUN: oec-opt %s 
 
 func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64>, %uout_fd : !stencil.field<ijk,f64>)
   attributes { stencil.program } {

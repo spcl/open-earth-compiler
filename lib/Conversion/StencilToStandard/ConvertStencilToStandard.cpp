@@ -8,6 +8,8 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/Block.h"
+#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
@@ -235,9 +237,10 @@ public:
                     [](Operation *allocOp) { return allocOp->getResult(0); });
 
     // Replace the return op by store ops
-    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i)
+    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
       rewriter.create<AffineStoreOp>(loc, returnOp.getOperand(i), allocVals[i],
                                      loopIVs);
+    }
     rewriter.eraseOp(operation);
     return matchSuccess();
   }
@@ -286,17 +289,17 @@ public:
     }
 
     // Forward the apply operands and copy the body
+    BlockAndValueMapping mapper;
     for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
-      applyOp.getBody()->getArgument(i)->replaceAllUsesWith(
-          applyOp.getOperand(i));
+      mapper.map(applyOp.getBody()->getArgument(i), applyOp.getOperand(i));
     }
-    Block *entryBlock = loop.getBody();
-    auto &operations = applyOp.getBody()->getOperations();
-    entryBlock->getOperations().splice(entryBlock->begin(), operations);
-    rewriter.eraseOp(operation);
+    for (auto &op : applyOp.getBody()->getOperations()) {
+      rewriter.clone(op, mapper);
+    }
+    rewriter.eraseOp(applyOp);
     return matchSuccess();
   }
-};
+}; // namespace
 
 class AccessOpLowering : public ConversionPattern {
 public:
@@ -315,8 +318,9 @@ public:
     llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
       return affineForOp.getInductionVar();
     });
-    if (loops.empty())
+    if (loops.empty()) {
       return matchFailure();
+    }
     assert(loops.size() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
 
@@ -335,7 +339,7 @@ public:
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<AffineLoadOp>(operation, accessOp.view(),
-                                              loadOffset);
+                                              loadOffset);                                
     return matchSuccess();
   }
 };
