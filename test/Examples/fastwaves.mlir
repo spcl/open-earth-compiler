@@ -245,8 +245,8 @@ func @fastwaves(
       stencil.return %35 : f64
   } : !stencil.view<ijk,f64>
   // store results
-  stencil.store %uout to %uout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
-  stencil.store %vout to %vout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
-  stencil.store %div to %div_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %uout to %uout_fd ([0, 0, 0]:[64, 64, 64]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %vout to %vout_fd ([0, 0, 0]:[64, 64, 64]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %div to %div_fd ([0, 0, 0]:[64, 64, 64]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   return
 }

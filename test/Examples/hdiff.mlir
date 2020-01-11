@@ -64,6 +64,6 @@ func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64
       %10 = addf %8, %9 : f64
       stencil.return %10 : f64
 	} : !stencil.view<ijk,f64>
-	stencil.store %out to %uout_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+	stencil.store %out to %uout_fd ([0, 0, 0]:[64, 64, 64]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   return
 }

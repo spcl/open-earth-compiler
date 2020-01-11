@@ -20,6 +20,6 @@ func @laplace(%uin_fd : !stencil.field<ijk,f64>, %lap_fd : !stencil.field<ijk,f6
       %9 = addf %8, %7 : f64
       stencil.return %9 : f64
  	} : !stencil.view<ijk,f64>
-  stencil.store %lap to %lap_fd ([0, 0, 0]:[64, 64, 60]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  stencil.store %lap to %lap_fd ([0, 0, 0]:[64, 64, 64]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   return
 }
