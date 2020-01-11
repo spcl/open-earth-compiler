@@ -3,15 +3,16 @@ set(LIBS
   MLIRAffineOps
   MLIRAffineToStandard
   MLIRLoopsToGPU
-  #MLIRLinalgToLLVM
+  MLIRLinalgToLLVM
+
   MLIRLoopToStandard
   MLIREDSC
   MLIRFxpMathOps
   MLIRGPU
   MLIRGPUtoNVVMTransforms
   MLIRGPUtoROCDLTransforms
-  #MLIRGPUtoSPIRVTransforms
-  #MLIRLinalg
+  MLIRGPUtoSPIRVTransforms
+  MLIRLinalg
   MLIRLLVMIR
   MLIRLoopOps
   MLIRNVVMIR
@@ -21,16 +22,17 @@ set(LIBS
   MLIRQuantizerTransforms
   MLIRQuantOps
   MLIRROCDLIR
-  #MLIRSPIRV
-  #MLIRStandardToSPIRVTransforms
-  #MLIRSPIRVTransforms
+  MLIRSPIRV
+  MLIRStandardToSPIRVTransforms
+  MLIRSPIRVTestPasses
+  MLIRSPIRVTransforms
   MLIRStandardOps
   MLIRStandardToLLVM
   MLIRTransforms
-  #MLIRTestDialect
-  #MLIRTestIR
-  #MLIRTestPass
-  #MLIRTestTransforms
+  MLIRTestDialect
+  MLIRTestIR
+  MLIRTestPass
+  MLIRTestTransforms
   MLIRSupport
   MLIRVectorOps
   MLIRVectorToLLVM
@@ -39,11 +41,7 @@ set(LIBS
   MLIRStencil
   MLIRStencilToStandard
 )
-if(MLIR_CUDA_CONVERSIONS_ENABLED)
-  list(APPEND LIBS
-    MLIRGPUtoCUDATransforms
-  )
-endif()
+
 
 add_llvm_executable(oec-opt
  oec-opt.cpp

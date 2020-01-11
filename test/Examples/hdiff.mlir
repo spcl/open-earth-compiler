@@ -1,13 +1,13 @@
 
 func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64>, %uout_fd : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
-	stencil.assert %uin_fd ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-  stencil.assert %mask_fd ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-  stencil.assert %uout_fd ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+	stencil.assert %uin_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
+  stencil.assert %mask_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
+  stencil.assert %uout_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
   %uin = stencil.load %uin_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %mask = stencil.load %mask_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   // lap
-  %lap = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {  
+  %lap = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {  shape[0] * shape[1]
       %0 = stencil.access %arg1[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %1 = stencil.access %arg1[1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %2 = stencil.access %arg1[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
