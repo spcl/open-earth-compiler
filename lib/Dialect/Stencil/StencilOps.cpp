@@ -115,32 +115,6 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
   if (asserts != 1)
     return assertOp.emitOpError("multiple asserts for the same field");
 
-  // Check if the field is large enough
-  auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
-                          const SmallVector<int64_t, 3> &ub) {
-    if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
-                     [](std::tuple<int64_t, int64_t> x) {
-                       return std::get<0>(x) < std::get<1>(x);
-                     }) ||
-        llvm::any_of(llvm::zip(ub, assertOp.getUB()),
-                     [](std::tuple<int64_t, int64_t> x) {
-                       return std::get<0>(x) > std::get<1>(x);
-                     }))
-      return false;
-    return true;
-  };
-  for (OpOperand &use : assertOp.field().getUses()) {
-    if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
-      if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
-        return assertOp.emitOpError("field bounds not large enough");
-      }
-    if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
-      if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
-        if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
-          return assertOp.emitOpError("field bounds not large enough");
-        }
-  }
-
   return success();
 }
 
@@ -300,8 +274,7 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
   // Check the field and view types match
   stencil::FieldType fieldType =
       loadOp.field().getType().cast<stencil::FieldType>();
-  stencil::ViewType viewType =
-      loadOp.res().getType().cast<stencil::ViewType>();
+  stencil::ViewType viewType = loadOp.res().getType().cast<stencil::ViewType>();
 
   Type fieldElementType = fieldType.getElementType();
   Type viewElementType = viewType.getElementType();

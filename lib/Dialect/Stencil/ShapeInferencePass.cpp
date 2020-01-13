@@ -107,7 +107,7 @@ LogicalResult extendBounds(Operation *op, OpOperand &use,
     // Extend loop bounds by extents
     auto opExtents = extents.lookupExtent(applyOp.getOperation(), use.get());
     if (!opExtents) {
-      return op->emitError("cannot compute valid extents");
+      return op->emitOpError("cannot compute valid extents");
     }
     llvm::transform(llvm::zip(lb, opExtents->negative), lb.begin(),
                     [](std::tuple<int64_t, int64_t> x) {
@@ -152,7 +152,7 @@ LogicalResult inferShapes(stencil::ApplyOp applyOp,
   // Check the results of the apply op are used
   if (llvm::all_of(applyOp.getResults(),
                    [](Value result) { return result.getUses().empty(); }))
-    return applyOp.emitError("failed to find use for apply op");
+    return applyOp.emitOpError("failed to find use for apply op");
 
   // Iterate all uses and extend the bounds
   for (auto result : applyOp.getResults()) {
@@ -179,7 +179,7 @@ LogicalResult inferShapes(stencil::LoadOp loadOp,
                                    std::numeric_limits<int64_t>::min()};
   // Check the result of the load op is used
   if (loadOp.getResult().getUses().empty())
-    return loadOp.emitError("failed to find use for load op");
+    return loadOp.emitOpError("failed to find use for load op");
 
   // Iterate all uses and extend the bounds
   for (OpOperand &use : loadOp.getResult().getUses()) {
@@ -212,12 +212,14 @@ LogicalResult assertShape(stencil::AssertOp assertOp,
   // Verify for every use that the access bounds fit the field
   for (OpOperand &use : assertOp.field().getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-      if (!verifyBounds(storeOp.getLB(), storeOp.getUB()))
-        return assertOp.emitOpError("inferred shapes too large");
+      if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
+        assertOp.emitRemark("inferred shapes too large");
+      }
     }
     if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
-      if (!verifyBounds(loadOp.getLB(), loadOp.getUB()))
-        return assertOp.emitOpError("inferred shapes too large");
+      if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
+        assertOp.emitRemark("inferred shapes too large");
+      }
     }
   }
   return success();

@@ -100,18 +100,18 @@ public:
     for (auto argument : funcOp.getArguments()) {
       Type argType = argument.getType();
       // Verify no view types
-      if (argType.getKind() == stencil::StencilTypes::View) {
-        operation->emitError("unexpected argument type '") << argType << "'";
+      if (argType.isa<stencil::ViewType>()) {
+        funcOp.emitOpError("unexpected argument type '") << argType << "'";
         return matchFailure();
       }
 
       // Compute the input types of the converted stencil program
-      if (argType.getKind() == stencil::StencilTypes::Field) {
+      if (argType.isa<stencil::FieldType>()) {
         Type inputType = NoneType();
         for (auto &use : argument.getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
             if (isZero(assertOp.getLB())) {
-              operation->emitError("expected zero lower bound");
+              assertOp.emitOpError("expected zero lower bound");
               return matchFailure();
             }
             Type elementType =
@@ -126,7 +126,7 @@ public:
           }
         }
         if (inputType == NoneType()) {
-          operation->emitError("failed to find stencil assert for input field");
+          funcOp.emitOpError("failed to convert argument types");
           return matchFailure();
         }
         inputTypes.push_back(inputType);
@@ -135,7 +135,7 @@ public:
       }
     }
     if (funcOp.getNumResults() > 0) {
-      operation->emitError("expected stencil programs return void");
+      operation->emitOpError("expected program to return void");
       return matchFailure();
     }
 
@@ -168,6 +168,35 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
+    // Check if the field is large enough
+    auto assertOp = cast<stencil::AssertOp>(operation);
+    auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
+                            const SmallVector<int64_t, 3> &ub) {
+      if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
+                       [](std::tuple<int64_t, int64_t> x) {
+                         return std::get<0>(x) < std::get<1>(x);
+                       }) ||
+          llvm::any_of(llvm::zip(ub, assertOp.getUB()),
+                       [](std::tuple<int64_t, int64_t> x) {
+                         return std::get<0>(x) > std::get<1>(x);
+                       }))
+        return false;
+      return true;
+    };
+    for (OpOperand &use : assertOp.field().getUses()) {
+      if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
+        if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
+          assertOp.emitOpError("field bounds not large enough");
+          return matchFailure();
+        }
+      if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
+        if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
+          if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
+            assertOp.emitOpError("field bounds not large enough");
+            return matchFailure();
+          }
+    }
+
     rewriter.eraseOp(operation);
     return matchSuccess();
   }
@@ -184,6 +213,10 @@ public:
     // Replace the load operation with a memref cast
     auto loc = operation->getLoc();
     auto loadOp = cast<stencil::LoadOp>(operation);
+
+    // Verify the field has been converted
+    if (!loadOp.field().getType().isa<MemRefType>())
+      return matchFailure();
 
     // Compute the replacement type
     auto inputType = loadOp.field().getType().cast<MemRefType>();
@@ -257,9 +290,19 @@ public:
     auto loc = operation->getLoc();
     auto applyOp = cast<stencil::ApplyOp>(operation);
 
+    // Verify the arguments have been converted
+    if (llvm::any_of(
+            llvm::zip(applyOp.getBody()->getArguments(), applyOp.getOperands()),
+            [](std::tuple<Value, Value> x) {
+              return std::get<0>(x).getType().isa<stencil::ViewType>() &&
+                     !std::get<1>(x).getType().isa<MemRefType>();
+            })) {
+      return matchFailure();
+    }
+
     // Verify the the lower bound is zero
     if (isZero(applyOp.getLB())) {
-      operation->emitError("expected zero lower bound");
+      operation->emitOpError("expected zero lower bound");
       return matchFailure();
     }
 
@@ -282,9 +325,8 @@ public:
     // Generate the apply loop nest
     ArrayRef<int64_t> upper = applyOp.getUB();
     assert(upper.size() >= 1 && "expected bounds to at least one dimension");
-    AffineForOp loop;
     for (size_t i = 0, e = upper.size(); i != e; ++i) {
-      loop = rewriter.create<AffineForOp>(loc, 0, upper.rbegin()[i]);
+      auto loop = rewriter.create<AffineForOp>(loc, 0, upper.rbegin()[i]);
       rewriter.setInsertionPointToStart(loop.getBody());
     }
 
@@ -297,6 +339,7 @@ public:
       rewriter.clone(op, mapper);
     }
     rewriter.eraseOp(applyOp);
+
     return matchSuccess();
   }
 }; // namespace
@@ -311,6 +354,10 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto accessOp = cast<stencil::AccessOp>(operation);
+
+    // Check the view is a memref type
+    if (!accessOp.view().getType().isa<MemRefType>())
+      return matchFailure();
 
     // Get the affine loops
     SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
@@ -339,7 +386,7 @@ public:
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<AffineLoadOp>(operation, accessOp.view(),
-                                              loadOffset);                                
+                                              loadOffset);
     return matchSuccess();
   }
 };
@@ -354,6 +401,11 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto storeOp = cast<stencil::StoreOp>(operation);
+
+    // check the field has been converted
+    if (!(storeOp.field().getType().isa<MemRefType>() &&
+          storeOp.view().getType().isa<MemRefType>()))
+      return matchFailure();
 
     // Compute the replacement type
     auto inputType = storeOp.field().getType().cast<MemRefType>();
