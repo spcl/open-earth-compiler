@@ -7,7 +7,7 @@ func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64
   %uin = stencil.load %uin_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %mask = stencil.load %mask_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   // lap
-  %lap = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {  shape[0] * shape[1]
+  %lap = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {  
       %0 = stencil.access %arg1[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %1 = stencil.access %arg1[1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %2 = stencil.access %arg1[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -32,21 +32,21 @@ func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64
       %6 = mulf %2, %5 : f64
       %c0 = constant 0.0 : f64
       %7 = cmpf "ogt", %6, %c0 : f64
-      %8 = select %7, %2, %c0 : f64
+      %8 = select %7, %c0, %2 : f64
       stencil.return %8 : f64
 	} : !stencil.view<ijk,f64>
   // fly
   %fly = stencil.apply %arg4 = %uin, %arg5 = %lap : !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
-      %0 = stencil.access %arg4[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = stencil.access %arg4[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
+      %0 = stencil.access %arg5[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
+      %1 = stencil.access %arg5[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %2 = subf %0, %1 : f64
-      %3 = stencil.access %arg5[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
-      %4 = stencil.access %arg5[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
+      %3 = stencil.access %arg4[0, 1, 0] : (!stencil.view<ijk,f64>) -> f64
+      %4 = stencil.access %arg4[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %5 = subf %3, %4 : f64
       %6 = mulf %2, %5 : f64
       %c0 = constant 0.0 : f64
       %7 = cmpf "ogt", %6, %c0 : f64
-      %8 = select %7, %2, %c0 : f64
+      %8 = select %7, %c0, %2 : f64
       stencil.return %8 : f64
 	} : !stencil.view<ijk,f64>
   // out
