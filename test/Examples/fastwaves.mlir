@@ -52,7 +52,7 @@ func @fastwaves(
       %6 = addf %2, %5 : f64
       stencil.return %6 : f64
   } : !stencil.view<ijk,f64>
-  // ppgk
+  // ppgc
   %ppgc = stencil.apply %arg3 = %ppgk : !stencil.view<ijk,f64> {  
       %0 = stencil.access %arg3[0, 0, 1] : (!stencil.view<ijk,f64>) -> f64
       %1 = stencil.access %arg3[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -120,7 +120,7 @@ func @fastwaves(
   // uout
   %uout = stencil.apply %arg10 = %uin, %arg11 = %utens, %arg12 = %ppgu, %arg13 = %rho : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
-      %cst = constant 0.5 : f64
+      %cst = constant 2.0 : f64
       %fake = constant 0.01 : f64
       // ppguv divided by rho
       %0 = stencil.access %arg12[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -141,7 +141,7 @@ func @fastwaves(
   // vout
   %vout = stencil.apply %arg14 = %vin, %arg15 = %vtens, %arg16 = %ppgv, %arg17 = %rho : 
     !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64> {  
-      %cst = constant 0.5 : f64
+      %cst = constant 2.0 : f64
       %fake = constant 0.01 : f64
       // ppguv divided by rho
       %0 = stencil.access %arg16[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
