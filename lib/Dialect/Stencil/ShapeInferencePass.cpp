@@ -151,12 +151,12 @@ LogicalResult inferShapes(stencil::ApplyOp applyOp,
                                    std::numeric_limits<int64_t>::min()};
   // Check the results of the apply op are used
   if (llvm::all_of(applyOp.getResults(),
-                   [](Value result) { return result->getUses().empty(); }))
+                   [](Value result) { return result.getUses().empty(); }))
     return applyOp.emitError("failed to find use for apply op");
 
   // Iterate all uses and extend the bounds
   for (auto result : applyOp.getResults()) {
-    for (OpOperand &use : result->getUses()) {
+    for (OpOperand &use : result.getUses()) {
       if (failed(
               extendBounds(applyOp.getOperation(), use, extents, lower, upper)))
         return failure();
@@ -178,11 +178,11 @@ LogicalResult inferShapes(stencil::LoadOp loadOp,
                                    std::numeric_limits<int64_t>::min(),
                                    std::numeric_limits<int64_t>::min()};
   // Check the result of the load op is used
-  if (loadOp.getResult()->getUses().empty())
+  if (loadOp.getResult().getUses().empty())
     return loadOp.emitError("failed to find use for load op");
 
   // Iterate all uses and extend the bounds
-  for (OpOperand &use : loadOp.getResult()->getUses()) {
+  for (OpOperand &use : loadOp.getResult().getUses()) {
     if (failed(extendBounds(loadOp.getOperation(), use, extents, lower, upper)))
       return failure();
   }
@@ -210,7 +210,7 @@ LogicalResult assertShape(stencil::AssertOp assertOp,
   };
 
   // Verify for every use that the access bounds fit the field
-  for (OpOperand &use : assertOp.field()->getUses()) {
+  for (OpOperand &use : assertOp.field().getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
       if (!verifyBounds(storeOp.getLB(), storeOp.getUB()))
         return assertOp.emitOpError("inferred shapes too large");

@@ -98,7 +98,7 @@ public:
     // Convert the input types
     SmallVector<Type, 10> inputTypes;
     for (auto argument : funcOp.getArguments()) {
-      Type argType = argument->getType();
+      Type argType = argument.getType();
       // Verify no view types
       if (argType.getKind() == stencil::StencilTypes::View) {
         operation->emitError("unexpected argument type '") << argType << "'";
@@ -108,7 +108,7 @@ public:
       // Compute the input types of the converted stencil program
       if (argType.getKind() == stencil::StencilTypes::Field) {
         Type inputType = NoneType();
-        for (auto &use : argument->getUses()) {
+        for (auto &use : argument.getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
             if (isZero(assertOp.getLB())) {
               operation->emitError("expected zero lower bound");
@@ -149,7 +149,7 @@ public:
     // Replace the function body
     Block *entryBlock = replacementOp.addEntryBlock();
     for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i)
-      funcOp.getArgument(i)->replaceAllUsesWith(entryBlock->getArgument(i));
+      funcOp.getArgument(i).replaceAllUsesWith(entryBlock->getArgument(i));
     auto &operations =
         funcOp.getOperation()->getRegion(0).front().getOperations();
     entryBlock->getOperations().splice(entryBlock->begin(), operations);
@@ -272,7 +272,7 @@ public:
           shape, elementType,
           makeStridedLinearLayoutMap(strides, 0, rewriter.getContext()), 0);
       auto allocOp = rewriter.create<AllocOp>(loc, allocType);
-      applyOp.getResult(i)->replaceAllUsesWith(allocOp.getResult());
+      applyOp.getResult(i).replaceAllUsesWith(allocOp.getResult());
       auto returnOp = allocOp.getParentRegion()->back().getTerminator();
       rewriter.setInsertionPoint(returnOp);
       rewriter.create<DeallocOp>(loc, allocOp.getResult());
@@ -366,13 +366,13 @@ public:
         makeStridedLinearLayoutMap(strides, offset, rewriter.getContext()), 0);
 
     // Remove allocation and deallocation and insert memref cast
-    auto allocOp = storeOp.view()->getDefiningOp();
+    auto allocOp = storeOp.view().getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
     auto subViewOp =
         rewriter.create<SubViewOp>(loc, outputType, storeOp.field());
     allocOp->getResult(0).replaceAllUsesWith(subViewOp.getResult());
     rewriter.eraseOp(allocOp);
-    for (auto &use : storeOp.view()->getUses()) {
+    for (auto &use : storeOp.view().getUses()) {
       if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
         rewriter.eraseOp(deallocOp);
     }

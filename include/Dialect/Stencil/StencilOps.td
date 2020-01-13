@@ -103,7 +103,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
       setAttr(stencil::LoadOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::ViewType getResultViewType() {
-      return res()->getType().cast<stencil::ViewType>();
+      return res().getType().cast<stencil::ViewType>();
     }
   }];
 }
@@ -141,10 +141,10 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
       setAttr(stencil::StoreOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::FieldType getFieldType() {
-      return field()->getType().cast<stencil::FieldType>();
+      return field().getType().cast<stencil::FieldType>();
     }
     stencil::ViewType getViewType() {
-      return view()->getType().cast<stencil::ViewType>();
+      return view().getType().cast<stencil::ViewType>();
     }
   }];
 }
@@ -194,7 +194,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
       setAttr(stencil::ApplyOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::ViewType getResultViewType(unsigned i) {
-      return res()[i]->getType().cast<stencil::ViewType>();
+      return res()[i].getType().cast<stencil::ViewType>();
     }
     /// Get the body of the apply op
     Block *getBody() { return &region().front(); }
@@ -223,7 +223,7 @@ def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
 
   let extraClassDeclaration = [{
     stencil::ViewType getResultViewType() {
-      return res()->getType().cast<stencil::ViewType>();
+      return res().getType().cast<stencil::ViewType>();
     }
 
     static StringRef getCalleeAttrName() { return "callee"; }

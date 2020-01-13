@@ -42,7 +42,7 @@ void inlineCalls(stencil::CallOp callOp) {
   for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
     Value argument = funcOp.getArgument(i);
     Value replacement = callOp.getOperand(i);
-    argument->replaceAllUsesWith(replacement);
+    argument.replaceAllUsesWith(replacement);
   }
 
   // Insert the body of the function clone
@@ -57,7 +57,7 @@ void inlineCalls(stencil::CallOp callOp) {
   assert(returnOp.getNumOperands() == 1);
   Value result = returnOp.getOperand(0);
   Value old = callOp.getResult();
-  old->replaceAllUsesWith(result);
+  old.replaceAllUsesWith(result);
 
   // Remove the call and the return operations
   returnOp.erase();

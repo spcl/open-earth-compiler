@@ -113,9 +113,9 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Search consumer connected to a single producer
     SmallVector<Operation *, 10> producerOps;
     for (auto operand : applyOp.operands()) {
-      if (isa<stencil::ApplyOp>(operand->getDefiningOp())) {
-        if (!llvm::is_contained(producerOps, operand->getDefiningOp()))
-          producerOps.push_back(operand->getDefiningOp());
+      if (isa<stencil::ApplyOp>(operand.getDefiningOp())) {
+        if (!llvm::is_contained(producerOps, operand.getDefiningOp()))
+          producerOps.push_back(operand.getDefiningOp());
       }
     }
 
@@ -238,9 +238,9 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                                      PatternRewriter &rewriter) const override {
     // Search producer apply op
     for (auto operand : applyOp.operands()) {
-      if (isa<stencil::ApplyOp>(operand->getDefiningOp())) {
+      if (isa<stencil::ApplyOp>(operand.getDefiningOp())) {
         // Check if multiple consumers
-        auto producerResults = operand->getDefiningOp()->getResults();
+        auto producerResults = operand.getDefiningOp()->getResults();
         for (auto result : producerResults) {
           if (llvm::any_of(result.getUsers(), [&](Operation *op) {
                 return op != applyOp.getOperation();
@@ -249,7 +249,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
         }
 
         // If there is only a single consumer perform the inlining
-        return inlineProducer(cast<stencil::ApplyOp>(operand->getDefiningOp()),
+        return inlineProducer(cast<stencil::ApplyOp>(operand.getDefiningOp()),
                               applyOp, producerResults, rewriter);
       }
     }

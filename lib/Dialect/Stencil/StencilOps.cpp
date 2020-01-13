@@ -80,7 +80,7 @@ static void print(stencil::AssertOp assertOp, OpAsmPrinter &printer) {
   ArrayAttr ub = assertOp.ub();
 
   printer << stencil::AssertOp::getOperationName();
-  printer << " " << *field << " (";
+  printer << " " << field << " (";
   printer.printAttribute(lb);
   printer << ":";
   printer.printAttribute(ub);
@@ -89,7 +89,7 @@ static void print(stencil::AssertOp assertOp, OpAsmPrinter &printer) {
                                     stencil::AssertOp::getLBAttrName(),
                                     stencil::AssertOp::getUBAttrName()});
   printer << " : ";
-  printer.printType(assertOp.field()->getType());
+  printer.printType(assertOp.field().getType());
 }
 
 static LogicalResult verify(stencil::AssertOp assertOp) {
@@ -97,7 +97,7 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
   int stores = 0;
   int loads = 0;
   int asserts = 0;
-  for (OpOperand &use : assertOp.field()->getUses()) {
+  for (OpOperand &use : assertOp.field().getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
       stores++;
     if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
@@ -129,7 +129,7 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
       return false;
     return true;
   };
-  for (OpOperand &use : assertOp.field()->getUses()) {
+  for (OpOperand &use : assertOp.field().getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
       if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
         return assertOp.emitOpError("field bounds not large enough");
@@ -154,7 +154,7 @@ void stencil::AccessOp::build(Builder *builder, OperationState &state,
   assert(offset.size() == 3 && "expected offset with 3 elements");
 
   // Extract the element type of the view.
-  Type elementType = view->getType().cast<stencil::ViewType>().getElementType();
+  Type elementType = view.getType().cast<stencil::ViewType>().getElementType();
 
   // Add an SSA argument
   state.addOperands(view);
@@ -200,21 +200,21 @@ static void print(stencil::AccessOp accessOp, OpAsmPrinter &printer) {
   Value view = accessOp.view();
   Attribute offset = accessOp.offset();
 
-  printer << stencil::AccessOp::getOperationName() << ' ' << *view;
+  printer << stencil::AccessOp::getOperationName() << ' ' << view;
   printer.printAttribute(offset);
   printer.printOptionalAttrDict(accessOp.getAttrs(), /*elidedAttrs=*/{
                                     stencil::AccessOp::getOffsetAttrName()});
   printer << " : (";
-  printer.printType(view->getType());
+  printer.printType(view.getType());
   printer << ") -> ";
-  printer.printType(accessOp.getResult()->getType());
+  printer.printType(accessOp.getResult().getType());
 }
 
 static LogicalResult verify(stencil::AccessOp accessOp) {
   stencil::ViewType viewType =
-      accessOp.view()->getType().cast<stencil::ViewType>();
+      accessOp.view().getType().cast<stencil::ViewType>();
   Type elementType = viewType.getElementType();
-  Type resultType = accessOp.getResult()->getType();
+  Type resultType = accessOp.getResult().getType();
 
   if (resultType != elementType)
     return accessOp.emitOpError("inconsistent result type '")
@@ -230,9 +230,9 @@ static LogicalResult verify(stencil::AccessOp accessOp) {
 void stencil::LoadOp::build(Builder *builder, OperationState &state,
                             Value field) {
   Type elementType =
-      field->getType().cast<stencil::FieldType>().getElementType();
+      field.getType().cast<stencil::FieldType>().getElementType();
   ArrayRef<int> dimensions =
-      field->getType().cast<stencil::FieldType>().getDimensions();
+      field.getType().cast<stencil::FieldType>().getDimensions();
 
   state.addOperands(field);
   state.addTypes(
@@ -276,10 +276,10 @@ static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
 
 static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Value field = loadOp.field();
-  Type fieldType = field->getType();
-  Type viewType = loadOp.res()->getType();
+  Type fieldType = field.getType();
+  Type viewType = loadOp.res().getType();
 
-  printer << stencil::LoadOp::getOperationName() << ' ' << *field;
+  printer << stencil::LoadOp::getOperationName() << ' ' << field;
   if (loadOp.lb().hasValue() && loadOp.ub().hasValue()) {
     printer << " (";
     printer.printAttribute(loadOp.lb().getValue());
@@ -299,9 +299,9 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
 static LogicalResult verify(stencil::LoadOp loadOp) {
   // Check the field and view types match
   stencil::FieldType fieldType =
-      loadOp.field()->getType().cast<stencil::FieldType>();
+      loadOp.field().getType().cast<stencil::FieldType>();
   stencil::ViewType viewType =
-      loadOp.res()->getType().cast<stencil::ViewType>();
+      loadOp.res().getType().cast<stencil::ViewType>();
 
   Type fieldElementType = fieldType.getElementType();
   Type viewElementType = viewType.getElementType();
@@ -317,7 +317,7 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 
   // Check if field assert exists
   int asserts = 0;
-  for (OpOperand &use : loadOp.field()->getUses()) {
+  for (OpOperand &use : loadOp.field().getUses()) {
     if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
       asserts++;
   }
@@ -381,8 +381,8 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   ArrayAttr lb = storeOp.lb();
   ArrayAttr ub = storeOp.ub();
 
-  printer << stencil::StoreOp::getOperationName() << " " << *view;
-  printer << " to " << *field << " (";
+  printer << stencil::StoreOp::getOperationName() << " " << view;
+  printer << " to " << field << " (";
   printer.printAttribute(lb);
   printer << ":";
   printer.printAttribute(ub);
@@ -391,9 +391,9 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
       storeOp.getAttrs(), /*elidedAttrs=*/{stencil::StoreOp::getLBAttrName(),
                                            stencil::StoreOp::getUBAttrName()});
   printer << " : ";
-  printer.printType(view->getType());
+  printer.printType(view.getType());
   printer << " to ";
-  printer.printType(field->getType());
+  printer.printType(field.getType());
 }
 
 static LogicalResult verify(stencil::StoreOp storeOp) {
@@ -414,12 +414,12 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
     return storeOp.emitOpError("storage dimensions are inconsistent");
 
   // Check view computed by apply
-  if (!dyn_cast<stencil::ApplyOp>(storeOp.view()->getDefiningOp()))
+  if (!dyn_cast<stencil::ApplyOp>(storeOp.view().getDefiningOp()))
     return storeOp.emitError("output view not result of an apply");
 
   // Check if field assert exists
   int asserts = 0;
-  for (OpOperand &use : storeOp.field()->getUses()) {
+  for (OpOperand &use : storeOp.field().getUses()) {
     if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
       asserts++;
   }
@@ -441,7 +441,7 @@ void stencil::ApplyOp::build(Builder *builder, OperationState &result,
   Region *body = result.addRegion();
   // ensureTerminator(*body, *builder, result.location);
   // for (auto operand : operands) {
-  //   body->front().addArgument(operand->getType());
+  //   body->front().addArgument(operand.getType());
   // }
 
   // Add result types
@@ -525,7 +525,7 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   if (!applyOp.region().empty() && !operands.empty()) {
     Block *body = applyOp.getBody();
     interleaveComma(llvm::seq<int>(0, operands.size()), printer, [&](int i) {
-      printer << *body->getArgument(i) << " = " << *operands[i];
+      printer << body->getArgument(i) << " = " << operands[i];
     });
   }
 
@@ -565,8 +565,8 @@ static LogicalResult verify(stencil::ApplyOp applyOp) {
 
   // Check the operands match the block argument types
   for (unsigned i = 0, e = applyOp.operands().size(); i != e; ++i) {
-    if (applyOp.getBody()->getArgument(i)->getType() !=
-        applyOp.operands()[i]->getType())
+    if (applyOp.getBody()->getArgument(i).getType() !=
+        applyOp.operands()[i].getType())
       return applyOp.emitOpError(
           "expected operation and body arguments to have the same type");
   }
@@ -700,7 +700,7 @@ void stencil::CallOp::build(Builder *builder, OperationState &result,
 }
 
 FunctionType stencil::CallOp::getCalleeType() {
-  SmallVector<Type, 1> resultTypes({getResult()->getType()});
+  SmallVector<Type, 1> resultTypes({getResult().getType()});
   SmallVector<Type, 8> argTypes(getOperandTypes());
   return FunctionType::get(argTypes, resultTypes, getContext());
 }
@@ -763,7 +763,7 @@ static LogicalResult verify(stencil::CallOp callOp) {
     return callOp.emitOpError("incorrect number of operands for callee");
 
   for (unsigned i = 0, e = funType.getNumInputs(); i != e; ++i)
-    if (callOp.getOperand(i)->getType() != funType.getInput(i))
+    if (callOp.getOperand(i).getType() != funType.getInput(i))
       return callOp.emitOpError("operand type mismatch");
 
   if (funType.getNumResults() != 1)
@@ -808,11 +808,11 @@ static LogicalResult verify(stencil::ReturnOp returnOp) {
 
   // The return types must match the element types of the returned views
   for (unsigned i = 0, e = results.size(); i != e; ++i)
-    if (returnOp.getOperand(i)->getType() !=
+    if (returnOp.getOperand(i).getType() !=
         applyOp.getResultViewType(i).getElementType())
       return returnOp.emitError()
              << "type of return operand " << i << " ("
-             << returnOp.getOperand(i)->getType()
+             << returnOp.getOperand(i).getType()
              << ") doesn't match function result type ("
              << applyOp.getResultViewType(i).getElementType() << ")";
 
