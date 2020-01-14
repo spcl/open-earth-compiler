@@ -28,6 +28,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
+#include <iterator>
 
 using namespace mlir;
 
@@ -46,7 +47,9 @@ SmallVector<AffineForOp, 3> getLoopNest(Operation *operation) {
 
 // Helper method to check if lower bound is zero
 bool isZero(ArrayRef<int64_t> offset) {
-  return llvm::any_of(offset, [](int64_t x) { return x != 0; });
+  return llvm::all_of(offset, [](int64_t x) {
+    return x == 0 || x == stencil::kIgnoreDimension;
+  });
 }
 
 // Helper method computing the strides given the size
@@ -67,18 +70,42 @@ SmallVector<int64_t, 3> computeShape(ArrayRef<int64_t> begin,
                   [](std::tuple<int64_t, int64_t> x) {
                     return std::get<0>(x) - std::get<1>(x);
                   });
+  // Remove ignored dimensions
+  llvm::erase_if(result, [](int64_t x) { return x == 0; });
   return result;
 }
 
 // Helper method computing linearizing the offset
 int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
-  assert(offset.size() == strides.size() &&
+  SmallVector<int64_t, 3> filteredOffsets(offset.size());
+  auto it = llvm::copy_if(offset, filteredOffsets.begin(), [](int64_t x) {
+    return x != stencil::kIgnoreDimension;
+  });
+  // Delete the ignored dimensions
+  assert(std::distance(filteredOffsets.begin(), it) == strides.size() &&
          "expected offset and strides to have the same size");
+
+  // Compute the linear offset
   int64_t result = 0;
   for (size_t i = 0, e = strides.size(); i != e; ++i) {
-    result += offset[i] * strides[i];
+    result += filteredOffsets[i] * strides[i];
   }
   return result;
+}
+
+// Helper to compute a memref type
+MemRefType computeMemRefType(Type elementType, ArrayRef<int64_t> begin,
+                             ArrayRef<int64_t> end, ArrayRef<int64_t> origin,
+                             ConversionPatternRewriter &rewriter) {
+  // Get the element type
+  ArrayRef<int64_t> shape = computeShape(begin, end);
+  ArrayRef<int64_t> strides = computeStrides(shape);
+  int64_t offset = 0;
+  if (origin.size() != 0) {
+    offset = computeOffset(origin, strides);
+  }
+  auto map = makeStridedLinearLayoutMap(strides, offset, rewriter.getContext());
+  return MemRefType::get(shape, elementType, map, 0);
 }
 
 //===----------------------------------------------------------------------===//
@@ -111,18 +138,9 @@ public:
         Type inputType = NoneType();
         for (auto &use : argument.getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
-            if (isZero(assertOp.getLB())) {
-              assertOp.emitOpError("expected zero lower bound");
-              return matchFailure();
-            }
-            Type elementType =
-                argType.cast<stencil::FieldType>().getElementType();
-            ArrayRef<int64_t> shape = assertOp.getUB();
-            ArrayRef<int64_t> strides = computeStrides(shape);
-            inputType = MemRefType::get(
-                shape, elementType,
-                makeStridedLinearLayoutMap(strides, 0, rewriter.getContext()),
-                0);
+            inputType = computeMemRefType(
+                assertOp.getFieldType().getElementType(), assertOp.getLB(),
+                assertOp.getUB(), {}, rewriter);
             break;
           }
         }
@@ -171,37 +189,51 @@ public:
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto assertOp = cast<stencil::AssertOp>(operation);
-    
+
     // Verify the field has been converted
     if (!assertOp.field().getType().isa<MemRefType>())
       return matchFailure();
+
+    // Verify the assert op has lower bound zero
+    if (!isZero(assertOp.getLB())) {
+      assertOp.emitOpError("expected zero lower bound");
+      return matchFailure();
+    }
 
     // Check if the field is large enough
     auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
                             const SmallVector<int64_t, 3> &ub) {
       if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
                        [](std::tuple<int64_t, int64_t> x) {
-                         return std::get<0>(x) < std::get<1>(x);
+                         return std::get<0>(x) < std::get<1>(x) &&
+                                std::get<0>(x) != stencil::kIgnoreDimension;
                        }) ||
           llvm::any_of(llvm::zip(ub, assertOp.getUB()),
                        [](std::tuple<int64_t, int64_t> x) {
-                         return std::get<0>(x) > std::get<1>(x);
+                         return std::get<0>(x) > std::get<1>(x) &&
+                                std::get<1>(x) != stencil::kIgnoreDimension;
                        }))
         return false;
       return true;
     };
     for (OpOperand &use : assertOp.field().getUses()) {
-      if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner()))
-        if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
-          assertOp.emitOpError("field bounds not large enough");
+      if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
+        if (llvm::is_contained(storeOp.getLB(), stencil::kIgnoreDimension)) {
+          storeOp.emitOpError("field expected to have full dimensionality");
           return matchFailure();
         }
-      if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner()))
+        if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
+          storeOp.emitOpError("field bounds not large enough");
+          return matchFailure();
+        }
+      }
+      if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
         if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
           if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
-            assertOp.emitOpError("field bounds not large enough");
+            loadOp.emitOpError("field bounds not large enough");
             return matchFailure();
           }
+      }
     }
 
     rewriter.eraseOp(operation);
@@ -227,13 +259,9 @@ public:
 
     // Compute the replacement type
     auto inputType = loadOp.field().getType().cast<MemRefType>();
-    Type elementType = inputType.getElementType();
-    ArrayRef<int64_t> shape = computeShape(loadOp.getLB(), loadOp.getUB());
-    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
-    int64_t offset = computeOffset(loadOp.getLB(), strides);
-    auto outputType = MemRefType::get(
-        shape, elementType,
-        makeStridedLinearLayoutMap(strides, offset, rewriter.getContext()), 0);
+    auto outputType =
+        computeMemRefType(inputType.getElementType(), loadOp.getLB(),
+                          loadOp.getUB(), loadOp.getLB(), rewriter);
 
     // Replace the load op
     auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
@@ -308,19 +336,18 @@ public:
     }
 
     // Verify the the lower bound is zero
-    if (isZero(applyOp.getLB())) {
-      operation->emitOpError("expected zero lower bound");
+    if (!isZero(applyOp.getLB())) {
+      applyOp.emitOpError("expected zero lower bound");
       return matchFailure();
     }
 
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
       Type elementType = applyOp.getResultViewType(i).getElementType();
-      ArrayRef<int64_t> shape = applyOp.getUB();
-      ArrayRef<int64_t> strides = computeStrides(shape);
-      auto allocType = MemRefType::get(
-          shape, elementType,
-          makeStridedLinearLayoutMap(strides, 0, rewriter.getContext()), 0);
+      auto allocType =
+          computeMemRefType(elementType, applyOp.getLB(), applyOp.getUB(),
+                            applyOp.getLB(), rewriter);
+
       auto allocOp = rewriter.create<AllocOp>(loc, allocType);
       applyOp.getResult(i).replaceAllUsesWith(allocOp.getResult());
       auto returnOp = allocOp.getParentRegion()->back().getTerminator();
@@ -379,16 +406,17 @@ public:
            "expected loop nest and access offset to have the same size");
 
     // Compute the access offsets
-    auto addExpr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-    auto addMap = AffineMap::get(2, 0, addExpr);
-    auto accessOffset = accessOp.getOffset();
+    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+    auto map = AffineMap::get(2, 0, expr);
+    auto offset = accessOp.getOffset();
     SmallVector<Value, 3> loadOffset;
-    for (size_t i = 0, e = accessOffset.size(); i != e; ++i) {
-      auto constantOp = rewriter.create<ConstantIndexOp>(loc, accessOffset[i]);
-      ValueRange addParams = {loopIVs[i], constantOp.getResult()};
-      auto affineApplyOp =
-          rewriter.create<AffineApplyOp>(loc, addMap, addParams);
-      loadOffset.push_back(affineApplyOp.getResult());
+    for (size_t i = 0, e = offset.size(); i != e; ++i) {
+      if (offset[i] != stencil::kIgnoreDimension) {
+        auto constantOp = rewriter.create<ConstantIndexOp>(loc, offset[i]);
+        ValueRange params = {loopIVs[i], constantOp.getResult()};
+        auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+        loadOffset.push_back(affineApplyOp.getResult());
+      }
     }
 
     // Replace the access op by a load op
@@ -416,13 +444,9 @@ public:
 
     // Compute the replacement type
     auto inputType = storeOp.field().getType().cast<MemRefType>();
-    Type elementType = inputType.getElementType();
-    ArrayRef<int64_t> shape = computeShape(storeOp.getLB(), storeOp.getUB());
-    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
-    int64_t offset = computeOffset(storeOp.getLB(), strides);
-    auto outputType = MemRefType::get(
-        shape, elementType,
-        makeStridedLinearLayoutMap(strides, offset, rewriter.getContext()), 0);
+    auto outputType =
+        computeMemRefType(inputType.getElementType(), storeOp.getLB(),
+                          storeOp.getUB(), storeOp.getLB(), rewriter);
 
     // Remove allocation and deallocation and insert subview op
     auto allocOp = storeOp.view().getDefiningOp();
@@ -478,8 +502,9 @@ void StencilToStandardPass::runOnModule() {
   target.addLegalDialect<AffineOpsDialect>();
   target.addLegalDialect<StandardOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
+  target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
-  if (failed(applyPartialConversion(module, target, patterns))) {
+  if (failed(applyFullConversion(module, target, patterns))) {
     signalPassFailure();
   }
 }

@@ -34,22 +34,21 @@ SmallVector<int64_t, 3> shiftOffset(ArrayRef<int64_t> bound,
   return result;
 }
 
+struct ShapeShiftPass : public FunctionPass<ShapeShiftPass> {
+  void runOnFunction() override;
+};
+
 // Helper method to mark the unused dimensions
-SmallVector<int64_t, 3> markUnused(Type fieldOrViewType,
-                                   ArrayRef<int64_t> offset) {
+template <typename FieldOrViewType>
+SmallVector<int64_t, 3> markIgnoredDimensions(FieldOrViewType fieldOrViewType,
+                                              ArrayRef<int64_t> offset) {
+  static_assert(std::is_same<FieldOrViewType, stencil::FieldType>::value ||
+                    std::is_same<FieldOrViewType, stencil::ViewType>::value,
+                "expected stencil field or view type");
+
+  // Replace unused dimensions by ignore value
   SmallVector<int64_t, 3> result(offset.size());
-
-  // Get the allocated dimensions
-  auto getDimensions = [](Type type) -> ArrayRef<int> {
-    if (type.isa<stencil::ViewType>())
-      return type.cast<stencil::ViewType>().getDimensions();
-    if (type.isa<stencil::FieldType>())
-      return type.cast<stencil::FieldType>().getDimensions();
-    return {};
-  };
-  ArrayRef<int> allocated = getDimensions(fieldOrViewType);
-
-  // Copy all allocated dimensions and set the rest to ignore
+  ArrayRef<int> allocated = fieldOrViewType.getDimensions();
   ArrayRef<int> all = {kIDimension, kJDimension, kKDimension};
   llvm::transform(llvm::zip(all, offset), result.begin(),
                   [&](std::tuple<int, int64_t> x) {
@@ -59,10 +58,6 @@ SmallVector<int64_t, 3> markUnused(Type fieldOrViewType,
                   });
   return result;
 }
-
-struct ShapeShiftPass : public FunctionPass<ShapeShiftPass> {
-  void runOnFunction() override;
-};
 
 } // namespace
 
@@ -145,23 +140,19 @@ void ShapeShiftPass::runOnFunction() {
   // Update bounds of lower dimensional fields
   funcOp.walk([](Operation *op) {
     if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
-      auto type = accessOp.getOperand().getType();
-      accessOp.setOffset(markUnused(type, accessOp.getOffset()));
+      accessOp.setOffset(markIgnoredDimensions(accessOp.getViewType(), accessOp.getOffset()));
     }
     if (auto loadOp = dyn_cast<stencil::LoadOp>(op)) {
-      auto type = loadOp.field().getType();
-      loadOp.setLB(markUnused(type, loadOp.getLB()));
-      loadOp.setUB(markUnused(type, loadOp.getUB()));
+      loadOp.setLB(markIgnoredDimensions(loadOp.getResultViewType(), loadOp.getLB()));
+      loadOp.setUB(markIgnoredDimensions(loadOp.getResultViewType(), loadOp.getUB()));
     }
     if (auto storeOp = dyn_cast<stencil::StoreOp>(op)) {
-      auto type = storeOp.field().getType();
-      storeOp.setLB(markUnused(type, storeOp.getLB()));
-      storeOp.setUB(markUnused(type, storeOp.getUB()));
+      storeOp.setLB(markIgnoredDimensions(storeOp.getFieldType(), storeOp.getLB()));
+      storeOp.setUB(markIgnoredDimensions(storeOp.getFieldType(), storeOp.getUB()));
     }
     if (auto assertOp = dyn_cast<stencil::AssertOp>(op)) {
-      auto type = assertOp.field().getType();
-      assertOp.setLB(markUnused(type, assertOp.getLB()));
-      assertOp.setUB(markUnused(type, assertOp.getUB()));
+      assertOp.setLB(markIgnoredDimensions(assertOp.getFieldType(), assertOp.getLB()));
+      assertOp.setUB(markIgnoredDimensions(assertOp.getFieldType(), assertOp.getUB()));
     }
   });
 }

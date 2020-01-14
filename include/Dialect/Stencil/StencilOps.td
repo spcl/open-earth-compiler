@@ -35,6 +35,9 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
     void setUB(ArrayRef<int64_t> bound) {
       setAttr(stencil::AssertOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
+    stencil::FieldType getFieldType() {
+      return field().getType().cast<stencil::FieldType>();
+    }
   }];
 }
 
@@ -64,6 +67,9 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
     }
     void setOffset(ArrayRef<int64_t> bound) {
       setAttr(stencil::AccessOp::getOffsetAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+    }
+    stencil::ViewType getViewType() {
+      return view().getType().cast<stencil::ViewType>();
     }
   }];
 }
