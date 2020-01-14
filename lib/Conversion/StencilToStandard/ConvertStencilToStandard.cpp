@@ -19,6 +19,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
@@ -148,8 +149,9 @@ public:
 
     // Replace the function body
     Block *entryBlock = replacementOp.addEntryBlock();
-    for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i)
+    for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
       funcOp.getArgument(i).replaceAllUsesWith(entryBlock->getArgument(i));
+    }
     auto &operations =
         funcOp.getOperation()->getRegion(0).front().getOperations();
     entryBlock->getOperations().splice(entryBlock->begin(), operations);
@@ -168,8 +170,13 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    // Check if the field is large enough
     auto assertOp = cast<stencil::AssertOp>(operation);
+    
+    // Verify the field has been converted
+    if (!assertOp.field().getType().isa<MemRefType>())
+      return matchFailure();
+
+    // Check if the field is large enough
     auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
                             const SmallVector<int64_t, 3> &ub) {
       if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
@@ -472,8 +479,9 @@ void StencilToStandardPass::runOnModule() {
   target.addLegalDialect<StandardOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
 
-  if (failed(applyPartialConversion(module, target, patterns)))
+  if (failed(applyPartialConversion(module, target, patterns))) {
     signalPassFailure();
+  }
 }
 
 } // namespace
