@@ -217,7 +217,7 @@ public:
   PatternMatchResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    // Replace the load operation with a memref cast
+    // Replace the load operation with a subview op
     auto loc = operation->getLoc();
     auto loadOp = cast<stencil::LoadOp>(operation);
 
@@ -424,7 +424,7 @@ public:
         shape, elementType,
         makeStridedLinearLayoutMap(strides, offset, rewriter.getContext()), 0);
 
-    // Remove allocation and deallocation and insert memref cast
+    // Remove allocation and deallocation and insert subview op
     auto allocOp = storeOp.view().getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
     auto subViewOp =

@@ -34,6 +34,32 @@ SmallVector<int64_t, 3> shiftOffset(ArrayRef<int64_t> bound,
   return result;
 }
 
+// Helper method to mark the unused dimensions
+SmallVector<int64_t, 3> markUnused(Type fieldOrViewType,
+                                   ArrayRef<int64_t> offset) {
+  SmallVector<int64_t, 3> result(offset.size());
+
+  // Get the allocated dimensions
+  auto getDimensions = [](Type type) -> ArrayRef<int> {
+    if (type.isa<stencil::ViewType>())
+      return type.cast<stencil::ViewType>().getDimensions();
+    if (type.isa<stencil::FieldType>())
+      return type.cast<stencil::FieldType>().getDimensions();
+    return {};
+  };
+  ArrayRef<int> allocated = getDimensions(fieldOrViewType);
+
+  // Copy all allocated dimensions and set the rest to ignore
+  ArrayRef<int> all = {kIDimension, kJDimension, kKDimension};
+  llvm::transform(llvm::zip(all, offset), result.begin(),
+                  [&](std::tuple<int, int64_t> x) {
+                    if (llvm::is_contained(allocated, std::get<0>(x)))
+                      return std::get<1>(x);
+                    return kIgnoreDimension;
+                  });
+  return result;
+}
+
 struct ShapeShiftPass : public FunctionPass<ShapeShiftPass> {
   void runOnFunction() override;
 };
@@ -50,18 +76,18 @@ void ShapeShiftPass::runOnFunction() {
   // Verify all apply and load ops have valid bounds
   bool invalidBounds = false;
   funcOp.walk([&](stencil::ApplyOp applyOp) {
-    if(!applyOp.lb().hasValue() || !applyOp.ub().hasValue()) {
+    if (!applyOp.lb().hasValue() || !applyOp.ub().hasValue()) {
       applyOp.emitOpError("expected to have valid bounds");
       invalidBounds = true;
     }
   });
   funcOp.walk([&](stencil::LoadOp loadOp) {
-    if(!loadOp.lb().hasValue() || !loadOp.ub().hasValue()) {
+    if (!loadOp.lb().hasValue() || !loadOp.ub().hasValue()) {
       loadOp.emitOpError("expected to have valid bounds");
       invalidBounds = true;
     }
   });
-  if(invalidBounds) 
+  if (invalidBounds)
     return signalPassFailure();
 
   // Adapt the access offsets to the positive range
@@ -115,7 +141,30 @@ void ShapeShiftPass::runOnFunction() {
     assertOp.setLB(shiftOffset(assertOp.getLB(), shift));
     assertOp.setUB(shiftOffset(assertOp.getUB(), shift));
   });
+
+  // Update bounds of lower dimensional fields
+  funcOp.walk([](Operation *op) {
+    if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
+      auto type = accessOp.getOperand().getType();
+      accessOp.setOffset(markUnused(type, accessOp.getOffset()));
+    }
+    if (auto loadOp = dyn_cast<stencil::LoadOp>(op)) {
+      auto type = loadOp.field().getType();
+      loadOp.setLB(markUnused(type, loadOp.getLB()));
+      loadOp.setUB(markUnused(type, loadOp.getUB()));
+    }
+    if (auto storeOp = dyn_cast<stencil::StoreOp>(op)) {
+      auto type = storeOp.field().getType();
+      storeOp.setLB(markUnused(type, storeOp.getLB()));
+      storeOp.setUB(markUnused(type, storeOp.getUB()));
+    }
+    if (auto assertOp = dyn_cast<stencil::AssertOp>(op)) {
+      auto type = assertOp.field().getType();
+      assertOp.setLB(markUnused(type, assertOp.getLB()));
+      assertOp.setUB(markUnused(type, assertOp.getUB()));
+    }
+  });
 }
 
 static PassRegistration<ShapeShiftPass>
-    pass("stencil-shape-shift", "Shift the bounds to start at zero");
+    pass("stencil-shape-shift", "Shift the bounds to start at zero and mark unused dimensions");

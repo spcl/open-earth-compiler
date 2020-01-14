@@ -9,6 +9,7 @@ namespace mlir {
 
 void populateStencilToStandardConversionPatterns(
     OwningRewritePatternList &patterns, MLIRContext *ctx);
+
 }
 
 #endif // MLIR_CONVERSION_STENCILTOSTANDARD_CONVERTSTENCILTOSTANDARD_H

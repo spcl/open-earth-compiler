@@ -45,13 +45,13 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
     for (size_t i = 0, e = input.size(); i != e; ++i) {
       switch (input[i]) {
       case 'i':
-        result.push_back(0);
+        result.push_back(kIDimension);
         break;
       case 'j':
-        result.push_back(1);
+        result.push_back(kJDimension);
         break;
       case 'k':
-        result.push_back(2);
+        result.push_back(kKDimension);
         break;
       default:
         parser.emitError(parser.getNameLoc(),
@@ -115,13 +115,13 @@ namespace {
 StringRef dimensionToString(int dimension) {
   StringRef result = "";
   switch (dimension) {
-  case 0:
+  case kIDimension:
     result = "i";
     break;
-  case 1:
+  case kJDimension:
     result = "j";
     break;
-  case 2:
+  case kKDimension:
     result = "k";
     break;
   default:
