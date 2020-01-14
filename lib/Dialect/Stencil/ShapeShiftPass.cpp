@@ -47,8 +47,25 @@ void ShapeShiftPass::runOnFunction() {
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
     return;
 
+  // Verify all apply and load ops have valid bounds
+  bool invalidBounds = false;
+  funcOp.walk([&](stencil::ApplyOp applyOp) {
+    if(!applyOp.lb().hasValue() || !applyOp.ub().hasValue()) {
+      applyOp.emitOpError("expected to have valid bounds");
+      invalidBounds = true;
+    }
+  });
+  funcOp.walk([&](stencil::LoadOp loadOp) {
+    if(!loadOp.lb().hasValue() || !loadOp.ub().hasValue()) {
+      loadOp.emitOpError("expected to have valid bounds");
+      invalidBounds = true;
+    }
+  });
+  if(invalidBounds) 
+    return signalPassFailure();
+
   // Adapt the access offsets to the positive range
-  funcOp.walk([](stencil::ApplyOp applyOp) {
+  funcOp.walk([&](stencil::ApplyOp applyOp) {
     // Get the output bound
     ArrayRef<int64_t> output = applyOp.getLB();
     // Get the input bound of the operand
