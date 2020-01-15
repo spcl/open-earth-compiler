@@ -43,6 +43,10 @@ public:
       // Walk the access ops and update the extent
       applyOp.walk([&](stencil::AccessOp accessOp) {
         auto offset = accessOp.getOffset();
+        // Verify the offset has full dimensionality
+        if (llvm::count(offset, kIgnoreDimension) != 0) {
+          accessOp.emitOpError("expected offset to have full dimensionality");
+        }
         auto argument = accessOp.getOperand();
         if (extents[operation].count(argumentsToOperands[argument]) == 0) {
           // Initialize the extents with the current offset
@@ -91,11 +95,20 @@ LogicalResult extendBounds(Operation *op, OpOperand &use,
                            SmallVector<int64_t, 3> &upper) {
   // Copy the bounds of store ops
   if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-    llvm::transform(llvm::zip(lower, storeOp.getLB()), lower.begin(),
+    auto lb = storeOp.getLB();
+    auto ub = storeOp.getUB();
+    // Verify the bounds have no ignored dimension
+    if (llvm::count(lb, kIgnoreDimension) != 0 ||
+        llvm::count(ub, kIgnoreDimension) != 0) {
+      return storeOp.emitOpError(
+          "expected extents to have full dimensionality");
+    }
+    // Extend the bounds to the store op bounds
+    llvm::transform(llvm::zip(lower, lb), lower.begin(),
                     [](std::tuple<int64_t, int64_t> x) {
                       return std::min(std::get<0>(x), std::get<1>(x));
                     });
-    llvm::transform(llvm::zip(upper, storeOp.getUB()), upper.begin(),
+    llvm::transform(llvm::zip(upper, ub), upper.begin(),
                     [](std::tuple<int64_t, int64_t> x) {
                       return std::max(std::get<0>(x), std::get<1>(x));
                     });
@@ -108,6 +121,10 @@ LogicalResult extendBounds(Operation *op, OpOperand &use,
     auto opExtents = extents.lookupExtent(applyOp.getOperation(), use.get());
     if (!opExtents) {
       return op->emitOpError("cannot compute valid extents");
+    }
+    if (llvm::count(opExtents->negative, kIgnoreDimension) != 0 ||
+        llvm::count(opExtents->positive, kIgnoreDimension) != 0) {
+      return failure();
     }
     llvm::transform(llvm::zip(lb, opExtents->negative), lb.begin(),
                     [](std::tuple<int64_t, int64_t> x) {
@@ -209,6 +226,12 @@ LogicalResult assertShape(stencil::AssertOp assertOp,
     return true;
   };
 
+  // Verify the bounds have no ignored dimension
+  if (llvm::count(assertOp.getLB(), kIgnoreDimension) != 0 ||
+      llvm::count(assertOp.getUB(), kIgnoreDimension) != 0) {
+    return assertOp.emitOpError("expected extents to have full dimensionality");
+  }
+
   // Verify for every use that the access bounds fit the field
   for (OpOperand &use : assertOp.field().getUses()) {
     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
@@ -241,16 +264,22 @@ void ShapeInferencePass::runOnFunction() {
   Block &entryBlock = funcOp.getOperation()->getRegion(0).front();
   for (auto op = entryBlock.rbegin(); op != entryBlock.rend(); ++op) {
     if (auto applyOp = dyn_cast<stencil::ApplyOp>(*op)) {
-      if (failed(inferShapes(applyOp, extents)))
+      if (failed(inferShapes(applyOp, extents))) {
         signalPassFailure();
+        return;
+      }
     }
     if (auto loadOp = dyn_cast<stencil::LoadOp>(*op)) {
-      if (failed(inferShapes(loadOp, extents)))
+      if (failed(inferShapes(loadOp, extents))) {
         signalPassFailure();
+        return;
+      }
     }
     if (auto assertOp = dyn_cast<stencil::AssertOp>(*op)) {
-      if (failed(assertShape(assertOp, extents)))
+      if (failed(assertShape(assertOp, extents))) {
         signalPassFailure();
+        return;
+      }
     }
   }
 }

@@ -66,7 +66,7 @@ void ShapeShiftPass::runOnFunction() {
 
   // Only run on functions marked as stencil programs
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
-    return;
+    return; 
 
   // Verify all apply and load ops have valid bounds
   bool invalidBounds = false;
