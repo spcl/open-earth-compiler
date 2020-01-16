@@ -34,7 +34,7 @@ set(LIBS
   MLIRStencil
   MLIRStencilToStandard
 )
-if(BUILD_GPU_BACKEND)
+if(OEC_GPU_LOWERING_ENABLED)
   list(APPEND LIBS
     MLIRLoopsToGPU
     MLIRGPU

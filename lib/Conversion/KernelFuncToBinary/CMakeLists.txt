@@ -1,5 +1,5 @@
 
-if(BUILD_GPU_BACKEND)
+if(OEC_GPU_LOWERING_ENABLED)
   if (NOT ("NVPTX" IN_LIST LLVM_TARGETS_TO_BUILD))
     message(SEND_ERROR
       "Building the mlir cuda runner requires the NVPTX backend")

@@ -47,12 +47,16 @@ static constexpr const char *kCubinAnnotation = "nvvm.cubin";
 /// If tagged as a kernel module, each contained function is translated to NVVM
 /// IR and further to PTX.
 class KernelToBinaryPass
-    : public OperationPass<KernelToBinaryPass, gpu::GPUModuleOp> {
+    : public ModulePass<KernelToBinaryPass> {
 public:
   KernelToBinaryPass() {}
 
-  void runOnOperation() override {
-    gpu::GPUModuleOp module = getOperation();
+  void runOnModule() override {
+    ModuleOp module = getModule();
+    if (!module.getAttrOfType<UnitAttr>(
+            gpu::GPUDialect::getKernelModuleAttrName()) ||
+        !module.getName())
+      return;
 
     // Make sure the NVPTX target is initialized.
     LLVMInitializeNVPTXTarget();
@@ -64,10 +68,9 @@ public:
     if (!llvmModule)
       return signalPassFailure();
 
-    // Translate the module to CUBIN and attach the result as attribute to the
-    // module.
+    // Translate the module to CUBIN and attach the result as attribute
     if (auto cubinAttr = translateGPUModuleToCubinAnnotation(
-            *llvmModule, module.getLoc(), module.getName()))
+            *llvmModule, module.getLoc(), *module.getName()))
       module.setAttr(kCubinAnnotation, cubinAttr);
     else
       signalPassFailure();
