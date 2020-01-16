@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.12.4)
 
 project(oec-opt LANGUAGES CXX)
 
+# define options
+option(BUILD_GPU_BACKEND "description" ON)
+
 find_package(LLVM REQUIRED CONFIG)
 
 if(LLVM_FOUND)

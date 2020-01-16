@@ -2,30 +2,23 @@ set(LIBS
   MLIRAnalysis
   MLIRAffineOps
   MLIRAffineToStandard
-  MLIRLoopsToGPU
   MLIRLinalgToLLVM
 
   MLIRLoopToStandard
   MLIREDSC
   MLIRFxpMathOps
-  MLIRGPU
-  MLIRGPUtoNVVMTransforms
-  MLIRGPUtoROCDLTransforms
-  MLIRGPUtoSPIRVTransforms
   MLIRLinalg
   MLIRLLVMIR
   MLIRLoopOps
-  MLIRNVVMIR
   MLIROptMain
   MLIRParser
   MLIRPass
   MLIRQuantizerTransforms
   MLIRQuantOps
-  MLIRROCDLIR
-  MLIRSPIRV
-  MLIRStandardToSPIRVTransforms
-  MLIRSPIRVTestPasses
-  MLIRSPIRVTransforms
+  #MLIRSPIRV
+  #MLIRStandardToSPIRVTransforms
+  #MLIRSPIRVTestPasses
+  #MLIRSPIRVTransforms
   MLIRStandardOps
   MLIRStandardToLLVM
   MLIRTransforms
@@ -40,9 +33,14 @@ set(LIBS
   
   MLIRStencil
   MLIRStencilToStandard
-  MLIRKernelFuncToBinary
 )
-
+if(BUILD_GPU_BACKEND)
+  list(APPEND LIBS
+    MLIRLoopsToGPU
+    MLIRNVVMIR
+    MLIRROCDLIR
+    MLIRKernelFuncToBinary) 
+endif()
 
 add_llvm_executable(oec-opt
  oec-opt.cpp
