@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements a pass to convert gpu kernel functions into a
-// corresponding binary blob that can be executed on a CUDA GPU. Currently
-// only translates the function itself but no dependencies.
+// This file implements a pass to compile the gpu kernel functions. Currently
+// only translates the function itself but no dependencies. The pass annotates
+// all kernels with the resulting CUBIN string.
 //
 //===----------------------------------------------------------------------===//
 
@@ -34,24 +34,22 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 
+#include "cuda.h"
+
 using namespace mlir;
 
 namespace {
-// TODO(herhut): Move to shared location.
+// Name of the attribute storing the cubin
 static constexpr const char *kCubinAnnotation = "nvvm.cubin";
 
 /// A pass converting tagged kernel modules to cubin blobs.
 ///
 /// If tagged as a kernel module, each contained function is translated to NVVM
-/// IR and further to PTX. A user provided CubinGenerator compiles the PTX to
-/// GPU binary code, which is then attached as an attribute to the function. The
-/// function body is erased.
-class GpuKernelToCubinPass
-    : public OperationPass<GpuKernelToCubinPass, gpu::GPUModuleOp> {
+/// IR and further to PTX.
+class KernelToBinaryPass
+    : public OperationPass<KernelToBinaryPass, gpu::GPUModuleOp> {
 public:
-  GpuKernelToCubinPass(
-      CubinGenerator cubinGenerator = compilePtxToCubinForTesting)
-      : cubinGenerator(cubinGenerator) {}
+  KernelToBinaryPass() {}
 
   void runOnOperation() override {
     gpu::GPUModuleOp module = getOperation();
@@ -76,8 +74,8 @@ public:
   }
 
 private:
-  static OwnedCubin compilePtxToCubinForTesting(const std::string &ptx,
-                                                Location, StringRef);
+  static OwnedCubin compilePtxToCubin(const std::string &ptx, Location,
+                                      StringRef);
 
   std::string translateModuleToPtx(llvm::Module &module,
                                    llvm::TargetMachine &target_machine);
@@ -95,10 +93,29 @@ private:
   CubinGenerator cubinGenerator;
 };
 
+inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
+                            CUresult error, Location loc) {
+  emitError(loc, message.concat(" failed with error code ")
+                     .concat(llvm::Twine{error})
+                     .concat("[")
+                     .concat(buffer)
+                     .concat("]"));
+}
+
+#define RETURN_ON_CUDA_ERROR(expr, msg)                                        \
+  {                                                                            \
+    auto _cuda_error = (expr);                                                 \
+    if (_cuda_error != CUDA_SUCCESS) {                                         \
+      emit_cuda_error(msg, jitErrorBuffer, _cuda_error, loc);                  \
+      return {};                                                               \
+    }                                                                          \
+  }
+
 } // anonymous namespace
 
-std::string GpuKernelToCubinPass::translateModuleToPtx(
-    llvm::Module &module, llvm::TargetMachine &target_machine) {
+std::string
+KernelToBinaryPass::translateModuleToPtx(llvm::Module &module,
+                                         llvm::TargetMachine &target_machine) {
   std::string ptx;
   {
     llvm::raw_string_ostream stream(ptx);
@@ -112,16 +129,57 @@ std::string GpuKernelToCubinPass::translateModuleToPtx(
   return ptx;
 }
 
-OwnedCubin
-GpuKernelToCubinPass::compilePtxToCubinForTesting(const std::string &ptx,
-                                                  Location, StringRef) {
-  const char data[] = "CUBIN";
-  return std::make_unique<std::vector<char>>(data, data + sizeof(data) - 1);
+OwnedCubin KernelToBinaryPass::compilePtxToCubin(const std::string &ptx,
+                                                 Location loc, StringRef name) {
+  char jitErrorBuffer[4096] = {0};
+
+  RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
+
+  // Linking requires a device context.
+  CUdevice device;
+  RETURN_ON_CUDA_ERROR(cuDeviceGet(&device, 0), "cuDeviceGet");
+  CUcontext context;
+  RETURN_ON_CUDA_ERROR(cuCtxCreate(&context, 0, device), "cuCtxCreate");
+  CUlinkState linkState;
+
+  CUjit_option jitOptions[] = {CU_JIT_ERROR_LOG_BUFFER,
+                               CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES};
+  void *jitOptionsVals[] = {jitErrorBuffer,
+                            reinterpret_cast<void *>(sizeof(jitErrorBuffer))};
+
+  RETURN_ON_CUDA_ERROR(cuLinkCreate(2,              /* number of jit options */
+                                    jitOptions,     /* jit options */
+                                    jitOptionsVals, /* jit option values */
+                                    &linkState),
+                       "cuLinkCreate");
+
+  RETURN_ON_CUDA_ERROR(
+      cuLinkAddData(linkState, CUjitInputType::CU_JIT_INPUT_PTX,
+                    const_cast<void *>(static_cast<const void *>(ptx.c_str())),
+                    ptx.length(), name.data(), /* kernel name */
+                    0,                         /* number of jit options */
+                    nullptr,                   /* jit options */
+                    nullptr                    /* jit option values */
+                    ),
+      "cuLinkAddData");
+
+  void *cubinData;
+  size_t cubinSize;
+  RETURN_ON_CUDA_ERROR(cuLinkComplete(linkState, &cubinData, &cubinSize),
+                       "cuLinkComplete");
+
+  char *cubinAsChar = static_cast<char *>(cubinData);
+  OwnedCubin result =
+      std::make_unique<std::vector<char>>(cubinAsChar, cubinAsChar + cubinSize);
+
+  // This will also destroy the cubin data.
+  RETURN_ON_CUDA_ERROR(cuLinkDestroy(linkState), "cuLinkDestroy");
+  return result;
 }
 
-OwnedCubin GpuKernelToCubinPass::convertModuleToCubin(llvm::Module &llvmModule,
-                                                      Location loc,
-                                                      StringRef name) {
+OwnedCubin KernelToBinaryPass::convertModuleToCubin(llvm::Module &llvmModule,
+                                                    Location loc,
+                                                    StringRef name) {
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   {
     std::string error;
@@ -143,10 +201,10 @@ OwnedCubin GpuKernelToCubinPass::convertModuleToCubin(llvm::Module &llvmModule,
 
   auto ptx = translateModuleToPtx(llvmModule, *targetMachine);
 
-  return cubinGenerator(ptx, loc, name);
+  return compilePtxToCubin(ptx, loc, name);
 }
 
-StringAttr GpuKernelToCubinPass::translateGPUModuleToCubinAnnotation(
+StringAttr KernelToBinaryPass::translateGPUModuleToCubinAnnotation(
     llvm::Module &llvmModule, Location loc, StringRef name) {
   auto cubin = convertModuleToCubin(llvmModule, loc, name);
   if (!cubin)
@@ -154,11 +212,6 @@ StringAttr GpuKernelToCubinPass::translateGPUModuleToCubinAnnotation(
   return StringAttr::get({cubin->data(), cubin->size()}, loc->getContext());
 }
 
-std::unique_ptr<OpPassBase<gpu::GPUModuleOp>>
-mlir::createConvertGPUKernelToCubinPass(CubinGenerator cubinGenerator) {
-  return std::make_unique<GpuKernelToCubinPass>(cubinGenerator);
-}
-
-static PassRegistration<GpuKernelToCubinPass>
+static PassRegistration<KernelToBinaryPass>
     pass("kernel-to-binary",
          "Convert all kernel functions to CUDA cubin blobs");

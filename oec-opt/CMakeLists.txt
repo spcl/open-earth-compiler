@@ -37,8 +37,9 @@ set(LIBS
 if(BUILD_GPU_BACKEND)
   list(APPEND LIBS
     MLIRLoopsToGPU
+    MLIRGPU
+    MLIRGPUtoNVVMTransforms
     MLIRNVVMIR
-    MLIRROCDLIR
     MLIRKernelFuncToBinary) 
 endif()
 
