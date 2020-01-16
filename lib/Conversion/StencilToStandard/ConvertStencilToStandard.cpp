@@ -94,12 +94,11 @@ int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
 }
 
 // Helper to compute a memref type
-MemRefType computeMemRefType(Type elementType, ArrayRef<int64_t> begin,
-                             ArrayRef<int64_t> end, ArrayRef<int64_t> origin,
+MemRefType computeMemRefType(Type elementType, ArrayRef<int64_t> shape,
+                             ArrayRef<int64_t> strides,
+                             ArrayRef<int64_t> origin,
                              ConversionPatternRewriter &rewriter) {
   // Get the element type
-  ArrayRef<int64_t> shape = computeShape(begin, end);
-  ArrayRef<int64_t> strides = computeStrides(shape);
   int64_t offset = 0;
   if (origin.size() != 0) {
     offset = computeOffset(origin, strides);
@@ -138,9 +137,10 @@ public:
         Type inputType = NoneType();
         for (auto &use : argument.getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
-            inputType = computeMemRefType(
-                assertOp.getFieldType().getElementType(), assertOp.getLB(),
-                assertOp.getUB(), {}, rewriter);
+            ArrayRef<int64_t> strides = computeStrides(assertOp.getUB());
+            inputType =
+                computeMemRefType(assertOp.getFieldType().getElementType(),
+                                  assertOp.getUB(), strides, {}, rewriter);
             break;
           }
         }
@@ -257,11 +257,12 @@ public:
     if (!loadOp.field().getType().isa<MemRefType>())
       return matchFailure();
 
-    // Compute the replacement type
+    // Compute the replacement types
     auto inputType = loadOp.field().getType().cast<MemRefType>();
-    auto outputType =
-        computeMemRefType(inputType.getElementType(), loadOp.getLB(),
-                          loadOp.getUB(), loadOp.getLB(), rewriter);
+    ArrayRef<int64_t> shape = computeShape(loadOp.getLB(), loadOp.getUB());
+    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
+    auto outputType = computeMemRefType(inputType.getElementType(), shape,
+                                        strides, loadOp.getLB(), rewriter);
 
     // Replace the load op
     auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
@@ -344,9 +345,9 @@ public:
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
       Type elementType = applyOp.getResultViewType(i).getElementType();
-      auto allocType =
-          computeMemRefType(elementType, applyOp.getLB(), applyOp.getUB(),
-                            applyOp.getLB(), rewriter);
+      ArrayRef<int64_t> strides = computeStrides(applyOp.getUB());
+      auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
+                                         {}, rewriter);
 
       auto allocOp = rewriter.create<AllocOp>(loc, allocType);
       applyOp.getResult(i).replaceAllUsesWith(allocOp.getResult());
@@ -437,16 +438,17 @@ public:
     auto loc = operation->getLoc();
     auto storeOp = cast<stencil::StoreOp>(operation);
 
-    // check the field has been converted
+    // Verify the field has been converted
     if (!(storeOp.field().getType().isa<MemRefType>() &&
           storeOp.view().getType().isa<MemRefType>()))
       return matchFailure();
 
-    // Compute the replacement type
+    // Compute the replacement types
     auto inputType = storeOp.field().getType().cast<MemRefType>();
-    auto outputType =
-        computeMemRefType(inputType.getElementType(), storeOp.getLB(),
-                          storeOp.getUB(), storeOp.getLB(), rewriter);
+    ArrayRef<int64_t> shape = computeShape(storeOp.getLB(), storeOp.getUB());
+    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
+    auto outputType = computeMemRefType(inputType.getElementType(), shape,
+                                        strides, storeOp.getLB(), rewriter);
 
     // Remove allocation and deallocation and insert subview op
     auto allocOp = storeOp.view().getDefiningOp();
