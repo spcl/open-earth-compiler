@@ -40,6 +40,7 @@ set(LIBS
   
   MLIRStencil
   MLIRStencilToStandard
+  MLIRKernelFuncToBinary
 )
 
 

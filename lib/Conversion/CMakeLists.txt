@@ -1,1 +1,2 @@
+add_subdirectory(KernelFuncToBinary)
 add_subdirectory(StencilToStandard)
