@@ -213,5 +213,5 @@ StringAttr KernelToBinaryPass::translateGPUModuleToCubinAnnotation(
 }
 
 static PassRegistration<KernelToBinaryPass>
-    pass("kernel-to-binary",
+    pass("gpu-kernel-to-binary",
          "Convert all kernel functions to CUDA cubin blobs");
