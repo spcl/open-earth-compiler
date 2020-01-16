@@ -38,13 +38,17 @@ module {
   }
 }
 
+// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0, d1, d2) -> (d0 + d1 * 70 + d2 * 4900)>
+// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1, d2) -> (d0 + d1 * 70 + d2 * 4900 + 71)>
+
 // CHECK-LABEL: func @lap_stencil(%{{.*}}: memref<70x70x60xf64, #{{.*}}>, %{{.*}}: memref<70x70x60xf64, #{{.*}}>) {
-//  CHECK-NEXT: %{{.*}} = std.subview %{{.*}}[][][] : memref<70x70x60xf64, #{{.*}}> to memref<68x68x60xf64, #{{.*}}>
+//  CHECK-NEXT: %{{.*}} = std.subview %{{.*}}[][][] : memref<70x70x60xf64, [[MAP0]]> to memref<68x68x60xf64, [[MAP1]]>
 //  CHECK-NEXT: %{{.*}} = alloc() : memref<66x66x60xf64, #{{.*}}>
 //  CHECK-NEXT: affine.for %{{.*}} = 0 to 60 {
 //  CHECK-NEXT: affine.for %{{.*}} = 0 to 66 {
 //  CHECK-NEXT: affine.for %{{.*}} = 0 to 66 {
 
-
 //       CHECK: affine.load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] 
 //       CHECK: affine.store %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] 
+
+
