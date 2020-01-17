@@ -6,16 +6,6 @@ if(OEC_GPU_LOWERING_ENABLED)
   endif()
   llvm_map_components_to_libnames(nvptx "NVPTX")
   
-  include(CheckLanguage)
-  check_language(CUDA)
-  if (CMAKE_CUDA_COMPILER)
-    enable_language(CUDA)
-  else()
-    message(SEND_ERROR
-      "Building the mlir cuda runner requires a working CUDA install")
-  endif()
-  # We need the libcuda.so library.
-  find_library(CUDA_RUNTIME_LIBRARY cuda)
 
   add_llvm_library(MLIRKernelFuncToBinary
     ConvertKernelFuncToBinary.cpp
@@ -23,7 +13,7 @@ if(OEC_GPU_LOWERING_ENABLED)
   add_dependencies(
     MLIRKernelFuncToBinary
 
-     MLIRGPU
+    MLIRGPU
     MLIRLLVMIR
     MLIRNVVMIR
     MLIRPass
@@ -38,9 +28,5 @@ if(OEC_GPU_LOWERING_ENABLED)
     MLIRPass
     MLIRTargetNVVMIR
     ${nvptx}
-    ${CUDA_RUNTIME_LIBRARY}
   )
-  target_include_directories(
-    MLIRKernelFuncToBinary
-    PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 endif()
