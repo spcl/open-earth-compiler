@@ -1,9 +1,9 @@
 
 func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64>, %uout_fd : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
-	stencil.assert %uin_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %mask_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %uout_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
+	stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %mask_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %uout_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   %uin = stencil.load %uin_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %mask = stencil.load %mask_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   // lap
@@ -16,7 +16,7 @@ func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64
       %5 = addf %0, %1 : f64
       %6 = addf %2, %3 : f64
       %7 = addf %5, %6 : f64
-      %cst = constant -4.000000e+00 : f64
+      %cst = constant -4.0 : f64
       %8 = mulf %4, %cst : f64
       %9 = addf %8, %7 : f64
       stencil.return %9 : f64

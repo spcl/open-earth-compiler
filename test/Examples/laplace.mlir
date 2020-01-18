@@ -1,9 +1,8 @@
-// bin/oec-opt --stencil-shape-inference --stencil-shape-shift --convert-stencil-to-standard --lower-affine --canonicalize --convert-loops-to-gpu --gpu-kernel-outlining ../test/Examples/lap.mlir
 
 func @laplace(%uin_fd : !stencil.field<ijk,f64>, %lap_fd : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
-	stencil.assert %uin_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %lap_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
+	stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %lap_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   %uin = stencil.load %uin_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   // lap
   %lap = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {  
@@ -15,7 +14,7 @@ func @laplace(%uin_fd : !stencil.field<ijk,f64>, %lap_fd : !stencil.field<ijk,f6
       %5 = addf %0, %1 : f64
       %6 = addf %2, %3 : f64
       %7 = addf %5, %6 : f64
-      %cst = constant -4.000000e+00 : f64
+      %cst = constant -4.0 : f64
       %8 = mulf %4, %cst : f64
       %9 = addf %8, %7 : f64
       stencil.return %9 : f64

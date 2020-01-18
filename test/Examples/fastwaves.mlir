@@ -15,19 +15,19 @@ func @fastwaves(
   %div_fd : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
   // asserts
-  stencil.assert %uin_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %utens_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %vin_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %vtens_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %wgtfac_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %ppuv_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %hhl_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %rho_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %dzdx_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %dzdy_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %uout_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %vout_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
-  stencil.assert %div_fd ([-3, -3, -3]:[67, 67, 67]) : !stencil.field<ijk,f64>
+  stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %utens_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %vin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %vtens_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %wgtfac_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %ppuv_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %hhl_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %rho_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %dzdx_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %dzdy_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %uout_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %vout_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
+  stencil.assert %div_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   // loads
   %uin = stencil.load %uin_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %utens = stencil.load %utens_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
@@ -218,7 +218,7 @@ func @fastwaves(
       %11 = stencil.access %arg26[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %12 = mulf %10, %11 : f64
       %13 = stencil.access %arg22[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %14 = addf %13, %12 : f64
+      %14 = subf %12, %13 : f64
       %15 = mulf %fake2, %14 : f64
       // vout(i,j,k) term
       %16 = stencil.access %arg25[0, 0, 1] : (!stencil.view<ijk,f64>) -> f64
@@ -236,12 +236,12 @@ func @fastwaves(
       %27 = stencil.access %arg27[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
       %28 = mulf %26, %27 : f64
       %29 = stencil.access %arg24[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
-      %30 = addf %29, %28 : f64
+      %30 = subf %28, %29 : f64
       %31 = mulf %fake4, %30 : f64
       // sum everything
-      %33 = addf %7, %13 : f64
-      %34 = addf %23, %31 : f64
-      %35 = addf %33, %34 : f64
+      %33 = addf %7, %15 : f64
+      %34 = addf %33, %23 : f64
+      %35 = addf %31, %34 : f64
       stencil.return %35 : f64
   } : !stencil.view<ijk,f64>
   // store results
