@@ -7,11 +7,19 @@
 namespace mlir {
 namespace stencil {
 
+// Constant used to mark unused dimensions of lower dimensional fields
+constexpr static int64_t kIgnoreDimension = std::numeric_limits<int64_t>::min();
+
+// Constant dimension identifiers
+constexpr static int kIDimension = 0;
+constexpr static int kJDimension = 1;
+constexpr static int kKDimension = 2;
+
 class StencilDialect : public Dialect {
 public:
   explicit StencilDialect(MLIRContext *context);
 
-  /// Returns the prefix used in the textual IR to refer to Stencil operations
+  /// Returns the prefix used in the textual IR to refer to stencil operations
   static StringRef getDialectNamespace() { return "stencil"; }
 
   static StringRef getStencilFunctionAttrName() { return "stencil.function"; }
@@ -30,7 +38,7 @@ public:
   /// Parses a type registered to this dialect
   Type parseType(DialectAsmParser &parser) const override;
 
-  /// Prints a type registered to this dialect
+  /// Print a type registered to this dialect
   void printType(Type type, DialectAsmPrinter &os) const override;
 };
 

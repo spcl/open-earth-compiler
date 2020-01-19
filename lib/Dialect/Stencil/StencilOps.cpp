@@ -170,9 +170,8 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
 }
 
 static void print(stencil::AccessOp accessOp, OpAsmPrinter &printer) {
-  // Use the TableGen'd accessors to operands
   Value view = accessOp.view();
-  Attribute offset = accessOp.offset();
+  ArrayAttr offset = accessOp.offset();
 
   printer << stencil::AccessOp::getOperationName() << ' ' << view;
   printer.printAttribute(offset);

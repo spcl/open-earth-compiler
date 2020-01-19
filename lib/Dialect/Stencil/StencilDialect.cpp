@@ -1,14 +1,20 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Module.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/STLExtras.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
+#include <bits/stdint-intn.h>
 #include <cstddef>
+#include <string>
 
 using namespace mlir;
 using namespace mlir::stencil;
@@ -159,6 +165,6 @@ void StencilDialect::printType(Type type, DialectAsmPrinter &printer) const {
     print(type.cast<ViewType>(), printer);
     break;
   default:
-    llvm_unreachable("unhandled Stencil type");
+    llvm_unreachable("unhandled stencil type");
   }
 }

@@ -1,25 +1,25 @@
 add_llvm_library(MLIRStencilToStandard
-        ConvertStencilToStandard.cpp
-        )
+  ConvertStencilToStandard.cpp
+)
 add_dependencies(
-        MLIRStencilToStandard
+  MLIRStencilToStandard
 
-        MLIRAffineOps
-        MLIRStencil
-        MLIRStandardOps
-        MLIRTransforms
-        LLVMCore
-        LLVMSupport
+  MLIRAffineOps
+  MLIRStencil
+  MLIRStandardOps
+  MLIRTransforms
+  LLVMCore
+  LLVMSupport
 )
 target_link_libraries(
-        MLIRStencilToStandard
+  MLIRStencilToStandard
 
-        MLIRAffineOps
-        MLIRStandardOps
-        MLIRStencil
-        MLIRTransforms
-        LLVMCore
-        LLVMSupport
+  MLIRAffineOps
+  MLIRStandardOps
+  MLIRStencil
+  MLIRTransforms
+  LLVMCore
+  LLVMSupport
 )
 
 # specify header directories

@@ -11,12 +11,14 @@
 using namespace mlir;
 using namespace mlir::stencil;
 
+//===----------------------------------------------------------------------===//
+// FieldType
+//===----------------------------------------------------------------------===//
+
 struct mlir::stencil::FieldTypeStorage : public TypeStorage {
-  /// Underlying Key type to transport the payload needed to the type
   using Key = std::pair<ArrayRef<int>, Type>;
   using KeyTy = Key;
 
-  /// Construction in the `llvm::BumpPtrAllocator` given a key.
   static FieldTypeStorage *construct(TypeStorageAllocator &allocator,
                                      const KeyTy &key) {
     // Copy the allocation into the bump pointer.
@@ -27,25 +29,19 @@ struct mlir::stencil::FieldTypeStorage : public TypeStorage {
         FieldTypeStorage(dimensions.size(), dimensions.data(), key.second);
   }
 
-  /// Equality operator for hashing.
   bool operator==(const KeyTy &key) const {
     return key == KeyTy(getDimensions(), elementType);
   }
 
-  /// Return the type of the field elements.
   Type getElementType() const { return elementType; }
-
-  /// Return the shape of the field.
   ArrayRef<int> getDimensions() const { return {dimensions, size}; }
 
 private:
   FieldTypeStorage(size_t size, const int *dimensions, Type elementType)
       : size(size), dimensions(dimensions), elementType(elementType) {}
 
-  /// Allocation of the storage.
   const size_t size;
   const int *dimensions;
-  /// Type of the field elements.
   Type elementType;
 };
 
@@ -70,12 +66,14 @@ Type FieldType::getElementType() { return getImpl()->getElementType(); }
 
 ArrayRef<int> FieldType::getDimensions() { return getImpl()->getDimensions(); }
 
+//===----------------------------------------------------------------------===//
+// ViewType
+//===----------------------------------------------------------------------===//
+
 struct mlir::stencil::ViewTypeStorage : public TypeStorage {
-  /// Underlying Key type to transport the payload needed to the type
   using Key = std::pair<ArrayRef<int>, Type>;
   using KeyTy = Key;
 
-  /// Construction in the `llvm::BumpPtrAllocator` given a key.
   static ViewTypeStorage *construct(TypeStorageAllocator &allocator,
                                     const KeyTy &key) {
     // Copy the allocation into the bump pointer.
@@ -86,25 +84,19 @@ struct mlir::stencil::ViewTypeStorage : public TypeStorage {
         ViewTypeStorage(dimensions.size(), dimensions.data(), key.second);
   }
 
-  /// Equality operator for hashing.
   bool operator==(const KeyTy &key) const {
     return key == KeyTy(getDimensions(), elementType);
   }
 
-  /// Return the type of the view elements.
   Type getElementType() const { return elementType; }
-
-  /// Return the shape of the view.
   ArrayRef<int> getDimensions() const { return {dimensions, size}; }
 
 private:
   ViewTypeStorage(size_t size, const int *dimensions, Type elementType)
       : size(size), dimensions(dimensions), elementType(elementType) {}
 
-  /// Allocation of the storage.
   const size_t size;
   const int *dimensions;
-  /// Type of the field elements.
   Type elementType;
 };
 

@@ -11,14 +11,6 @@
 namespace mlir {
 namespace stencil {
 
-// Constant used to mark unused dimensions of lower dimensional fields
-constexpr static int64_t kIgnoreDimension = std::numeric_limits<int64_t>::min();
-
-// Constant dimension identifiers
-constexpr static int kIDimension = 0;
-constexpr static int kJDimension = 1;
-constexpr static int kKDimension = 2;
-
 namespace StencilTypes {
 enum Kind {
   Field = Type::FIRST_STENCIL_TYPE,
@@ -27,17 +19,19 @@ enum Kind {
 };
 }
 
+//===----------------------------------------------------------------------===//
+// FieldType
+//===----------------------------------------------------------------------===//
+
 struct FieldTypeStorage;
 class FieldType : public Type::TypeBase<FieldType, Type, FieldTypeStorage> {
 public:
-  // Used for generic hooks in TypeBase.
   using Base::Base;
 
-  /// Construction hook.
   static FieldType get(MLIRContext *context, Type elementType,
                        ArrayRef<int> dimensions);
 
-  /// Used to implement LLVM-style casts.
+  /// Used to implement LLVM-style casts
   static bool kindof(unsigned kind) { return kind == StencilTypes::Field; }
 
   /// Return the type of the field elements.
@@ -46,13 +40,15 @@ public:
   ArrayRef<int> getDimensions();
 };
 
+//===----------------------------------------------------------------------===//
+// ViewType
+//===----------------------------------------------------------------------===//
+
 struct ViewTypeStorage;
 class ViewType : public Type::TypeBase<ViewType, Type, ViewTypeStorage> {
 public:
-  // Used for generic hooks in TypeBase.
   using Base::Base;
 
-  /// Construction hook.
   static ViewType get(MLIRContext *context, Type elementType,
                       ArrayRef<int> dimensions);
 
