@@ -7,11 +7,12 @@ if(OEC_GPU_LOWERING_ENABLED)
   llvm_map_components_to_libnames(nvptx "NVPTX")
   
 
-  add_llvm_library(MLIRKernelFuncToBinary
-    ConvertKernelFuncToBinary.cpp
+  add_llvm_library(MLIRKernelToCUDA
+    ConvertKernelFuncToPtx.cpp
+    ConvertLaunchFuncToCUDA.cpp
   )
   add_dependencies(
-    MLIRKernelFuncToBinary
+    MLIRKernelToCUDA
 
     MLIRGPU
     MLIRLLVMIR
@@ -21,7 +22,7 @@ if(OEC_GPU_LOWERING_ENABLED)
     ${nvptx}
   )
   target_link_libraries(
-    MLIRKernelFuncToBinary
+    MLIRKernelToCUDA
     MLIRGPU
     MLIRLLVMIR
     MLIRNVVMIR

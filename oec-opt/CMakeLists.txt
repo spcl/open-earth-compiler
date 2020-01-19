@@ -40,7 +40,7 @@ if(OEC_GPU_LOWERING_ENABLED)
     MLIRGPU
     MLIRGPUtoNVVMTransforms
     MLIRNVVMIR
-    MLIRKernelFuncToBinary) 
+    MLIRKernelToCUDA) 
 endif()
 
 add_llvm_executable(oec-opt

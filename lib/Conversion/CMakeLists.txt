@@ -1,2 +1,2 @@
-add_subdirectory(KernelFuncToBinary)
+add_subdirectory(KernelToCUDA)
 add_subdirectory(StencilToStandard)
