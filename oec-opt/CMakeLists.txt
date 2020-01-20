@@ -1,24 +1,44 @@
+set(LIB_LIBS
+  MLIRAnalysis
+  MLIRLLVMIR
+  MLIRParser
+  MLIRPass
+  MLIRTransforms
+  MLIRSupport
+)
+add_llvm_library(OECOptLib
+  oec-opt.cpp
+)
+target_link_libraries(OECOptLib ${LIB_LIBS})
+
 set(LIBS
   MLIRAnalysis
   MLIRAffineOps
   MLIRAffineToStandard
+  MLIRLoopsToGPU
   MLIRLinalgToLLVM
 
   MLIRLoopToStandard
   MLIREDSC
   MLIRFxpMathOps
-  MLIRLinalg
+  MLIRGPU
+  MLIRGPUtoNVVMTransforms
+  MLIRGPUtoROCDLTransforms
+  MLIRGPUtoSPIRVTransforms
+  MLIRLinalgOps
   MLIRLLVMIR
   MLIRLoopOps
+  MLIRNVVMIR
   MLIROptMain
   MLIRParser
   MLIRPass
   MLIRQuantizerTransforms
   MLIRQuantOps
-  #MLIRSPIRV
-  #MLIRStandardToSPIRVTransforms
-  #MLIRSPIRVTestPasses
-  #MLIRSPIRVTransforms
+  MLIRROCDLIR
+  MLIRSPIRV
+  MLIRStandardToSPIRVTransforms
+  MLIRSPIRVTestPasses
+  MLIRSPIRVTransforms
   MLIRStandardOps
   MLIRStandardToLLVM
   MLIRTransforms
@@ -30,22 +50,19 @@ set(LIBS
   MLIRVectorOps
   MLIRVectorToLLVM
   MLIRVectorToLoops
-  
+
   MLIRStencil
   MLIRStencilToStandard
 )
 if(OEC_GPU_LOWERING_ENABLED)
   list(APPEND LIBS
-    MLIRLoopsToGPU
-    MLIRGPU
-    MLIRGPUtoNVVMTransforms
-    MLIRNVVMIR
-    MLIRKernelToCUDA) 
+    MLIRGPUtoCUDATransforms
+  )
 endif()
-
 add_llvm_executable(oec-opt
  oec-opt.cpp
 )
+
 llvm_update_compile_flags(oec-opt)
 whole_archive_link(oec-opt ${LIBS})
-target_link_libraries(oec-opt PRIVATE MLIRIR MLIRMlirOptLib ${LIBS} LLVMSupport)
+target_link_libraries(oec-opt PRIVATE MLIRIR OECOptLib ${LIBS} LLVMSupport)
