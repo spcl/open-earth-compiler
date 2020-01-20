@@ -11,6 +11,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Module.h"
@@ -24,10 +25,9 @@ using namespace mlir;
 static constexpr const char *cuModuleLoadName = "mcuModuleLoad";
 static constexpr const char *cuModuleGetFunctionName = "mcuModuleGetFunction";
 static constexpr const char *cuLaunchKernelName = "mcuLaunchKernel";
-static constexpr const char *cuGetStreamHelperName = "mcuGetStreamHelper";
+static constexpr const char *cuInitHelperName = "mcuInitHelper";
 static constexpr const char *cuStreamSynchronizeName = "mcuStreamSynchronize";
 static constexpr const char *cuMemHostRegister = "mcuMemHostRegister";
-
 static constexpr const char *kPtxAnnotation = "nvvm.ptx";
 static constexpr const char *kPtxStorageSuffix = "_ptx_cst";
 
@@ -96,8 +96,10 @@ private:
                                    OpBuilder &builder);
   LLVM::GlobalOp generateKernelFunctionHandle(StringRef name, Location loc);
   LLVM::GlobalOp generateStreamHandle(Location loc);
-  LogicalResult generateInitFunction(mlir::gpu::LaunchFuncOp launchOp, LLVM::GlobalOp streamHandle,
-                            LLVM::GlobalOp functionHandle, Location loc);
+  LogicalResult generateInitFunction(mlir::gpu::LaunchFuncOp launchOp,
+                                     LLVM::GlobalOp streamHandle,
+                                     LLVM::GlobalOp functionHandle,
+                                     Location loc);
 
   Value setupParamsArray(gpu::LaunchFuncOp launchOp, OpBuilder &builder);
   void translateGPULaunchCalls(mlir::gpu::LaunchFuncOp launchOp);
@@ -133,18 +135,18 @@ private:
 } // anonymous namespace
 
 // Add the definition of an init function to compile the kernels
-LogicalResult LaunchFuncToCUDAPass::generateInitFunction(mlir::gpu::LaunchFuncOp launchOp,
-                                                LLVM::GlobalOp streamHandle,
-                                                LLVM::GlobalOp functionHandle,
-                                                Location loc) {
+LogicalResult LaunchFuncToCUDAPass::generateInitFunction(
+    mlir::gpu::LaunchFuncOp launchOp, LLVM::GlobalOp streamHandle,
+    LLVM::GlobalOp functionHandle, Location loc) {
   ModuleOp module = getModule();
   OpBuilder builder(module.getBody()->getTerminator());
-  
+
   // Generate the function if it does not exist
-  LLVM::LLVMFuncOp funcOp;
-  if (!module.lookupSymbol("init")) {
+  std::string initName = "init";
+  LLVM::LLVMFuncOp funcOp = dyn_cast_or_null<LLVM::LLVMFuncOp>(module.lookupSymbol(initName));
+  if (!funcOp) {
     funcOp = builder.create<LLVM::LLVMFuncOp>(
-        loc, "init",
+        loc, initName,
         LLVM::LLVMType::getFunctionTy(getVoidType(), {},
                                       /*isVarArg=*/false));
 
@@ -153,7 +155,7 @@ LogicalResult LaunchFuncToCUDAPass::generateInitFunction(mlir::gpu::LaunchFuncOp
 
     // Get the global stream
     auto cuGetStreamHelper =
-        getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuGetStreamHelperName);
+        getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuInitHelperName);
     auto cuStream = builder.create<LLVM::CallOp>(
         loc, ArrayRef<Type>{getPointerType()},
         builder.getSymbolRefAttr(cuGetStreamHelper), ArrayRef<Value>{});
@@ -162,16 +164,14 @@ LogicalResult LaunchFuncToCUDAPass::generateInitFunction(mlir::gpu::LaunchFuncOp
 
     // Add terminator
     builder.create<LLVM::ReturnOp>(loc, ValueRange());
-  } else {
-    funcOp = dyn_cast<LLVM::LLVMFuncOp>(module.lookupSymbol("init"));
-  }
+  } 
 
   // Continue function generation
   builder.setInsertionPoint(funcOp.getBody().back().getTerminator());
 
   // Create an LLVM global with PTX extracted from the kernel annotation
-  auto kernelModule = module.lookupSymbol<gpu::GPUModuleOp>(
-      launchOp.getKernelModuleName());
+  auto kernelModule =
+      module.lookupSymbol<gpu::GPUModuleOp>(launchOp.getKernelModuleName());
   assert(kernelModule && "expected a kernel module");
   auto ptxAttr = kernelModule.getAttrOfType<StringAttr>(kPtxAnnotation);
   if (!ptxAttr) {
@@ -222,12 +222,14 @@ LaunchFuncToCUDAPass::generateKernelFunctionHandle(StringRef name,
   std::string globalName = llvm::formatv("{0}_kernel_function", name);
 
   // Create global variable to store the function handler
-  if (!module.lookupSymbol(globalName))
-    return builder.create<LLVM::GlobalOp>(loc, getPointerType(),
-                                            /*isConstant=*/false,
-                                            LLVM::Linkage::Internal, globalName,
-                                            builder.getI64IntegerAttr(0));
-  return nullptr;
+  auto globalOp =
+      dyn_cast_or_null<LLVM::GlobalOp>(module.lookupSymbol(globalName));
+  if (!globalOp)
+    return builder.create<LLVM::GlobalOp>(
+        loc, getPointerType(),
+        /*isConstant=*/false, LLVM::Linkage::Internal, globalName,
+        builder.getZeroAttr(getPointerType()));
+  return globalOp;
 }
 
 // Helper generating a global variable holding the stream handle
@@ -236,13 +238,14 @@ LLVM::GlobalOp LaunchFuncToCUDAPass::generateStreamHandle(Location loc) {
   OpBuilder builder(module.getBody()->getTerminator());
 
   // Create global variable to store the cuda stream
-  if (!module.lookupSymbol("stream")) {
-    return builder.create<LLVM::GlobalOp>(loc, getPointerType(),
-                                          /*isConstant=*/false,
-                                          LLVM::Linkage::Internal, "stream",
-                                          builder.getI64IntegerAttr(0));
-  }
-  return dyn_cast<LLVM::GlobalOp>(module.lookupSymbol("stream"));
+  auto globalOp =
+      dyn_cast_or_null<LLVM::GlobalOp>(module.lookupSymbol("stream"));
+  if (!globalOp)
+    return builder.create<LLVM::GlobalOp>(
+        loc, getPointerType(),
+        /*isConstant=*/false, LLVM::Linkage::Internal, "stream",
+        builder.getZeroAttr(getPointerType()));
+  return globalOp;
 }
 
 // Adds declarations for the needed helper functions from the CUDA wrapper.
@@ -300,11 +303,10 @@ void LaunchFuncToCUDAPass::declareCUDAFunctions(Location loc) {
             },
             /*isVarArg=*/false));
   }
-  if (!module.lookupSymbol(cuGetStreamHelperName)) {
-    // Helper function to get the current CUDA stream. Uses void* instead of
-    // CUDAs opaque CUstream.
+  if (!module.lookupSymbol(cuInitHelperName)) {
+    // Helper function to init cuda and get the current CUDA stream. 
     builder.create<LLVM::LLVMFuncOp>(
-        loc, cuGetStreamHelperName,
+        loc, cuInitHelperName,
         LLVM::LLVMType::getFunctionTy(getPointerType(), /*isVarArg=*/false));
   }
   if (!module.lookupSymbol(cuStreamSynchronizeName)) {
@@ -438,48 +440,22 @@ void LaunchFuncToCUDAPass::translateGPULaunchCalls(
   // Generate the init function
   auto streamHandle = generateStreamHandle(loc);
   auto functionHandle = generateKernelFunctionHandle(launchOp.kernel(), loc);
-  if(failed(generateInitFunction(launchOp, streamHandle, functionHandle, loc)))
+  if (failed(generateInitFunction(launchOp, streamHandle, functionHandle, loc)))
     return signalPassFailure();
-
-  // Emit the load module call to load the module data. Error checking is done
-  // in the called helper function.
-  // auto cuModule = allocatePointer(builder, loc);
-  // auto cuModuleLoad =
-  //     getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleLoadName);
-  // builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
-  //                              builder.getSymbolRefAttr(cuModuleLoad),
-  //                              ArrayRef<Value>{cuModule, ptxString});
-  // Get the function from the module. The name corresponds to the name of
-  // the kernel function.
-  // auto cuOwningModuleRef =
-  //     builder.create<LLVM::LoadOp>(loc, getPointerType(), cuModule);
-  // auto kernelName = generateKernelNameConstant(launchOp.kernel(), loc, builder);
-  // auto cuFunction = allocatePointer(builder, loc);
-  // auto cuModuleGetFunction =
-  //     getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleGetFunctionName);
-  // builder.create<LLVM::CallOp>(
-  //     loc, ArrayRef<Type>{getCUResultType()},
-  //     builder.getSymbolRefAttr(cuModuleGetFunction),
-  //     ArrayRef<Value>{cuFunction, cuOwningModuleRef, kernelName});
-  // Grab the global stream needed for execution.
-  // auto cuGetStreamHelper =
-  //     getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuGetStreamHelperName);
-  // auto cuStream = builder.create<LLVM::CallOp>(
-  //     loc, ArrayRef<Type>{getPointerType()},
-  //     builder.getSymbolRefAttr(cuGetStreamHelper), ArrayRef<Value>{});
 
   // Load stream and function
   Value streamPtr = builder.create<LLVM::AddressOfOp>(loc, streamHandle);
   auto stream = builder.create<LLVM::LoadOp>(loc, getPointerType(), streamPtr);
   Value functionPtr = builder.create<LLVM::AddressOfOp>(loc, functionHandle);
-  auto function = builder.create<LLVM::LoadOp>(loc, getPointerType(), functionPtr);
+  auto function =
+      builder.create<LLVM::LoadOp>(loc, getPointerType(), functionPtr);
 
   // Invoke the function with required arguments.
   auto cuLaunchKernel =
       getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuLaunchKernelName);
   auto paramsArray = setupParamsArray(launchOp, builder);
   auto zero = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
-                                              builder.getI32IntegerAttr(0));
+                                               builder.getI32IntegerAttr(0));
   auto nullpointer =
       builder.create<LLVM::IntToPtrOp>(loc, getPointerPointerType(), zero);
   builder.create<LLVM::CallOp>(
@@ -489,7 +465,7 @@ void LaunchFuncToCUDAPass::translateGPULaunchCalls(
                       launchOp.getOperand(1), launchOp.getOperand(2),
                       launchOp.getOperand(3), launchOp.getOperand(4),
                       launchOp.getOperand(5), zero, /* sharedMemBytes */
-                      stream.getResult(),        /* stream */
+                      stream.getResult(),           /* stream */
                       paramsArray,                  /* kernel params */
                       nullpointer /* extra */});
   // Sync on the stream to make it synchronous.
