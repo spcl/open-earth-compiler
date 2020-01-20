@@ -1,0 +1,50 @@
+diff --git a/mlir/lib/Conversion/StandardToLLVM/ConvertStandardToLLVM.cpp b/mlir/lib/Conversion/StandardToLLVM/ConvertStandardToLLVM.cpp
+index 0ea402792d6..7901474d261 100644
+--- a/mlir/lib/Conversion/StandardToLLVM/ConvertStandardToLLVM.cpp
++++ b/mlir/lib/Conversion/StandardToLLVM/ConvertStandardToLLVM.cpp
+@@ -683,7 +683,8 @@ struct OneToOneLLVMOpLowering : public LLVMLegalizationPattern<SourceOp> {
+   }
+ };
+ 
+-template <typename SourceOp, unsigned OpCount> struct OpCountValidator {
++template <typename SourceOp, unsigned OpCount>
++struct OpCountValidator {
+   static_assert(
+       std::is_base_of<
+           typename OpTrait::NOperands<OpCount>::template Impl<SourceOp>,
+@@ -1823,7 +1824,8 @@ struct SubViewOpLowering : public LLVMLegalizationPattern<SubViewOp> {
+     // Currently, only rank > 0 and full or no operands are supported. Fail to
+     // convert otherwise.
+     unsigned rank = sourceMemRefType.getRank();
+-    if (viewMemRefType.getRank() == 0 || (rank != dynamicOffsets.size()) ||
++    if (viewMemRefType.getRank() == 0 ||
++        (!dynamicOffsets.empty() && rank != dynamicOffsets.size()) ||
+         (!dynamicSizes.empty() && rank != dynamicSizes.size()) ||
+         (!dynamicStrides.empty() && rank != dynamicStrides.size()))
+       return matchFailure();
+@@ -1867,14 +1869,18 @@ struct SubViewOpLowering : public LLVMLegalizationPattern<SubViewOp> {
+     }
+ 
+     // Offset.
+-    Value baseOffset = sourceMemRef.offset(rewriter, loc);
+-    for (int i = 0, e = viewMemRefType.getRank(); i < e; ++i) {
+-      Value min = dynamicOffsets[i];
+-      baseOffset = rewriter.create<LLVM::AddOp>(
+-          loc, baseOffset,
+-          rewriter.create<LLVM::MulOp>(loc, min, strideValues[i]));
++    if (dynamicOffsets.empty()) {
++      targetMemRef.setConstantOffset(rewriter, loc, offset);
++    } else {
++      Value baseOffset = sourceMemRef.offset(rewriter, loc);
++      for (int i = 0, e = viewMemRefType.getRank(); i < e; ++i) {
++        Value min = dynamicOffsets[i];
++        baseOffset = rewriter.create<LLVM::AddOp>(
++            loc, baseOffset,
++            rewriter.create<LLVM::MulOp>(loc, min, strideValues[i]));
++      }
++      targetMemRef.setOffset(rewriter, loc, baseOffset);
+     }
+-    targetMemRef.setOffset(rewriter, loc, baseOffset);
+ 
+     // Update sizes and strides.
+     for (int i = viewMemRefType.getRank() - 1; i >= 0; --i) {
