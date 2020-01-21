@@ -28,8 +28,8 @@ static constexpr const char *cuLaunchKernelName = "mcuLaunchKernel";
 static constexpr const char *cuInitHelperName = "mcuInitHelper";
 static constexpr const char *cuStreamSynchronizeName = "mcuStreamSynchronize";
 static constexpr const char *cuMemHostRegister = "mcuMemHostRegister";
-static constexpr const char *kPtxAnnotation = "nvvm.ptx";
-static constexpr const char *kPtxStorageSuffix = "_ptx_cst";
+static constexpr const char *kCubinAnnotation = "nvvm.cubin";
+static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
 
 namespace {
 
@@ -40,7 +40,7 @@ namespace {
 /// * mcuGetStreamHelper   -- initializes a new CUDA stream
 /// * mcuLaunchKernelName  -- launches the kernel on a stream
 /// * mcuStreamSynchronize -- waits for operations on the stream to finish
-class LaunchFuncToCUDAPass : public ModulePass<LaunchFuncToCUDAPass> {
+class LaunchFuncToCUDACallsPass : public ModulePass<LaunchFuncToCUDACallsPass> {
 private:
   LLVM::LLVMDialect *getLLVMDialect() { return llvmDialect; }
 
@@ -115,10 +115,11 @@ public:
     getModule().walk(
         [this](mlir::gpu::LaunchFuncOp op) { translateGPULaunchCalls(op); });
 
-    // Erase the kernel modules
-    for (auto kernel :
-         llvm::make_early_inc_range(getModule().getOps<gpu::GPUModuleOp>()))
-      kernel.erase();
+    // GPU kernel modules are no longer necessary since we have a global
+    // constant with the CUBIN data.
+    for (auto m : llvm::make_early_inc_range(getModule().getOps<ModuleOp>()))
+      if (m.getAttrOfType<UnitAttr>(gpu::GPUDialect::getKernelModuleAttrName()))
+        m.erase();
   }
 
 private:
@@ -135,7 +136,7 @@ private:
 } // anonymous namespace
 
 // Add the definition of an init function to compile the kernels
-LogicalResult LaunchFuncToCUDAPass::generateInitFunction(
+LogicalResult LaunchFuncToCUDACallsPass::generateInitFunction(
     mlir::gpu::LaunchFuncOp launchOp, LLVM::GlobalOp streamHandle,
     LLVM::GlobalOp functionHandle, Location loc) {
   ModuleOp module = getModule();
@@ -143,7 +144,8 @@ LogicalResult LaunchFuncToCUDAPass::generateInitFunction(
 
   // Generate the function if it does not exist
   std::string initName = "init";
-  LLVM::LLVMFuncOp funcOp = dyn_cast_or_null<LLVM::LLVMFuncOp>(module.lookupSymbol(initName));
+  LLVM::LLVMFuncOp funcOp =
+      dyn_cast_or_null<LLVM::LLVMFuncOp>(module.lookupSymbol(initName));
   if (!funcOp) {
     funcOp = builder.create<LLVM::LLVMFuncOp>(
         loc, initName,
@@ -164,24 +166,29 @@ LogicalResult LaunchFuncToCUDAPass::generateInitFunction(
 
     // Add terminator
     builder.create<LLVM::ReturnOp>(loc, ValueRange());
-  } 
+  }
 
   // Continue function generation
   builder.setInsertionPoint(funcOp.getBody().back().getTerminator());
 
-  // Create an LLVM global with PTX extracted from the kernel annotation
+  // Create an LLVM global with CUBIN extracted from the kernel annotation and
+  // obtain a pointer to the first byte in it.
   auto kernelModule =
-      module.lookupSymbol<gpu::GPUModuleOp>(launchOp.getKernelModuleName());
+      getModule().lookupSymbol<ModuleOp>(launchOp.getKernelModuleName());
   assert(kernelModule && "expected a kernel module");
-  auto ptxAttr = kernelModule.getAttrOfType<StringAttr>(kPtxAnnotation);
-  if (!ptxAttr) {
-    kernelModule.emitOpError() << "missing " << kPtxAnnotation << " attribute";
+
+  auto cubinAttr = kernelModule.getAttrOfType<StringAttr>(kCubinAnnotation);
+  if (!cubinAttr) {
+    kernelModule.emitOpError()
+        << "missing " << kCubinAnnotation << " attribute";
     return failure();
   }
-  SmallString<128> nameBuffer(kernelModule.getName());
-  nameBuffer.append(kPtxStorageSuffix);
-  Value ptxString = LLVM::createGlobalString(
-      loc, builder, nameBuffer.str(), ptxAttr.getValue(),
+
+  assert(kernelModule.getName() && "expected a named module");
+  SmallString<128> nameBuffer(*kernelModule.getName());
+  nameBuffer.append(kCubinStorageSuffix);
+  Value data = LLVM::createGlobalString(
+      loc, builder, nameBuffer.str(), cubinAttr.getValue(),
       LLVM::Linkage::Internal, getLLVMDialect());
 
   // Load the module and compiler the kernel function
@@ -191,7 +198,7 @@ LogicalResult LaunchFuncToCUDAPass::generateInitFunction(
       getModule().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleLoadName);
   builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
                                builder.getSymbolRefAttr(cuModuleLoad),
-                               ArrayRef<Value>{cuModule, ptxString});
+                               ArrayRef<Value>{cuModule, data});
 
   // Compile the function
   // Get the function from the module. The name corresponds to the name of
@@ -211,8 +218,8 @@ LogicalResult LaunchFuncToCUDAPass::generateInitFunction(
 
 // Helper to create a global variable holding the function handle
 LLVM::GlobalOp
-LaunchFuncToCUDAPass::generateKernelFunctionHandle(StringRef name,
-                                                   Location loc) {
+LaunchFuncToCUDACallsPass::generateKernelFunctionHandle(StringRef name,
+                                                        Location loc) {
   ModuleOp module = getModule();
   OpBuilder builder(module.getBody()->getTerminator());
 
@@ -233,7 +240,7 @@ LaunchFuncToCUDAPass::generateKernelFunctionHandle(StringRef name,
 }
 
 // Helper generating a global variable holding the stream handle
-LLVM::GlobalOp LaunchFuncToCUDAPass::generateStreamHandle(Location loc) {
+LLVM::GlobalOp LaunchFuncToCUDACallsPass::generateStreamHandle(Location loc) {
   ModuleOp module = getModule();
   OpBuilder builder(module.getBody()->getTerminator());
 
@@ -251,7 +258,7 @@ LLVM::GlobalOp LaunchFuncToCUDAPass::generateStreamHandle(Location loc) {
 // Adds declarations for the needed helper functions from the CUDA wrapper.
 // The types in comments give the actual types expected/returned but the API
 // uses void pointers. This is fine as they have the same linkage in C.
-void LaunchFuncToCUDAPass::declareCUDAFunctions(Location loc) {
+void LaunchFuncToCUDACallsPass::declareCUDAFunctions(Location loc) {
   ModuleOp module = getModule();
   OpBuilder builder(module.getBody()->getTerminator());
   if (!module.lookupSymbol(cuModuleLoadName)) {
@@ -304,7 +311,7 @@ void LaunchFuncToCUDAPass::declareCUDAFunctions(Location loc) {
             /*isVarArg=*/false));
   }
   if (!module.lookupSymbol(cuInitHelperName)) {
-    // Helper function to init cuda and get the current CUDA stream. 
+    // Helper function to init cuda and get the current CUDA stream.
     builder.create<LLVM::LLVMFuncOp>(
         loc, cuInitHelperName,
         LLVM::LLVMType::getFunctionTy(getPointerType(), /*isVarArg=*/false));
@@ -336,8 +343,8 @@ void LaunchFuncToCUDAPass::declareCUDAFunctions(Location loc) {
 // for (i : [0, NumKernelOperands))
 //   %array[i] = cast<void*>(KernelOperand[i])
 // return %array
-Value LaunchFuncToCUDAPass::setupParamsArray(gpu::LaunchFuncOp launchOp,
-                                             OpBuilder &builder) {
+Value LaunchFuncToCUDACallsPass::setupParamsArray(gpu::LaunchFuncOp launchOp,
+                                                  OpBuilder &builder) {
   auto numKernelOperands = launchOp.getNumKernelOperands();
   Location loc = launchOp.getLoc();
   auto one = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
@@ -398,9 +405,8 @@ Value LaunchFuncToCUDAPass::setupParamsArray(gpu::LaunchFuncOp launchOp,
 //   %1 = llvm.constant (0 : index)
 //   %2 = llvm.getelementptr %0[%1, %1] : !llvm<"i8*">
 // }
-Value LaunchFuncToCUDAPass::generateKernelNameConstant(StringRef name,
-                                                       Location loc,
-                                                       OpBuilder &builder) {
+Value LaunchFuncToCUDACallsPass::generateKernelNameConstant(
+    StringRef name, Location loc, OpBuilder &builder) {
   // Make sure the trailing zero is included in the constant.
   std::vector<char> kernelName(name.begin(), name.end());
   kernelName.push_back('\0');
@@ -431,7 +437,7 @@ Value LaunchFuncToCUDAPass::generateKernelNameConstant(StringRef name,
 // %7 = <see setupParamsArray>
 // call %mcuLaunchKernel(%6, <launchOp operands 0..5>, 0, %5, %7, nullptr)
 // call %mcuStreamSynchronize(%5)
-void LaunchFuncToCUDAPass::translateGPULaunchCalls(
+void LaunchFuncToCUDACallsPass::translateGPULaunchCalls(
     mlir::gpu::LaunchFuncOp launchOp) {
   OpBuilder builder(launchOp);
   Location loc = launchOp.getLoc();
@@ -474,9 +480,10 @@ void LaunchFuncToCUDAPass::translateGPULaunchCalls(
   builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
                                builder.getSymbolRefAttr(cuStreamSync),
                                ArrayRef<Value>(stream.getResult()));
+
   launchOp.erase();
 }
 
-static PassRegistration<LaunchFuncToCUDAPass>
-    pass("gpu-launch-to-cuda",
+static PassRegistration<LaunchFuncToCUDACallsPass>
+    pass("stencil-gpu-to-cuda",
          "Convert all kernel launches to CUDA runtime calls");

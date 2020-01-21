@@ -57,6 +57,7 @@ set(LIBS
 if(OEC_GPU_LOWERING_ENABLED)
   list(APPEND LIBS
     MLIRGPUtoCUDATransforms
+    OECGPUtoCUDATransforms
   )
 endif()
 add_llvm_executable(oec-opt
