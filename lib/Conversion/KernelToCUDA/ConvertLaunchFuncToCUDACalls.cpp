@@ -426,6 +426,8 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
     auto launchFunc =
         module.lookupSymbol<LLVM::LLVMFuncOp>(oecLaunchKernelName);
 
+    // TODO deal with multiple kernels (pass offset range)
+    // TODO deal with scalar parameters (store scalars on the host)
     // Setup the parameter array
     auto numKernelOperands = launchOp.getNumKernelOperands();
     auto arraySize = builder.create<LLVM::ConstantOp>(

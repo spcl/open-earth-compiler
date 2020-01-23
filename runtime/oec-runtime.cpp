@@ -10,7 +10,8 @@
 namespace {
 int32_t reportError(CUresult result, const char *where) {
   if (result != CUDA_SUCCESS) {
-    std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in " << where << "\n";
+    std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
+              << where << "\n";
   }
   return result;
 }
@@ -42,9 +43,9 @@ extern "C" int32_t oecTeardown() {
 
 extern "C" int32_t oecModuleLoad(void **module, void *data) {
   int32_t err;
-  err = reportError(
-      cuModuleLoadData(reinterpret_cast<CUmodule *>(module), data),
-      "ModuleLoad");
+  err =
+      reportError(cuModuleLoadData(reinterpret_cast<CUmodule *>(module), data),
+                  "ModuleLoad");
   moduleBuffer.push_back(reinterpret_cast<CUmodule>(*module));
   return err;
 }
@@ -81,6 +82,6 @@ extern "C" int32_t oecStoreParam(void *param, int64_t size) {
 }
 
 extern "C" void oecFillParamArray(void **paramArray) {
-  for (size_t i = 0, e = paramBuffer.size(); i != e; ++i) 
+  for (size_t i = 0, e = paramBuffer.size(); i != e; ++i)
     paramArray[i] = reinterpret_cast<void *>(&paramBuffer[i]);
 }
