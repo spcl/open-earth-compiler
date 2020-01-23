@@ -94,10 +94,10 @@ void ShapeShiftPass::runOnFunction() {
       SmallVector<int64_t, 3> input;
       // Compute the shift for the operand
       auto operand = applyOp.getOperand(i);
-      if (auto loadOp = dyn_cast<stencil::LoadOp>(operand.getDefiningOp())) {
+      if (auto loadOp = dyn_cast_or_null<stencil::LoadOp>(operand.getDefiningOp())) {
         input = loadOp.getLB();
       }
-      if (auto applyOp = dyn_cast<stencil::ApplyOp>(operand.getDefiningOp())) {
+      if (auto applyOp = dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
         input = applyOp.getLB();
       }
       // Shift all accesses of the corresponding operand
