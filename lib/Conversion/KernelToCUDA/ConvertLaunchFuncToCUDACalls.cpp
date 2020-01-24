@@ -214,7 +214,8 @@ void LaunchFuncToCUDACallsPass::declareRTFunctions(Location loc) {
         LLVM::LLVMType::getFunctionTy(getCUResultType(),
                                       {
                                           getPointerType(), /* void *ptr */
-                                          getInt64Type()    /* int64 sizeBytes*/
+                                          getInt64Type(),   /* int64 sizeBytes*/
+                                          getInt32Type()    /* int32 sizeBytes*/
                                       },
                                       /*isVarArg=*/false));
   }
@@ -373,6 +374,11 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
       auto casted =
           builder.create<LLVM::BitcastOp>(loc, getPointerType(), memLocation);
 
+      // Store only struct types on the device and pass scalars by value
+      auto device = builder.create<LLVM::ConstantOp>(
+          loc, getInt32Type(),
+          builder.getI32IntegerAttr(llvmType.isStructTy() ? 1 : 0));
+
       // Compute the size of the memref
       auto nullPtr = builder.create<LLVM::NullOp>(loc, llvmType.getPointerTo());
       auto gep = builder.create<LLVM::GEPOp>(loc, llvmType.getPointerTo(),
@@ -382,7 +388,7 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
           getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStoreParamName);
       builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
                                    builder.getSymbolRefAttr(storeFunc),
-                                   ArrayRef<Value>{casted, size});
+                                   ArrayRef<Value>{casted, size, device});
     }
 
     launchOps.push_back(launchOp);
