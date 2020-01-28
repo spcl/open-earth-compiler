@@ -11,6 +11,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -346,11 +347,11 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
 
     // Get the function from the module. The name corresponds to the name of
     // the kernel function.
-    auto funcHandle = declareGlobalFuncPtr(launchOp.kernel(), loc, builder);
+    auto funcHandle = declareGlobalFuncPtr(launchOp.getKernelModuleName(), loc, builder);
     auto moduleRef =
         builder.create<LLVM::LoadOp>(loc, getPointerType(), modulePtr);
     Value funcPtr = builder.create<LLVM::AddressOfOp>(loc, funcHandle);
-    auto kernelName = declareGlobalKernelName(launchOp.kernel(), loc, builder);
+    auto kernelName = declareGlobalKernelName(launchOp.getKernelModuleName(), loc, builder);
     auto moduleGetFunc =
         getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecModuleGetFunctionName);
     builder.create<LLVM::CallOp>(
@@ -358,7 +359,6 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
         builder.getSymbolRefAttr(moduleGetFunc),
         ArrayRef<Value>{funcPtr, moduleRef, kernelName});
 
-    // TODO deal with non-memref arguments
     // TODO deal with multiple launch ops (index)
 
     // Store the launch arguments
@@ -420,7 +420,7 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
   // Launch all kernels
   parentOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
     // Load the function
-    std::string funcName = llvm::formatv("{0}_function", launchOp.kernel());
+    std::string funcName = llvm::formatv("{0}_function", launchOp.getKernelModuleName());
     Value funcPtr = builder.create<LLVM::AddressOfOp>(
         loc, cast<LLVM::GlobalOp>(getModule().lookupSymbol(funcName)));
     auto function =
@@ -446,6 +446,7 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
                                  builder.getSymbolRefAttr(fillFunc),
                                  ArrayRef<Value>{array});
 
+    // TODO find cleaner solution
     // Clone the launch configuration
     auto gridX = cast<LLVM::ConstantOp>(
         builder.clone(*launchOp.getOperand(0).getDefiningOp()));
