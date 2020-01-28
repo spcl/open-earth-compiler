@@ -32,7 +32,7 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
     }                                                                          \
   }
 
-OwnedCubin compilePtxToCubin(const std::string ptx, Location loc,
+OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
                              StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
