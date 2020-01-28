@@ -126,9 +126,9 @@ public:
 
     // GPU kernel modules are no longer necessary since we have a global
     // constant with the CUBIN data.
-    for (auto m : llvm::make_early_inc_range(getModule().getOps<ModuleOp>()))
-      if (m.getAttrOfType<UnitAttr>(gpu::GPUDialect::getKernelModuleAttrName()))
-        m.erase();
+    for (auto m :
+         llvm::make_early_inc_range(getModule().getOps<gpu::GPUModuleOp>()))
+      m.erase();
 
     parentOp.erase();
   }
@@ -321,13 +321,12 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
 
     // Create an LLVM global with CUBIN extracted from the kernel annotation and
     // obtain a pointer to the first byte in it.
-    auto kernelModule =
-        getModule().lookupSymbol<ModuleOp>(launchOp.getKernelModuleName());
+    auto kernelModule = getModule().lookupSymbol<gpu::GPUModuleOp>(
+        launchOp.getKernelModuleName());
     assert(kernelModule && "expected a kernel module");
-    assert(kernelModule.getName() && "expected a named module");
     auto cubinAttr = kernelModule.getAttrOfType<StringAttr>(kCubinAnnotation);
     assert(cubinAttr && "missing cubin annotation attribute");
-    SmallString<128> nameBuffer(*kernelModule.getName());
+    SmallString<128> nameBuffer(kernelModule.getName());
     nameBuffer.append(kCubinStorageSuffix);
     Value data = LLVM::createGlobalString(
         loc, builder, nameBuffer.str(), cubinAttr.getValue(),

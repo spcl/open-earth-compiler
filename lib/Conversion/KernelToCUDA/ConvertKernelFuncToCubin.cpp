@@ -1,6 +1,7 @@
 #include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
@@ -82,7 +83,7 @@ OwnedCubin compilePtxToCubin(const std::string ptx, Location loc,
 
 void pipelineBuilder(OpPassManager &pm) {
   pm.addPass(createGpuKernelOutliningPass());
-  auto &kernelPm = pm.nest<ModuleOp>();
+  auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
   kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
   pm.addPass(createLowerToLLVMPass());
