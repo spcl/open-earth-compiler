@@ -20,6 +20,8 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/raw_ostream.h"
+#include <bits/stdint-intn.h>
 
 using namespace mlir;
 
@@ -29,8 +31,9 @@ static constexpr const char *oecModuleLoadName = "oecModuleLoad";
 static constexpr const char *oecModuleGetFunctionName = "oecModuleGetFunction";
 static constexpr const char *oecLaunchKernelName = "oecLaunchKernel";
 static constexpr const char *oecStreamSynchronizeName = "oecStreamSynchronize";
-static constexpr const char *oecStoreParamName = "oecStoreParam";
-static constexpr const char *oecFillParamArrayName = "oecFillParamArray";
+static constexpr const char *oecStoreParameterName = "oecStoreParameter";
+static constexpr const char *oecLoadParametersName = "oecLoadParameters";
+static constexpr const char *oecAllocTemporaryName = "oecAllocTemporary";
 
 static constexpr const char *kCubinAnnotation = "nvvm.cubin";
 static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
@@ -79,7 +82,7 @@ private:
   }
 
   void declareRTFunctions(Location loc);
-  Value declareGlobalKernelName(StringRef name, Location loc,
+  Value declareGlobalKernelName(StringRef name, StringRef data, Location loc,
                                 OpBuilder &builder);
   LLVM::GlobalOp declareGlobalFuncPtr(StringRef name, Location loc,
                                       OpBuilder &builder);
@@ -209,34 +212,47 @@ void LaunchFuncToCUDACallsPass::declareRTFunctions(Location loc) {
         loc, oecStreamSynchronizeName,
         LLVM::LLVMType::getFunctionTy(getCUResultType(), /*isVarArg=*/false));
   }
-  if (!module.lookupSymbol(oecStoreParamName)) {
+  if (!module.lookupSymbol(oecStoreParameterName)) {
     builder.create<LLVM::LLVMFuncOp>(
-        loc, oecStoreParamName,
-        LLVM::LLVMType::getFunctionTy(getCUResultType(),
-                                      {
-                                          getPointerType(), /* void *ptr */
-                                          getInt64Type(),   /* int64 sizeBytes*/
-                                          getInt32Type()    /* int32 sizeBytes*/
-                                      },
-                                      /*isVarArg=*/false));
+        loc, oecStoreParameterName,
+        LLVM::LLVMType::getFunctionTy(
+            getCUResultType(),
+            {
+                getPointerType(), /* void *ptr */
+                getInt64Type(),   /* int64 sizeBytes*/
+                getInt32Type()    /* int32 device of host */
+            },
+            /*isVarArg=*/false));
   }
-  if (!module.lookupSymbol(oecFillParamArrayName)) {
+  if (!module.lookupSymbol(oecLoadParametersName)) {
     builder.create<LLVM::LLVMFuncOp>(
-        loc, oecFillParamArrayName,
+        loc, oecLoadParametersName,
         LLVM::LLVMType::getFunctionTy(
             getVoidType(),
             {
-                getPointerPointerType() /* void **ptr */
+                getPointerPointerType(), /* void **ptr */
+                getInt32Type(),          /* int32 offset */
+                getInt32Type()           /* int32 size */
             },
             /*isVarArg=*/false));
+  }
+  if (!module.lookupSymbol(oecAllocTemporaryName)) {
+    builder.create<LLVM::LLVMFuncOp>(
+        loc, oecAllocTemporaryName,
+        LLVM::LLVMType::getFunctionTy(getPointerType(),
+                                      {
+                                          getInt64Type() /* int64 size */
+                                      },
+                                      /*isVarArg=*/false));
   }
 }
 
 Value LaunchFuncToCUDACallsPass::declareGlobalKernelName(StringRef name,
+                                                         StringRef data,
                                                          Location loc,
                                                          OpBuilder &builder) {
   // Make sure the trailing zero is included in the constant.
-  std::vector<char> kernelName(name.begin(), name.end());
+  std::vector<char> kernelName(data.begin(), data.end());
   kernelName.push_back('\0');
 
   std::string globalName = llvm::formatv("{0}_name", name);
@@ -315,7 +331,7 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
   parentOp.getBody().cloneInto(&funcOp.getBody(), mapper);
 
   // Walk the cloned op and replace all kernel launch
-  SmallVector<mlir::gpu::LaunchFuncOp, 1> launchOps;
+  SmallVector<mlir::gpu::LaunchFuncOp, 10> launchOps;
   funcOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
     // Set the insertion point
     builder.setInsertionPoint(launchOp);
@@ -347,19 +363,19 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
 
     // Get the function from the module. The name corresponds to the name of
     // the kernel function.
-    auto funcHandle = declareGlobalFuncPtr(launchOp.getKernelModuleName(), loc, builder);
+    auto funcHandle =
+        declareGlobalFuncPtr(launchOp.getKernelModuleName(), loc, builder);
     auto moduleRef =
         builder.create<LLVM::LoadOp>(loc, getPointerType(), modulePtr);
     Value funcPtr = builder.create<LLVM::AddressOfOp>(loc, funcHandle);
-    auto kernelName = declareGlobalKernelName(launchOp.getKernelModuleName(), loc, builder);
+    auto kernelName = declareGlobalKernelName(launchOp.getKernelModuleName(),
+                                              launchOp.kernel(), loc, builder);
     auto moduleGetFunc =
         getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecModuleGetFunctionName);
     builder.create<LLVM::CallOp>(
         loc, ArrayRef<Type>{getCUResultType()},
         builder.getSymbolRefAttr(moduleGetFunc),
         ArrayRef<Value>{funcPtr, moduleRef, kernelName});
-
-    // TODO deal with multiple launch ops (index)
 
     // Store the launch arguments
     int numKernelOperands = launchOp.getNumKernelOperands();
@@ -384,7 +400,7 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
                                              ArrayRef<Value>{nullPtr, one});
       auto size = builder.create<LLVM::PtrToIntOp>(loc, getInt64Type(), gep);
       auto storeFunc =
-          getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStoreParamName);
+          getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStoreParameterName);
       builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
                                    builder.getSymbolRefAttr(storeFunc),
                                    ArrayRef<Value>{casted, size, device});
@@ -393,8 +409,37 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
     launchOps.push_back(launchOp);
   });
   // Erase all the launch operations
-  for (auto op : launchOps)
+  for (auto op : launchOps) {
     op.erase();
+  }
+
+  // Change the malloc and free calls
+  SmallVector<LLVM::CallOp, 10> callOps;
+  funcOp.walk([&](LLVM::CallOp callOp) {
+    // Set the insertion point
+    builder.setInsertionPoint(callOp);
+
+    // Replace all malloc calls with device allocations
+    if (callOp.callee().getValueOr("") == "malloc") {
+      auto allocFunc =
+          getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecAllocTemporaryName);
+      auto temporary =
+          builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getPointerType()},
+                                       builder.getSymbolRefAttr(allocFunc),
+                                       ArrayRef<Value>{callOp.getOperand(0)});
+      callOp.getResult(0).replaceAllUsesWith(temporary.getResult(0));
+      callOps.push_back(callOp);
+    }
+
+    // Erase all free calls
+    if (callOp.callee().getValueOr("") == "free") {
+      callOps.push_back(callOp);
+    }
+  });
+  // Erase all unused callops
+  for (auto op : callOps) {
+    op.erase();
+  }
 
   return success();
 }
@@ -418,9 +463,12 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
   builder.setInsertionPointToStart(entryBlock);
 
   // Launch all kernels
+
+  int32_t kernelOperandOffset = 0;
   parentOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
     // Load the function
-    std::string funcName = llvm::formatv("{0}_function", launchOp.getKernelModuleName());
+    std::string funcName =
+        llvm::formatv("{0}_function", launchOp.getKernelModuleName());
     Value funcPtr = builder.create<LLVM::AddressOfOp>(
         loc, cast<LLVM::GlobalOp>(getModule().lookupSymbol(funcName)));
     auto function =
@@ -431,23 +479,24 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
     auto launchFunc =
         module.lookupSymbol<LLVM::LLVMFuncOp>(oecLaunchKernelName);
 
-    // TODO deal with multiple kernels (pass offset range)
-    // TODO deal with scalar parameters (store scalars on the host)
     // Setup the parameter array
     auto numKernelOperands = launchOp.getNumKernelOperands();
     auto arraySize = builder.create<LLVM::ConstantOp>(
         loc, getInt32Type(), builder.getI32IntegerAttr(numKernelOperands));
+    auto arrayOffset = builder.create<LLVM::ConstantOp>(
+        loc, getInt32Type(), builder.getI32IntegerAttr(kernelOperandOffset));
     auto allocOp = builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(),
                                                   arraySize, /*alignment=*/0);
     auto array = allocOp.getResult();
     auto fillFunc =
-        module.lookupSymbol<LLVM::LLVMFuncOp>(oecFillParamArrayName);
-    builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
-                                 builder.getSymbolRefAttr(fillFunc),
-                                 ArrayRef<Value>{array});
+        module.lookupSymbol<LLVM::LLVMFuncOp>(oecLoadParametersName);
+    builder.create<LLVM::CallOp>(
+        loc, ArrayRef<Type>{getCUResultType()},
+        builder.getSymbolRefAttr(fillFunc),
+        ArrayRef<Value>{array, arrayOffset, arraySize});
 
-    // TODO find cleaner solution
     // Clone the launch configuration
+    // (assuming a constant launch configuration)
     auto gridX = cast<LLVM::ConstantOp>(
         builder.clone(*launchOp.getOperand(0).getDefiningOp()));
     auto gridY = cast<LLVM::ConstantOp>(
@@ -470,14 +519,17 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
                         blockX.getResult(), blockY.getResult(),
                         blockZ.getResult(), array});
 
-    // Sync on the stream
-    auto syncFunc =
-        getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStreamSynchronizeName);
-    builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
-                                 builder.getSymbolRefAttr(syncFunc),
-                                 ArrayRef<Value>{});
+    // Update operand offset
+    kernelOperandOffset += numKernelOperands;
   });
 
+  // Sync on the stream
+  auto syncFunc =
+      getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStreamSynchronizeName);
+  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
+                               builder.getSymbolRefAttr(syncFunc),
+                               ArrayRef<Value>{});
+                               
   // Add a terminator
   builder.create<LLVM::ReturnOp>(loc, ValueRange());
   return success();

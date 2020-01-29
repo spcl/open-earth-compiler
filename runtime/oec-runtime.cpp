@@ -20,6 +20,7 @@ int32_t reportError(CUresult result, const char *where) {
 
 static std::vector<std::pair<void *, CUdeviceptr>> paramBuffer;
 static std::vector<CUmodule> moduleBuffer;
+static std::vector<CUdeviceptr> temporaryBuffer;
 static CUstream stream;
 
 extern "C" int32_t init() {
@@ -44,7 +45,17 @@ extern "C" int32_t oecTeardown() {
       err = reportError(cuMemFree(param.second), "MemFree");
     }
   }
+  for (auto temporary : temporaryBuffer) {
+    err = reportError(cuMemFree(temporary), "MemFree");
+  }
   return err;
+}
+
+extern "C" void *oecAllocTemporary(int64_t size) {
+  CUdeviceptr devPtr;
+  reportError(cuMemAlloc(&devPtr, size), "MemAlloc");
+  temporaryBuffer.push_back(devPtr);
+  return reinterpret_cast<void *>(devPtr);
 }
 
 extern "C" int32_t oecModuleLoad(void **module, void *data) {
@@ -78,7 +89,8 @@ extern "C" int32_t oecStreamSynchronize() {
   return reportError(cuStreamSynchronize(stream), "StreamSync");
 }
 
-extern "C" int32_t oecStoreParam(void *paramPtr, int64_t size, int32_t device) {
+extern "C" int32_t oecStoreParameter(void *paramPtr, int64_t size,
+                                     int32_t device) {
   int32_t err = CUDA_SUCCESS;
   CUdeviceptr devPtr = reinterpret_cast<CUdeviceptr>(nullptr);
   void *hostPtr = nullptr;
@@ -93,12 +105,13 @@ extern "C" int32_t oecStoreParam(void *paramPtr, int64_t size, int32_t device) {
   return err;
 }
 
-extern "C" void oecFillParamArray(void **paramArray) {
-  for (size_t i = 0, e = paramBuffer.size(); i != e; ++i) {
-    if (paramBuffer[i].first) {
-      paramArray[i] = reinterpret_cast<void *>(paramBuffer[i].first);
+extern "C" void oecLoadParameters(void **paramArray, int32_t offset,
+                                  int32_t size) {
+  for (size_t i = 0; i != size; ++i) {
+    if (paramBuffer[offset + i].first) {
+      paramArray[i] = reinterpret_cast<void *>(paramBuffer[offset + i].first);
     } else {
-      paramArray[i] = reinterpret_cast<void *>(&paramBuffer[i].second);
+      paramArray[i] = reinterpret_cast<void *>(&paramBuffer[offset + i].second);
     }
   }
 }
