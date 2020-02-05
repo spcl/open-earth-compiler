@@ -137,7 +137,7 @@ public:
         Type inputType = NoneType();
         for (auto &use : argument.getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
-            ArrayRef<int64_t> strides = computeStrides(assertOp.getUB());
+            SmallVector<int64_t, 3> strides = computeStrides(assertOp.getUB());
             inputType =
                 computeMemRefType(assertOp.getFieldType().getElementType(),
                                   assertOp.getUB(), strides, {}, rewriter);
@@ -259,8 +259,8 @@ public:
 
     // Compute the replacement types
     auto inputType = loadOp.field().getType().cast<MemRefType>();
-    ArrayRef<int64_t> shape = computeShape(loadOp.getLB(), loadOp.getUB());
-    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
+    SmallVector<int64_t, 3> shape = computeShape(loadOp.getLB(), loadOp.getUB());
+    SmallVector<int64_t, 3> strides = computeStrides(inputType.getShape());
     auto outputType = computeMemRefType(inputType.getElementType(), shape,
                                         strides, loadOp.getLB(), rewriter);
 
@@ -345,7 +345,7 @@ public:
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
       Type elementType = applyOp.getResultViewType(i).getElementType();
-      ArrayRef<int64_t> strides = computeStrides(applyOp.getUB());
+      SmallVector<int64_t, 3> strides = computeStrides(applyOp.getUB());
       auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
                                          {}, rewriter);
 
@@ -358,7 +358,7 @@ public:
     }
 
     // Generate the apply loop nest
-    ArrayRef<int64_t> upper = applyOp.getUB();
+    SmallVector<int64_t, 3> upper = applyOp.getUB();
     assert(upper.size() >= 1 && "expected bounds to at least one dimension");
     for (size_t i = 0, e = upper.size(); i != e; ++i) {
       auto loop = rewriter.create<AffineForOp>(loc, 0, upper.rbegin()[i]);
@@ -445,8 +445,8 @@ public:
 
     // Compute the replacement types
     auto inputType = storeOp.field().getType().cast<MemRefType>();
-    ArrayRef<int64_t> shape = computeShape(storeOp.getLB(), storeOp.getUB());
-    ArrayRef<int64_t> strides = computeStrides(inputType.getShape());
+    SmallVector<int64_t, 3> shape = computeShape(storeOp.getLB(), storeOp.getUB());
+    SmallVector<int64_t, 3> strides = computeStrides(inputType.getShape());
     auto outputType = computeMemRefType(inputType.getElementType(), shape,
                                         strides, storeOp.getLB(), rewriter);
 

@@ -88,7 +88,7 @@ void ShapeShiftPass::runOnFunction() {
   // Adapt the access offsets to the positive range
   funcOp.walk([&](stencil::ApplyOp applyOp) {
     // Get the output bound
-    ArrayRef<int64_t> output = applyOp.getLB();
+    SmallVector<int64_t, 3> output = applyOp.getLB();
     // Get the input bound of the operand
     for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
       SmallVector<int64_t, 3> input;
@@ -112,7 +112,7 @@ void ShapeShiftPass::runOnFunction() {
 
   // Adapt the loop bounds of all apply ops to start start at zero
   funcOp.walk([](stencil::ApplyOp applyOp) {
-    ArrayRef<int64_t> shift = applyOp.getLB();
+    SmallVector<int64_t, 3> shift = applyOp.getLB();
     applyOp.setLB(shiftOffset(applyOp.getLB(), shift));
     applyOp.setUB(shiftOffset(applyOp.getUB(), shift));
   });
@@ -120,7 +120,7 @@ void ShapeShiftPass::runOnFunction() {
   // Adapt the bounds for all loads and stores
   funcOp.walk([](stencil::AssertOp assertOp) {
     // Adapt bounds by the lower bound of the assert op
-    ArrayRef<int64_t> shift = assertOp.getLB();
+    SmallVector<int64_t, 3> shift = assertOp.getLB();
     for (auto &use : assertOp.field().getUses()) {
       if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
         loadOp.setLB(shiftOffset(loadOp.getLB(), shift));
