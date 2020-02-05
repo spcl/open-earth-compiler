@@ -23,13 +23,13 @@ using namespace mlir;
 namespace {
 
 void inlineCalls(stencil::CallOp callOp) {
-  ArrayRef<int64_t> callOffset = callOp.getOffset();
+  SmallVector<int64_t, 3> callOffset = callOp.getOffset();
   FuncOp funcOp = callOp.getCallee().clone();
   OpBuilder builder(callOp);
 
   // Update offsets on function clone
   funcOp.walk([&](stencil::AccessOp accessOp) {
-    ArrayRef<int64_t> current = accessOp.getOffset();
+    SmallVector<int64_t, 3> current = accessOp.getOffset();
 
     ArrayAttr sum = builder.getI64ArrayAttr(llvm::makeArrayRef(
         {current[0] + callOffset[0], current[1] + callOffset[1],

@@ -195,7 +195,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Walk accesses of producer results and replace them by computation
     newOp.walk([&](stencil::AccessOp accessOp) {
       if (llvm::count(newOp.getBody()->getArguments(), accessOp.view()) == 0) {
-        ArrayRef<int64_t> offset = accessOp.getOffset();
+        SmallVector<int64_t, 3> offset = accessOp.getOffset();
         // Clone the producer and shift the offsets
         auto clonedOp = producerOp.getOperation()->clone(mapper);
         clonedOp->walk([&](stencil::AccessOp accessOp) {
