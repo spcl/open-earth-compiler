@@ -87,12 +87,10 @@ void pipelineBuilder(OpPassManager &pm) {
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
   kernelPm.addPass(createIndexOptimizationPass());
-  
-  // TODO add a pass to convert index computation to 32bit int
-  // (for all gpu kernels)
-  //kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
-  //pm.addPass(createLowerToLLVMPass());
+  kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
+  pm.addPass(createLowerToLLVMPass());
 }
+
 } // namespace
 
 static PassPipelineRegistration<> pipeline("stencil-gpu-to-cubin",
