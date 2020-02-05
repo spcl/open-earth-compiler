@@ -129,7 +129,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     }
     return matchFailure();
   }
-}; // namespace
+};
 
 // Pattern inlining producer into consumer
 // (assuming the producer has only a single consumer)
@@ -255,7 +255,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     }
     return matchFailure();
   }
-}; // namespace
+}; 
 
 struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
   void runOnFunction() override;

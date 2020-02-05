@@ -18,11 +18,11 @@ if(OEC_GPU_LOWERING_ENABLED)
   add_llvm_library(OECGPUtoCUDATransforms
     ConvertLaunchFuncToCUDACalls.cpp
     ConvertKernelFuncToCubin.cpp
+    IndexOptimizationPass.cpp
   )
-  target_include_directories(
-    OECGPUtoCUDATransforms
-    PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
-  )
+  target_include_directories(OECGPUtoCUDATransforms PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+  target_include_directories(OECGPUtoCUDATransforms PUBLIC "${PROJECT_SOURCE_DIR}/include")
+  target_include_directories(OECGPUtoCUDATransforms PUBLIC "${PROJECT_BINARY_DIR}/include")
   target_link_libraries(
     OECGPUtoCUDATransforms
 
