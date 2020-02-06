@@ -42,6 +42,7 @@ function(mlir_tablegen ofn)
 endfunction()
 
 function(whole_archive_link target)
+  add_dependencies(${target} ${ARGN})
   set(link_flags "-L${LLVM_LIBRARY_DIR} -L${CMAKE_BINARY_DIR}/lib -Wl,--whole-archive,")
   FOREACH(LIB ${ARGN})
     string(CONCAT link_flags ${link_flags} "-l${LIB},")

@@ -2,19 +2,19 @@ set(LLVM_OPTIONAL_SOURCES
   null.cpp
 )
 
-set(LIB_LIBS
-  MLIRAnalysis
-  MLIRLLVMIR
-  MLIROptMain
-  MLIRParser
-  MLIRPass
-  MLIRTransforms
-  MLIRSupport
-)
-add_llvm_library(OECOptLib
-  oec-opt.cpp
-)
-target_link_libraries(OECOptLib ${LIB_LIBS})
+#set(LIB_LIBS
+#  MLIRAnalysis
+#  MLIRLLVMIR
+#  MLIROptMain
+#  MLIRParser
+#  MLIRPass
+#  MLIRTransforms
+#  MLIRSupport
+#)
+#add_llvm_library(OECOptLib
+#  oec-opt.cpp
+#)
+#target_link_libraries(OECOptLib ${LIB_LIBS})
 
 set(FULL_LINK_LIBS
   MLIRLoopAnalysis
@@ -84,6 +84,7 @@ if(OEC_GPU_LOWERING_ENABLED)
     LLVMNVPTXDesc
     LLVMNVPTXInfo
     MLIRTargetNVVMIR
+
     ${CUDA_RUNTIME_LIBRARY}
   )
   # Order matters here, so insert at front.

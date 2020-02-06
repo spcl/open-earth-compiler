@@ -1,10 +1,5 @@
 
 if(OEC_GPU_LOWERING_ENABLED)
-  if (NOT ("NVPTX" IN_LIST LLVM_TARGETS_TO_BUILD))
-    message(SEND_ERROR "Building the GPU lowering of oec-opt requires NVPTX")
-  endif()
-  llvm_map_components_to_libnames(nvptx "NVPTX")
-
   include(CheckLanguage)
   check_language(CUDA)
   if (CMAKE_CUDA_COMPILER)
@@ -15,23 +10,22 @@ if(OEC_GPU_LOWERING_ENABLED)
   endif()
   find_library(CUDA_RUNTIME_LIBRARY cuda)
 
+  set(LIBS
+
+    MLIRIR
+    MLIRStandardOps
+    )
+
   add_llvm_library(OECGPUtoCUDATransforms
     ConvertLaunchFuncToCUDACalls.cpp
     ConvertKernelFuncToCubin.cpp
     IndexOptimizationPass.cpp
   )
+
+  add_dependencies(OECGPUtoCUDATransforms ${LIBS})
+  target_link_libraries(OECGPUtoCUDATransforms ${LIBS})
+
   target_include_directories(OECGPUtoCUDATransforms PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
   target_include_directories(OECGPUtoCUDATransforms PUBLIC "${PROJECT_SOURCE_DIR}/include")
   target_include_directories(OECGPUtoCUDATransforms PUBLIC "${PROJECT_BINARY_DIR}/include")
-  target_link_libraries(
-    OECGPUtoCUDATransforms
-
-    MLIRGPU
-    MLIRLLVMIR
-    MLIRNVVMIR
-    MLIRPass
-    MLIRTargetNVVMIR
-    ${nvptx}
-    ${CUDA_RUNTIME_LIBRARY}
-  )
 endif()
