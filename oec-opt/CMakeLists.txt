@@ -16,17 +16,17 @@ set(FULL_LINK_LIBS
   MLIRFxpMathOps
   MLIRGPU
   MLIRGPUtoNVVMTransforms
-  #MLIRGPUtoROCDLTransforms
-  #MLIRGPUtoSPIRVTransforms
-  #MLIRLinalgOps
-  #MLIRLinalgAnalysis
-  #MLIRLinalgEDSC
-  #MLIRLinalgTransforms
-  #MLIRLinalgUtils
+  MLIRGPUtoROCDLTransforms
+  MLIRGPUtoSPIRVTransforms
+  MLIRLinalgOps
+  MLIRLinalgAnalysis
+  MLIRLinalgEDSC
+  MLIRLinalgTransforms
+  MLIRLinalgUtils
   MLIRLLVMIR
   MLIRLoopOps
   MLIRNVVMIR
-  #MLIROpenMP
+  MLIROpenMP
   MLIROptMain
   MLIRParser
   MLIRPass
@@ -35,11 +35,11 @@ set(FULL_LINK_LIBS
   MLIRQuantizerTransforms
   MLIRQuantOps
   MLIRROCDLIR
-  #MLIRSPIRV
-  #MLIRLinalgToSPIRVTransforms
-  #MLIRStandardToSPIRVTransforms
-  #MLIRSPIRVTestPasses
-  #MLIRSPIRVTransforms
+  MLIRSPIRV
+  MLIRLinalgToSPIRVTransforms
+  MLIRStandardToSPIRVTransforms
+  MLIRSPIRVTestPasses
+  MLIRSPIRVTransforms
   MLIRStandardOps
   MLIRStandardToLLVM
   MLIRTransforms
@@ -73,10 +73,9 @@ if(OEC_GPU_LOWERING_ENABLED)
 
     ${CUDA_RUNTIME_LIBRARY}
   )
-  # Order matters here, so insert at front.
   list(INSERT FULL_LINK_LIBS 0
-    OECGPUtoCUDATransforms
     MLIRGPUtoCUDATransforms
+    OECGPUtoCUDATransforms
   )
 endif()
 add_llvm_executable(oec-opt
@@ -85,4 +84,4 @@ add_llvm_executable(oec-opt
 
 llvm_update_compile_flags(oec-opt)
 whole_archive_link(oec-opt ${FULL_LINK_LIBS})
-target_link_libraries(oec-opt PRIVATE ${FULL_LINK_LIBS} ${LIBS})
+target_link_libraries(oec-opt PUBLIC ${FULL_LINK_LIBS} ${LIBS})

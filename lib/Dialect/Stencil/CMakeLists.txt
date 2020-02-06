@@ -20,6 +20,7 @@ add_dependencies(MLIRStencil
   
   ${LIBS}
   MLIRStencilOpsIncGen)
+target_link_libraries(MLIRStencil ${LIBS})
 
 # specify header directories
 target_include_directories(MLIRStencil PUBLIC "${PROJECT_SOURCE_DIR}/include")

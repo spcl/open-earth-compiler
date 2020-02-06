@@ -15,6 +15,18 @@ if(LLVM_ENABLE_ZLIB)
   find_package(ZLIB)
 endif()
 
+if(OEC_GPU_LOWERING_ENABLED)
+  include(CheckLanguage)
+  check_language(CUDA)
+  if (CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+  else()
+    message(SEND_ERROR
+      "Building the GPU lowering of oec-opt requires CUDA")
+  endif()
+  find_library(CUDA_RUNTIME_LIBRARY cuda)
+endif()
+
 # MLIR project.
 set(MLIR_MAIN_SRC_DIR ${LLVM_INCLUDE_DIR}) # --src-root
 set(MLIR_INCLUDE_DIR ${LLVM_INCLUDE_DIR}) # --includedir
@@ -42,7 +54,7 @@ function(mlir_tablegen ofn)
 endfunction()
 
 function(whole_archive_link target)
-  # not needed since we add full link libraries to target libraries
+  # currently not working for our passes (instead we added them to target link libraries)
   #add_dependencies(${target} ${ARGN})
   set(link_flags "-L${LLVM_LIBRARY_DIR} -L${CMAKE_BINARY_DIR}/lib -Wl,--whole-archive,")
   FOREACH(LIB ${ARGN})
