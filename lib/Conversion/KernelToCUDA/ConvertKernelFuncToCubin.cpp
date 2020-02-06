@@ -9,6 +9,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "cuda.h"
 
@@ -85,6 +86,7 @@ OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
 void pipelineBuilder(OpPassManager &pm) {
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
+  kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
   kernelPm.addPass(createIndexOptimizationPass());
   kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
@@ -93,6 +95,6 @@ void pipelineBuilder(OpPassManager &pm) {
 
 } // namespace
 
-static PassPipelineRegistration<> pipeline("stencil-gpu-to-cubin",
-                                           "Lowering of stencil kernels to cubins",
-                                           pipelineBuilder);
+static PassPipelineRegistration<>
+    pipeline("stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
+             pipelineBuilder);
