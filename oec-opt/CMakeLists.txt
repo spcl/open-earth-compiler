@@ -1,6 +1,11 @@
+set(LLVM_OPTIONAL_SOURCES
+  null.cpp
+)
+
 set(LIB_LIBS
   MLIRAnalysis
   MLIRLLVMIR
+  MLIROptMain
   MLIRParser
   MLIRPass
   MLIRTransforms
@@ -11,10 +16,12 @@ add_llvm_library(OECOptLib
 )
 target_link_libraries(OECOptLib ${LIB_LIBS})
 
-set(LIBS
+set(FULL_LINK_LIBS
+  MLIRLoopAnalysis
   MLIRAnalysis
   MLIRAffineOps
   MLIRAffineToStandard
+  MLIRDialect
   MLIRLoopsToGPU
   MLIRLinalgToLLVM
 
@@ -26,22 +33,31 @@ set(LIBS
   MLIRGPUtoROCDLTransforms
   MLIRGPUtoSPIRVTransforms
   MLIRLinalgOps
+  MLIRLinalgAnalysis
+  MLIRLinalgEDSC
+  MLIRLinalgTransforms
+  MLIRLinalgUtils
   MLIRLLVMIR
   MLIRLoopOps
   MLIRNVVMIR
+  MLIROpenMP
   MLIROptMain
   MLIRParser
   MLIRPass
+  MLIRQuantizerFxpMathConfig
+  MLIRQuantizerSupport
   MLIRQuantizerTransforms
   MLIRQuantOps
   MLIRROCDLIR
   MLIRSPIRV
+  MLIRLinalgToSPIRVTransforms
   MLIRStandardToSPIRVTransforms
   MLIRSPIRVTestPasses
   MLIRSPIRVTransforms
   MLIRStandardOps
   MLIRStandardToLLVM
   MLIRTransforms
+  MLIRTransformUtils
   MLIRTestDialect
   MLIRTestIR
   MLIRTestPass
@@ -54,8 +70,24 @@ set(LIBS
   MLIRStencil
   MLIRStencilToStandard
 )
+set(LIBS
+  MLIRIR
+  MLIROptMain
+  LLVMSupport
+  LLVMCore
+  LLVMAsmParser
+)
+
 if(OEC_GPU_LOWERING_ENABLED)
   list(APPEND LIBS
+    LLVMNVPTXCodeGen
+    LLVMNVPTXDesc
+    LLVMNVPTXInfo
+    MLIRTargetNVVMIR
+    ${CUDA_RUNTIME_LIBRARY}
+  )
+  # Order matters here, so insert at front.
+  list(INSERT FULL_LINK_LIBS 0
     MLIRGPUtoCUDATransforms
     OECGPUtoCUDATransforms
   )
@@ -65,5 +97,5 @@ add_llvm_executable(oec-opt
 )
 
 llvm_update_compile_flags(oec-opt)
-whole_archive_link(oec-opt ${LIBS})
-target_link_libraries(oec-opt PRIVATE MLIRIR OECOptLib ${LIBS} LLVMSupport)
+whole_archive_link(oec-opt ${FULL_LINK_LIBS})
+target_link_libraries(oec-opt PRIVATE ${LIBS})

@@ -11,6 +11,10 @@ if(LLVM_FOUND)
   message(STATUS "LLVM found")
 endif()
 
+if(LLVM_ENABLE_ZLIB)
+  find_package(ZLIB)
+endif()
+
 # MLIR project.
 set(MLIR_MAIN_SRC_DIR ${LLVM_INCLUDE_DIR}) # --src-root
 set(MLIR_INCLUDE_DIR ${LLVM_INCLUDE_DIR}) # --includedir
