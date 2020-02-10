@@ -1,0 +1,320 @@
+diff --git a/mlir/include/mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h b/mlir/include/mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h
+index 65c69c0d4ba..4a6698cfb50 100644
+--- a/mlir/include/mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h
++++ b/mlir/include/mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h
+@@ -20,24 +20,12 @@ namespace gpu {
+ class GPUModuleOp;
+ }
+ 
+-/// Collect a set of patterns to convert all non GPUFuncOp operations
+-//  from the GPU dialect to NVVM.
+-void populateGpuToNVVMNonGPUFuncOpConversionPatterns(
+-    LLVMTypeConverter &converter, OwningRewritePatternList &patterns);
+-
+-/// Collect a set of patterns to lower GPU dialect operations to NVVM using
+-// the default calling convention for MemRef kernel arguments.
+-void populateGpuToNVVMDefaultConversionPatterns(
+-    LLVMTypeConverter &converter, OwningRewritePatternList &patterns);
+-
+-/// Collect a set of patterns to lower GPU dialect operations to NVVM using
+-/// the bare pointer calling convention for MemRef kernel arguments.
+-void populateGpuToNVVMBarePtrConversionPatterns(
+-    LLVMTypeConverter &converter, OwningRewritePatternList &patterns);
++/// Collect a set of patterns to convert from the GPU dialect to NVVM.
++void populateGpuToNVVMConversionPatterns(LLVMTypeConverter &converter,
++                                         OwningRewritePatternList &patterns);
+ 
+ /// Creates a pass that lowers GPU dialect operations to NVVM counterparts.
+-std::unique_ptr<OpPassBase<gpu::GPUModuleOp>>
+-createLowerGpuOpsToNVVMOpsPass(bool useBarePtrCallConv = false);
++std::unique_ptr<OpPassBase<gpu::GPUModuleOp>> createLowerGpuOpsToNVVMOpsPass();
+ 
+ } // namespace mlir
+ 
+diff --git a/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp b/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp
+index f86460ccd0e..ab47dcfb685 100644
+--- a/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp
++++ b/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp
+@@ -27,17 +27,6 @@
+ 
+ using namespace mlir;
+ 
+-#define PASS_NAME "convert-gpu-to-nvvm"
+-
+-static llvm::cl::OptionCategory
+-    clOptionsCategory("GPU to NVVM lowering options");
+-
+-static llvm::cl::opt<bool> clUseBarePtrCallConv(
+-    PASS_NAME "-use-bare-ptr-memref-call-conv",
+-    llvm::cl::desc("Replace GPUFuncOp's MemRef arguments with "
+-                   "bare pointers to the MemRef element types"),
+-    llvm::cl::init(false));
+-
+ namespace {
+ 
+ /// Derived type converter for GPU to NVVM lowering. The GPU dialect uses memory
+@@ -532,29 +521,19 @@ struct GPUShuffleOpLowering : public LLVMOpLowering {
+   }
+ };
+ 
+-struct GPUFuncOpLoweringBase : public LLVMOpLowering {
+-  explicit GPUFuncOpLoweringBase(LLVMTypeConverter &typeConverter)
++struct GPUFuncOpLowering : LLVMOpLowering {
++  explicit GPUFuncOpLowering(LLVMTypeConverter &typeConverter)
+       : LLVMOpLowering(gpu::GPUFuncOp::getOperationName(),
+                        typeConverter.getDialect()->getContext(),
+                        typeConverter) {}
+-  using UnsignedTypePair = std::pair<unsigned, Type>;
+-
+-  // Gather the positions and types of memref-typed arguments in a given
+-  // FunctionType.
+-  void getMemRefArgIndicesAndTypes(
+-      FunctionType type, SmallVectorImpl<UnsignedTypePair> &argsInfo) const {
+-    argsInfo.reserve(type.getNumInputs());
+-    for (auto en : llvm::enumerate(type.getInputs())) {
+-      if (en.value().isa<MemRefType>() || en.value().isa<UnrankedMemRefType>())
+-        argsInfo.push_back({en.index(), en.value()});
+-    }
+-  }
+ 
+-  // Convert input GPUFuncOp to LLVMFuncOp by using the LLVMTypeConverter
+-  // provided to this legalization pattern.
+-  LLVM::LLVMFuncOp
+-  convertGPUFuncOpToLLVMFuncOp(gpu::GPUFuncOp gpuFuncOp,
+-                               ConversionPatternRewriter &rewriter) const {
++  PatternMatchResult
++  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
++                  ConversionPatternRewriter &rewriter) const override {
++    assert(operands.empty() && "func op is not expected to have operands");
++    auto gpuFuncOp = cast<gpu::GPUFuncOp>(op);
++    Location loc = gpuFuncOp.getLoc();
++
+     SmallVector<LLVM::GlobalOp, 3> workgroupBuffers;
+     workgroupBuffers.reserve(gpuFuncOp.getNumWorkgroupAttributions());
+     for (auto en : llvm::enumerate(gpuFuncOp.getWorkgroupAttributions())) {
+@@ -617,16 +596,14 @@ struct GPUFuncOpLoweringBase : public LLVMOpLowering {
+ 
+       Value zero = nullptr;
+       if (!workgroupBuffers.empty())
+-        zero = rewriter.create<LLVM::ConstantOp>(gpuFuncOp.getLoc(), i32Type,
++        zero = rewriter.create<LLVM::ConstantOp>(loc, i32Type,
+                                                  rewriter.getI32IntegerAttr(0));
+       for (auto en : llvm::enumerate(workgroupBuffers)) {
+         LLVM::GlobalOp global = en.value();
+-        Value address =
+-            rewriter.create<LLVM::AddressOfOp>(gpuFuncOp.getLoc(), global);
++        Value address = rewriter.create<LLVM::AddressOfOp>(loc, global);
+         auto elementType = global.getType().getArrayElementType();
+         Value memory = rewriter.create<LLVM::GEPOp>(
+-            gpuFuncOp.getLoc(),
+-            elementType.getPointerTo(global.addr_space().getZExtValue()),
++            loc, elementType.getPointerTo(global.addr_space().getZExtValue()),
+             address, ArrayRef<Value>{zero, zero});
+ 
+         // Build a memref descriptor pointing to the buffer to plug with the
+@@ -635,8 +612,8 @@ struct GPUFuncOpLoweringBase : public LLVMOpLowering {
+         // and canonicalize that away later.
+         Value attribution = gpuFuncOp.getWorkgroupAttributions()[en.index()];
+         auto type = attribution.getType().cast<MemRefType>();
+-        auto descr = MemRefDescriptor::fromStaticShape(
+-            rewriter, gpuFuncOp.getLoc(), lowering, type, memory);
++        auto descr = MemRefDescriptor::fromStaticShape(rewriter, loc, lowering,
++                                                       type, memory);
+         signatureConversion.remapInput(numProperArguments + en.index(), descr);
+       }
+ 
+@@ -661,8 +638,8 @@ struct GPUFuncOpLoweringBase : public LLVMOpLowering {
+             rewriter.getI64IntegerAttr(type.getNumElements()));
+         Value allocated = rewriter.create<LLVM::AllocaOp>(
+             gpuFuncOp.getLoc(), ptrType, numElements, /*alignment=*/0);
+-        auto descr = MemRefDescriptor::fromStaticShape(
+-            rewriter, gpuFuncOp.getLoc(), lowering, type, allocated);
++        auto descr = MemRefDescriptor::fromStaticShape(rewriter, loc, lowering,
++                                                       type, allocated);
+         signatureConversion.remapInput(
+             numProperArguments + numWorkgroupAttributions + en.index(), descr);
+       }
+@@ -674,87 +651,22 @@ struct GPUFuncOpLoweringBase : public LLVMOpLowering {
+     rewriter.applySignatureConversion(&llvmFuncOp.getBody(),
+                                       signatureConversion);
+ 
+-    return llvmFuncOp;
+-  }
+-};
+-
+-/// FuncOp legalization pattern that converts MemRef arguments to pointers to
+-/// MemRef descriptors (LLVM struct data types) containing all the MemRef type
+-/// information.
+-struct GPUFuncOpLowering : public GPUFuncOpLoweringBase {
+-  using GPUFuncOpLoweringBase::GPUFuncOpLoweringBase;
+-
+-  PatternMatchResult
+-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+-                  ConversionPatternRewriter &rewriter) const override {
+-    assert(operands.empty() && "func op is not expected to have operands");
+-    auto gpuFuncOp = cast<gpu::GPUFuncOp>(op);
+-
+-    // Store the positions of memref-typed arguments so that we can emit loads
+-    // from them to follow the calling convention.
+-    SmallVector<UnsignedTypePair, 4> promotedArgsInfo;
+-    getMemRefArgIndicesAndTypes(gpuFuncOp.getType(), promotedArgsInfo);
+-
+-    auto llvmFuncOp = convertGPUFuncOpToLLVMFuncOp(gpuFuncOp, rewriter);
+-
+-    // For memref-typed arguments, insert the relevant loads in the beginning
+-    // of the block to comply with the LLVM dialect calling convention. This
+-    // needs to be done after signature conversion to get the right types.
+-    OpBuilder::InsertionGuard guard(rewriter);
+-    Block &block = llvmFuncOp.front();
+-    rewriter.setInsertionPointToStart(&block);
+-
+-    for (const auto &argInfo : promotedArgsInfo) {
+-      BlockArgument arg = block.getArgument(argInfo.first);
+-      Value loaded = rewriter.create<LLVM::LoadOp>(gpuFuncOp.getLoc(), arg);
+-      rewriter.replaceUsesOfBlockArgument(arg, loaded);
+-    }
+-
+-    rewriter.eraseOp(gpuFuncOp);
+-    return matchSuccess();
+-  }
+-};
+-
+-/// GPUFuncOp legalization pattern that converts MemRef arguments to bare
+-/// pointers to the MemRef element type. This impacts the kernel launch
+-/// parameters.
+-struct BasePtrGPUFuncOpLowering : public GPUFuncOpLoweringBase {
+-  using GPUFuncOpLoweringBase::GPUFuncOpLoweringBase;
++    {
++      // For memref-typed arguments, insert the relevant loads in the beginning
++      // of the block to comply with the LLVM dialect calling convention. This
++      // needs to be done after signature conversion to get the right types.
++      OpBuilder::InsertionGuard guard(rewriter);
++      Block &block = llvmFuncOp.front();
++      rewriter.setInsertionPointToStart(&block);
+ 
+-  PatternMatchResult
+-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+-                  ConversionPatternRewriter &rewriter) const override {
+-    assert(operands.empty() && "func op is not expected to have operands");
+-    auto gpuFuncOp = cast<gpu::GPUFuncOp>(op);
++      for (auto en : llvm::enumerate(gpuFuncOp.getType().getInputs())) {
++        if (!en.value().isa<MemRefType>() &&
++            !en.value().isa<UnrankedMemRefType>())
++          continue;
+ 
+-    // Store the positions of memref-typed arguments so that we can emit loads
+-    // from them to follow the calling convention.
+-    SmallVector<UnsignedTypePair, 4> promotedArgsInfo;
+-    getMemRefArgIndicesAndTypes(gpuFuncOp.getType(), promotedArgsInfo);
+-
+-    auto llvmFuncOp = convertGPUFuncOpToLLVMFuncOp(gpuFuncOp, rewriter);
+-
+-    // For memref-typed arguments, insert the relevant loads in the beginning
+-    // of the block to comply with the LLVM dialect calling convention. This
+-    // needs to be done after signature conversion to get the right types.
+-    OpBuilder::InsertionGuard guard(rewriter);
+-    Block &block = llvmFuncOp.front();
+-    rewriter.setInsertionPointToStart(&block);
+-
+-    for (const auto &argInfo : promotedArgsInfo) {
+-      // TODO: Add support for unranked MemRefs.
+-      if (auto memrefType = argInfo.second.dyn_cast<MemRefType>()) {
+-        // Replace argument with a placeholder (undef), promote argument to a
+-        // MemRef descriptor and replace placeholder with the last instruction
+-        // of the MemRef descriptor. The placeholder is needed to avoid
+-        // replacing argument uses in the MemRef descriptor instructions.
+-        BlockArgument arg = block.getArgument(argInfo.first);
+-        Value placeHolder =
+-            rewriter.create<LLVM::UndefOp>(gpuFuncOp.getLoc(), arg.getType());
+-        rewriter.replaceUsesOfBlockArgument(arg, placeHolder);
+-        auto desc = MemRefDescriptor::fromStaticShape(
+-            rewriter, gpuFuncOp.getLoc(), lowering, memrefType, arg);
+-        rewriter.replaceOp(placeHolder.getDefiningOp(), {desc});
++        BlockArgument arg = block.getArgument(en.index());
++        Value loaded = rewriter.create<LLVM::LoadOp>(loc, arg);
++        rewriter.replaceUsesOfBlockArgument(arg, loaded);
+       }
+     }
+ 
+@@ -789,27 +701,12 @@ struct GPUReturnOpLowering : public LLVMOpLowering {
+ class LowerGpuOpsToNVVMOpsPass
+     : public OperationPass<LowerGpuOpsToNVVMOpsPass, gpu::GPUModuleOp> {
+ public:
+-  /// Creates an LLVM lowering pass.
+-  explicit LowerGpuOpsToNVVMOpsPass(bool useBarePtrCallConv = false)
+-      : useBarePtrCallConv(useBarePtrCallConv) {}
+-
+   void runOnOperation() override {
+     gpu::GPUModuleOp m = getOperation();
+-
+-    LLVMTypeConverterCustomization customs;
+-    customs.funcArgConverter = useBarePtrCallConv ? barePtrFuncArgTypeConverter
+-                                                  : structFuncArgTypeConverter;
+-    NVVMTypeConverter converter(m.getContext(), customs);
+-
+     OwningRewritePatternList patterns;
+-    if (useBarePtrCallConv) {
+-      populateStdToLLVMBarePtrConversionPatterns(converter, patterns);
+-      populateGpuToNVVMBarePtrConversionPatterns(converter, patterns);
+-    } else {
+-      populateStdToLLVMConversionPatterns(converter, patterns);
+-      populateGpuToNVVMDefaultConversionPatterns(converter, patterns);
+-    }
+-
++    NVVMTypeConverter converter(m.getContext());
++    populateStdToLLVMConversionPatterns(converter, patterns);
++    populateGpuToNVVMConversionPatterns(converter, patterns);
+     ConversionTarget target(getContext());
+     target.addIllegalDialect<gpu::GPUDialect>();
+     target.addIllegalOp<LLVM::FAbsOp, LLVM::FCeilOp, LLVM::CosOp,
+@@ -822,14 +719,11 @@ public:
+     if (failed(applyPartialConversion(m, target, patterns, &converter)))
+       signalPassFailure();
+   }
+-
+-  /// Convert memrefs to bare pointers in kernel signatures.
+-  bool useBarePtrCallConv;
+ };
+ 
+ } // anonymous namespace
+ 
+-void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
++void mlir::populateGpuToNVVMConversionPatterns(
+     LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
+   populateWithGenerated(converter.getDialect()->getContext(), &patterns);
+   patterns
+@@ -841,7 +735,7 @@ void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
+                                           NVVM::BlockIdYOp, NVVM::BlockIdZOp>,
+               GPUIndexIntrinsicOpLowering<gpu::GridDimOp, NVVM::GridDimXOp,
+                                           NVVM::GridDimYOp, NVVM::GridDimZOp>,
+-              GPUAllReduceOpLowering, GPUShuffleOpLowering,
++              GPUAllReduceOpLowering, GPUShuffleOpLowering, GPUFuncOpLowering,
+               GPUReturnOpLowering>(converter);
+   patterns.insert<OpToFuncCallLowering<AbsFOp>>(converter, "__nv_fabsf",
+                                                "__nv_fabs");
+@@ -855,22 +749,10 @@ void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
+                                                 "__nv_tanh");
+ }
+ 
+-void mlir::populateGpuToNVVMDefaultConversionPatterns(
+-    LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
+-  populateGpuToNVVMNonGPUFuncOpConversionPatterns(converter, patterns);
+-  patterns.insert<GPUFuncOpLowering>(converter);
+-}
+-
+-void mlir::populateGpuToNVVMBarePtrConversionPatterns(
+-    LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
+-  populateGpuToNVVMNonGPUFuncOpConversionPatterns(converter, patterns);
+-  patterns.insert<BasePtrGPUFuncOpLowering>(converter);
+-}
+-
+ std::unique_ptr<OpPassBase<gpu::GPUModuleOp>>
+-mlir::createLowerGpuOpsToNVVMOpsPass(bool useBarePtrCallConv) {
+-  return std::make_unique<LowerGpuOpsToNVVMOpsPass>(useBarePtrCallConv);
++mlir::createLowerGpuOpsToNVVMOpsPass() {
++  return std::make_unique<LowerGpuOpsToNVVMOpsPass>();
+ }
+ 
+ static PassRegistration<LowerGpuOpsToNVVMOpsPass>
+-    pass(PASS_NAME, "Generate NVVM operations for gpu operations");
++    pass("convert-gpu-to-nvvm", "Generate NVVM operations for gpu operations");
