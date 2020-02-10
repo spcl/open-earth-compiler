@@ -32,7 +32,7 @@ index 65c69c0d4ba..4a6698cfb50 100644
  } // namespace mlir
  
 diff --git a/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp b/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp
-index f86460ccd0e..ab47dcfb685 100644
+index 0c22b4c9fa0..ab47dcfb685 100644
 --- a/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp
 +++ b/mlir/lib/Conversion/GPUToNVVM/LowerGpuOpsToNVVMOps.cpp
 @@ -27,17 +27,6 @@
@@ -134,7 +134,7 @@ index f86460ccd0e..ab47dcfb685 100644
          signatureConversion.remapInput(
              numProperArguments + numWorkgroupAttributions + en.index(), descr);
        }
-@@ -674,87 +651,22 @@ struct GPUFuncOpLoweringBase : public LLVMOpLowering {
+@@ -674,90 +651,23 @@ struct GPUFuncOpLoweringBase : public LLVMOpLowering {
      rewriter.applySignatureConversion(&llvmFuncOp.getBody(),
                                        signatureConversion);
  
@@ -182,7 +182,7 @@ index f86460ccd0e..ab47dcfb685 100644
 -/// GPUFuncOp legalization pattern that converts MemRef arguments to bare
 -/// pointers to the MemRef element type. This impacts the kernel launch
 -/// parameters.
--struct BasePtrGPUFuncOpLowering : public GPUFuncOpLoweringBase {
+-struct BarePtrGPUFuncOpLowering : public GPUFuncOpLoweringBase {
 -  using GPUFuncOpLoweringBase::GPUFuncOpLoweringBase;
 +    {
 +      // For memref-typed arguments, insert the relevant loads in the beginning
@@ -217,26 +217,30 @@ index f86460ccd0e..ab47dcfb685 100644
 -    rewriter.setInsertionPointToStart(&block);
 -
 -    for (const auto &argInfo : promotedArgsInfo) {
+-      auto memrefType = argInfo.second.dyn_cast<MemRefType>();
 -      // TODO: Add support for unranked MemRefs.
--      if (auto memrefType = argInfo.second.dyn_cast<MemRefType>()) {
--        // Replace argument with a placeholder (undef), promote argument to a
--        // MemRef descriptor and replace placeholder with the last instruction
--        // of the MemRef descriptor. The placeholder is needed to avoid
--        // replacing argument uses in the MemRef descriptor instructions.
--        BlockArgument arg = block.getArgument(argInfo.first);
--        Value placeHolder =
--            rewriter.create<LLVM::UndefOp>(gpuFuncOp.getLoc(), arg.getType());
--        rewriter.replaceUsesOfBlockArgument(arg, placeHolder);
--        auto desc = MemRefDescriptor::fromStaticShape(
--            rewriter, gpuFuncOp.getLoc(), lowering, memrefType, arg);
--        rewriter.replaceOp(placeHolder.getDefiningOp(), {desc});
+-      assert(memrefType && "expected ranked memref");
+-      assert(memrefType.hasStaticShape() &&
+-             "expected statically shaped memref");
+-      // Replace argument with a placeholder (undef), promote argument to a
+-      // MemRef descriptor and replace placeholder with the last instruction
+-      // of the MemRef descriptor. The placeholder is needed to avoid
+-      // replacing argument uses in the MemRef descriptor instructions.
+-      BlockArgument arg = block.getArgument(argInfo.first);
+-      Value placeHolder =
+-          rewriter.create<LLVM::UndefOp>(gpuFuncOp.getLoc(), arg.getType());
+-      rewriter.replaceUsesOfBlockArgument(arg, placeHolder);
+-      auto desc = MemRefDescriptor::fromStaticShape(
+-          rewriter, gpuFuncOp.getLoc(), lowering, memrefType, arg);
+-      rewriter.replaceOp(placeHolder.getDefiningOp(), {desc});
 +        BlockArgument arg = block.getArgument(en.index());
 +        Value loaded = rewriter.create<LLVM::LoadOp>(loc, arg);
 +        rewriter.replaceUsesOfBlockArgument(arg, loaded);
-       }
++      }
      }
  
-@@ -789,27 +701,12 @@ struct GPUReturnOpLowering : public LLVMOpLowering {
+     rewriter.eraseOp(gpuFuncOp);
+@@ -791,27 +701,12 @@ struct GPUReturnOpLowering : public LLVMOpLowering {
  class LowerGpuOpsToNVVMOpsPass
      : public OperationPass<LowerGpuOpsToNVVMOpsPass, gpu::GPUModuleOp> {
  public:
@@ -267,7 +271,7 @@ index f86460ccd0e..ab47dcfb685 100644
      ConversionTarget target(getContext());
      target.addIllegalDialect<gpu::GPUDialect>();
      target.addIllegalOp<LLVM::FAbsOp, LLVM::FCeilOp, LLVM::CosOp,
-@@ -822,14 +719,11 @@ public:
+@@ -824,14 +719,11 @@ public:
      if (failed(applyPartialConversion(m, target, patterns, &converter)))
        signalPassFailure();
    }
@@ -283,7 +287,7 @@ index f86460ccd0e..ab47dcfb685 100644
      LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
    populateWithGenerated(converter.getDialect()->getContext(), &patterns);
    patterns
-@@ -841,7 +735,7 @@ void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
+@@ -843,7 +735,7 @@ void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
                                            NVVM::BlockIdYOp, NVVM::BlockIdZOp>,
                GPUIndexIntrinsicOpLowering<gpu::GridDimOp, NVVM::GridDimXOp,
                                            NVVM::GridDimYOp, NVVM::GridDimZOp>,
@@ -292,7 +296,7 @@ index f86460ccd0e..ab47dcfb685 100644
                GPUReturnOpLowering>(converter);
    patterns.insert<OpToFuncCallLowering<AbsFOp>>(converter, "__nv_fabsf",
                                                 "__nv_fabs");
-@@ -855,22 +749,10 @@ void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
+@@ -857,25 +749,10 @@ void mlir::populateGpuToNVVMNonGPUFuncOpConversionPatterns(
                                                  "__nv_tanh");
  }
  
@@ -305,7 +309,7 @@ index f86460ccd0e..ab47dcfb685 100644
 -void mlir::populateGpuToNVVMBarePtrConversionPatterns(
 -    LLVMTypeConverter &converter, OwningRewritePatternList &patterns) {
 -  populateGpuToNVVMNonGPUFuncOpConversionPatterns(converter, patterns);
--  patterns.insert<BasePtrGPUFuncOpLowering>(converter);
+-  patterns.insert<BarePtrGPUFuncOpLowering>(converter);
 -}
 -
  std::unique_ptr<OpPassBase<gpu::GPUModuleOp>>
@@ -316,5 +320,84 @@ index f86460ccd0e..ab47dcfb685 100644
  }
  
  static PassRegistration<LowerGpuOpsToNVVMOpsPass>
--    pass(PASS_NAME, "Generate NVVM operations for gpu operations");
+-    pass(PASS_NAME, "Generate NVVM operations for gpu operations", [] {
+-      return std::make_unique<LowerGpuOpsToNVVMOpsPass>(
+-          clUseBarePtrCallConv.getValue());
+-    });
 +    pass("convert-gpu-to-nvvm", "Generate NVVM operations for gpu operations");
+diff --git a/mlir/test/Conversion/GPUToNVVM/convert-dynamic-memref-args.mlir b/mlir/test/Conversion/GPUToNVVM/convert-dynamic-memref-args.mlir
+deleted file mode 100644
+index 4044b89bc1c..00000000000
+--- a/mlir/test/Conversion/GPUToNVVM/convert-dynamic-memref-args.mlir
++++ /dev/null
+@@ -1,30 +0,0 @@
+-// RUN: mlir-opt -convert-gpu-to-nvvm -split-input-file %s | FileCheck %s
+-
+-gpu.module @kernel {
+-  // CHECK-LABEL:  llvm.func @check_arg
+-  // CHECK-COUNT-2: !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }*">
+-  gpu.func @check_arg(%arg0: memref<?x?xf32>) {
+-    "terminator"() : () -> ()
+-  }
+-}
+-
+-// -----
+-
+-gpu.module @kernel {
+-  // CHECK-LABEL:  llvm.func @check_call_conv
+-  gpu.func @check_call_conv(%arg0: memref<?x?xf32>) {
+-    // Load the memref
+-    // CHECK: %[[LD:.*]] = llvm.load %{{.*}} : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }*">
+-    // CHECK: %[[PTR:.*]] = llvm.extractvalue %[[LD]][1] : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }">
+-    // CHECK: %[[STRIDE:.*]] = llvm.extractvalue %[[LD]][4, 0] : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }">
+-    
+-    // Write to memref
+-    // CHECK: %[[ELEM:.*]] = llvm.getelementptr %[[PTR:.*]][%10] : (!llvm<"float*">, !llvm.i64) -> !llvm<"float*">
+-    // CHECK: llvm.store %{{.*}}, %[[ELEM:.*]] : !llvm<"float*">
+-    %c1 = constant 1 : index
+-    %c0 = constant 0.0 : f32
+-    store %c0, %arg0[%c1, %c1] : memref<?x?xf32>
+-
+-    "terminator"() : () -> ()
+-  }
+-}
+diff --git a/mlir/test/Conversion/GPUToNVVM/convert-static-memref-args.mlir b/mlir/test/Conversion/GPUToNVVM/convert-static-memref-args.mlir
+deleted file mode 100644
+index e1cd45478b9..00000000000
+--- a/mlir/test/Conversion/GPUToNVVM/convert-static-memref-args.mlir
++++ /dev/null
+@@ -1,33 +0,0 @@
+-// RUN: mlir-opt -convert-gpu-to-nvvm -convert-gpu-to-nvvm-use-bare-ptr-memref-call-conv=1 -split-input-file %s | FileCheck %s
+-
+-gpu.module @kernel {
+-  // CHECK-LABEL:  llvm.func @check_arg
+-  // CHECK-COUNT-1: !llvm<"float*">
+-  gpu.func @check_arg(%arg0: memref<64x2xf32>) {
+-    "terminator"() : () -> ()
+-  }
+-}
+-
+-// -----
+-
+-gpu.module @kernel {
+-  // CHECK-LABEL:  llvm.func @check_call_conv
+-  gpu.func @check_call_conv(%arg0: memref<64x2xf32>) {
+-    // Define MemRef and fill with pointer and shape info
+-    // CHECK-NEXT: %[[UNDEF:.*]] = llvm.mlir.undef : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }">
+-    // CHECK-NEXT: %[[PTR1:.*]] = llvm.insertvalue %{{.*}}, %[[UNDEF:.*]][0] : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }">    
+-    // CHECK-NEXT: %[[PTR2:.*]] = llvm.insertvalue %{{.*}}, %[[PTR1:.*]][1] : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }">
+-    // Offset 0
+-    // CHECK-NEXT: %[[CST0:.*]] = llvm.mlir.constant(0 : index) : !llvm.i64
+-    // CHECK-NEXT: %[[PTR3:.*]] = llvm.insertvalue %[[CST0:.*]], %{{.*}}[2] : !llvm<"{ float*, float*, i64, [2 x i64], [2 x i64] }">
+-    
+-    // Write to memref
+-    // CHECK: %[[ELEM:.*]] = llvm.getelementptr %{{.*}}[%{{.*}}] : (!llvm<"float*">, !llvm.i64) -> !llvm<"float*">
+-    // CHECK: llvm.store %{{.*}}, %[[ELEM:.*]] : !llvm<"float*">
+-    %c1 = constant 1 : index
+-    %c0 = constant 0.0 : f32
+-    store %c0, %arg0[%c1, %c1] : memref<64x2xf32>
+-
+-    "terminator"() : () -> ()
+-  }
+-}
+\ No newline at end of file
