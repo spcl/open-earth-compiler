@@ -26,6 +26,7 @@
 using namespace mlir;
 
 // To avoid name mangling, these are defined in the mini-runtime file.
+static constexpr const char *oecInitName = "oecInit";
 static constexpr const char *oecTeardownName = "oecTeardown";
 static constexpr const char *oecModuleLoadName = "oecModuleLoad";
 static constexpr const char *oecModuleGetFunctionName = "oecModuleGetFunction";
@@ -38,8 +39,9 @@ static constexpr const char *oecAllocTemporaryName = "oecAllocTemporary";
 static constexpr const char *kCubinAnnotation = "nvvm.cubin";
 static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
 
-static constexpr const char *kSetupName = "setup";
+static constexpr const char *kInitName = "init";
 static constexpr const char *kRunName = "run";
+static constexpr const char *kSetupName = "setup";
 static constexpr const char *kTeardownName = "teardown";
 
 namespace {
@@ -81,16 +83,19 @@ private:
     return getInt32Type();
   }
 
+  int32_t getNumberOfArgs(gpu::LaunchFuncOp launchOp);
+  void addParamToList(OpBuilder &builder, Location loc, Value param, Value one);
   void declareRTFunctions(Location loc);
   Value declareGlobalKernelName(StringRef name, StringRef data, Location loc,
                                 OpBuilder &builder);
   LLVM::GlobalOp declareGlobalFuncPtr(StringRef name, Location loc,
                                       OpBuilder &builder);
+  LogicalResult declareInitFunc(Location loc, OpBuilder &builder);
+  LogicalResult declareTeardownFunc(Location loc, OpBuilder &builder);
   LogicalResult declareSetupFunc(LLVM::LLVMFuncOp parentOp, Location loc,
                                  OpBuilder &builder);
-  LogicalResult declareTeardownFunc(Location loc, OpBuilder &builder);
-  LogicalResult declareLaunchFunc(LLVM::LLVMFuncOp parentOp, Location loc,
-                                  OpBuilder &builder);
+  LogicalResult declareRunFunc(LLVM::LLVMFuncOp parentOp, Location loc,
+                               OpBuilder &builder);
 
 public:
   // Run the dialect converter on the module.
@@ -110,7 +115,7 @@ public:
       return signalPassFailure();
     }
 
-    // Compute init method
+    // Get the kernel function
     auto parentOp = parentOps.back();
     OpBuilder builder(parentOp);
     Location loc = parentOp.getLoc();
@@ -118,14 +123,18 @@ public:
     // Declare CUDA runtime functions
     declareRTFunctions(loc);
 
-    // Declare the setup and teardown functions
-    if (failed(declareSetupFunc(parentOp, loc, builder)))
+    // Declare the init and teardown functions
+    if (failed(declareInitFunc(loc, builder)))
       return signalPassFailure();
     if (failed(declareTeardownFunc(loc, builder)))
       return signalPassFailure();
 
-    // Declare the kernel function
-    if (failed(declareLaunchFunc(parentOp, loc, builder)))
+    // Transform the kernel function
+    if (failed(declareSetupFunc(parentOp, loc, builder)))
+      return signalPassFailure();
+
+    // Declare the run function
+    if (failed(declareRunFunc(parentOp, loc, builder)))
       return signalPassFailure();
 
     // GPU kernel modules are no longer necessary since we have a global
@@ -156,6 +165,11 @@ private:
 void LaunchFuncToCUDACallsPass::declareRTFunctions(Location loc) {
   ModuleOp module = getModule();
   OpBuilder builder(module.getBody()->getTerminator());
+  if (!module.lookupSymbol(oecInitName)) {
+    builder.create<LLVM::LLVMFuncOp>(
+        loc, oecInitName,
+        LLVM::LLVMType::getFunctionTy(getCUResultType(), /*isVarArg=*/false));
+  }
   if (!module.lookupSymbol(oecTeardownName)) {
     builder.create<LLVM::LLVMFuncOp>(
         loc, oecTeardownName,
@@ -215,14 +229,12 @@ void LaunchFuncToCUDACallsPass::declareRTFunctions(Location loc) {
   if (!module.lookupSymbol(oecStoreParameterName)) {
     builder.create<LLVM::LLVMFuncOp>(
         loc, oecStoreParameterName,
-        LLVM::LLVMType::getFunctionTy(
-            getCUResultType(),
-            {
-                getPointerType(), /* void *ptr */
-                getInt64Type(),   /* int64 sizeBytes*/
-                getInt32Type()    /* int32 device of host */
-            },
-            /*isVarArg=*/false));
+        LLVM::LLVMType::getFunctionTy(getVoidType(),
+                                      {
+                                          getPointerType(), /* void *ptr */
+                                          getInt64Type()    /* int64 sizeBytes*/
+                                      },
+                                      /*isVarArg=*/false));
   }
   if (!module.lookupSymbol(oecLoadParametersName)) {
     builder.create<LLVM::LLVMFuncOp>(
@@ -280,12 +292,39 @@ LaunchFuncToCUDACallsPass::declareGlobalFuncPtr(StringRef name, Location loc,
   return globalOp;
 }
 
-// Add the definition of the setup and teardown functions
+// Add the definition of the init function
+LogicalResult LaunchFuncToCUDACallsPass::declareInitFunc(Location loc,
+                                                         OpBuilder &builder) {
+  // Insert at the end of the module
+  builder.setInsertionPoint(getModule().getBody()->getTerminator());
+
+  // Verify the method does not conflict with an existing one
+  if (getModule().lookupSymbol(kInitName))
+    return failure();
+
+  // Generate the teardown function
+  auto funcOp = builder.create<LLVM::LLVMFuncOp>(
+      loc, kInitName,
+      LLVM::LLVMType::getFunctionTy(getVoidType(), /*isVarArg=*/false));
+
+  auto entryBlock = funcOp.addEntryBlock();
+  builder.setInsertionPointToEnd(entryBlock);
+
+  // Call the teardown method of the oec runtime
+  auto initFunc = getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecInitName);
+  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getInt32Type()},
+                               builder.getSymbolRefAttr(initFunc),
+                               ArrayRef<Value>{});
+
+  builder.create<LLVM::ReturnOp>(loc, ValueRange());
+  return success();
+}
+
+// Add the definition of the teardown function
 LogicalResult
 LaunchFuncToCUDACallsPass::declareTeardownFunc(Location loc,
                                                OpBuilder &builder) {
   // Insert at the end of the module
-  OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPoint(getModule().getBody()->getTerminator());
 
   // Verify the method does not conflict with an existing one
@@ -311,11 +350,49 @@ LaunchFuncToCUDACallsPass::declareTeardownFunc(Location loc,
   return success();
 }
 
+// Compute the number of arguments after unpacking the parameters
+int32_t LaunchFuncToCUDACallsPass::getNumberOfArgs(gpu::LaunchFuncOp launchOp) {
+  // Get the launch target.
+  auto containingModule = launchOp.getParentOfType<ModuleOp>();
+  if (!containingModule)
+    return -1;
+  auto gpuModule = containingModule.lookupSymbol<gpu::GPUModuleOp>(
+      launchOp.getKernelModuleName());
+  if (!gpuModule)
+    return -1;
+  auto gpuFunc = gpuModule.lookupSymbol<LLVM::LLVMFuncOp>(launchOp.kernel());
+  if (!gpuFunc)
+    return -1;
+
+  return gpuFunc.getNumArguments();
+}
+
+void LaunchFuncToCUDACallsPass::addParamToList(OpBuilder &builder, Location loc,
+                                               Value param, Value one) {
+  auto llvmType = param.getType().cast<LLVM::LLVMType>();
+  auto memLocation =
+      builder.create<LLVM::AllocaOp>(loc, llvmType.getPointerTo(), one,
+                                     /*alignment=*/1);
+  builder.create<LLVM::StoreOp>(loc, param, memLocation);
+  auto casted =
+      builder.create<LLVM::BitcastOp>(loc, getPointerType(), memLocation);
+
+  // Compute the size of the memref
+  auto nullPtr = builder.create<LLVM::NullOp>(loc, llvmType.getPointerTo());
+  auto gep = builder.create<LLVM::GEPOp>(loc, llvmType.getPointerTo(),
+                                         ArrayRef<Value>{nullPtr, one});
+  auto size = builder.create<LLVM::PtrToIntOp>(loc, getInt64Type(), gep);
+  auto storeFunc =
+      getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStoreParameterName);
+  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
+                               builder.getSymbolRefAttr(storeFunc),
+                               ArrayRef<Value>{casted, size});
+}
+
 LogicalResult
 LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
                                             Location loc, OpBuilder &builder) {
   // Insert at the end of the module
-  OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPoint(getModule().getBody()->getTerminator());
 
   // Verify the method does not conflict with an existing one
@@ -383,27 +460,36 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
       // Get the operand
       auto operand = launchOp.getKernelOperand(idx);
       auto llvmType = operand.getType().cast<LLVM::LLVMType>();
-      Value memLocation = builder.create<LLVM::AllocaOp>(
-          loc, llvmType.getPointerTo(), one, /*alignment=*/1);
-      builder.create<LLVM::StoreOp>(loc, operand, memLocation);
-      auto casted =
-          builder.create<LLVM::BitcastOp>(loc, getPointerType(), memLocation);
 
-      // Store only struct types on the device and pass scalars by value
-      auto device = builder.create<LLVM::ConstantOp>(
-          loc, getInt32Type(),
-          builder.getI32IntegerAttr(llvmType.isStructTy() ? 1 : 0));
+      // Assume all struct arguments come from MemRef. If this assumption does not
+      // hold anymore then we `launchOp` to lower from MemRefType and not after
+      // LLVMConversion has taken place and the MemRef information is lost.
+      if (!llvmType.isStructTy()) {
+        addParamToList(builder, loc, operand, one);
+        continue;
+      }
 
-      // Compute the size of the memref
-      auto nullPtr = builder.create<LLVM::NullOp>(loc, llvmType.getPointerTo());
-      auto gep = builder.create<LLVM::GEPOp>(loc, llvmType.getPointerTo(),
-                                             ArrayRef<Value>{nullPtr, one});
-      auto size = builder.create<LLVM::PtrToIntOp>(loc, getInt64Type(), gep);
-      auto storeFunc =
-          getModule().lookupSymbol<LLVM::LLVMFuncOp>(oecStoreParameterName);
-      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
-                                   builder.getSymbolRefAttr(storeFunc),
-                                   ArrayRef<Value>{casted, size, device});
+      // Put individual components of a memref descriptor into the flat argument
+      // list. We cannot use unpackMemref from LLVM lowering here because we have
+      // no access to MemRefType that had been lowered away.
+      for (int32_t j = 0, ej = llvmType.getStructNumElements(); j < ej; ++j) {
+        auto elemType = llvmType.getStructElementType(j);
+        if (elemType.isArrayTy()) {
+          for (int32_t k = 0, ek = elemType.getArrayNumElements(); k < ek; ++k) {
+            Value elem = builder.create<LLVM::ExtractValueOp>(
+                loc, elemType.getArrayElementType(), operand,
+                builder.getI32ArrayAttr({j, k}));
+            addParamToList(builder, loc, elem, one);
+          }
+        } else {
+          assert((elemType.isIntegerTy() || elemType.isFloatTy() ||
+                  elemType.isDoubleTy() || elemType.isPointerTy()) &&
+                "expected scalar type");
+          Value strct = builder.create<LLVM::ExtractValueOp>(
+              loc, elemType, operand, builder.getI32ArrayAttr(j));
+          addParamToList(builder, loc, strct, one);
+        }
+      }
     }
 
     launchOps.push_back(launchOp);
@@ -415,7 +501,7 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
 
   // Change the malloc and free calls
   SmallVector<LLVM::CallOp, 10> callOps;
-  funcOp.walk([&](LLVM::CallOp callOp) {
+  parentOp.walk([&](LLVM::CallOp callOp) {
     // Set the insertion point
     builder.setInsertionPoint(callOp);
 
@@ -445,10 +531,9 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
 }
 
 LogicalResult
-LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
-                                             Location loc, OpBuilder &builder) {
+LaunchFuncToCUDACallsPass::declareRunFunc(LLVM::LLVMFuncOp parentOp,
+                                          Location loc, OpBuilder &builder) {
   // Insert at the end of the module
-  OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPoint(getModule().getBody()->getTerminator());
 
   // Verify the method does not conflict with an existing one
@@ -463,8 +548,8 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
   builder.setInsertionPointToStart(entryBlock);
 
   // Launch all kernels
-
-  int32_t kernelOperandOffset = 0;
+  int32_t kernelArgOffset = 0;
+  LogicalResult result = success();
   parentOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
     // Load the function
     std::string funcName =
@@ -480,11 +565,17 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
         module.lookupSymbol<LLVM::LLVMFuncOp>(oecLaunchKernelName);
 
     // Setup the parameter array
-    auto numKernelOperands = launchOp.getNumKernelOperands();
+    auto numberOfArgs = getNumberOfArgs(launchOp);
+    // Return if we cannot determine the number of arguments
+    if (numberOfArgs < 0) {
+      launchOp.emitOpError() << "cannot determine number of kernel arguments";
+      result = failure();
+      return;
+    }
     auto arraySize = builder.create<LLVM::ConstantOp>(
-        loc, getInt32Type(), builder.getI32IntegerAttr(numKernelOperands));
+        loc, getInt32Type(), builder.getI32IntegerAttr(numberOfArgs));
     auto arrayOffset = builder.create<LLVM::ConstantOp>(
-        loc, getInt32Type(), builder.getI32IntegerAttr(kernelOperandOffset));
+        loc, getInt32Type(), builder.getI32IntegerAttr(kernelArgOffset));
     auto allocOp = builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(),
                                                   arraySize, /*alignment=*/0);
     auto array = allocOp.getResult();
@@ -520,8 +611,12 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
                         blockZ.getResult(), array});
 
     // Update operand offset
-    kernelOperandOffset += numKernelOperands;
+    kernelArgOffset += numberOfArgs;
   });
+
+  // Check if all went well
+  if (failed(result))
+    return failure();
 
   // Sync on the stream
   auto syncFunc =
@@ -529,7 +624,7 @@ LaunchFuncToCUDACallsPass::declareLaunchFunc(LLVM::LLVMFuncOp parentOp,
   builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
                                builder.getSymbolRefAttr(syncFunc),
                                ArrayRef<Value>{});
-                               
+
   // Add a terminator
   builder.create<LLVM::ReturnOp>(loc, ValueRange());
   return success();

@@ -18,12 +18,12 @@ int32_t reportError(CUresult result, const char *where) {
 }
 } // anonymous namespace
 
-static std::vector<std::pair<void *, CUdeviceptr>> paramBuffer;
+static std::vector<void *> paramBuffer;
 static std::vector<CUmodule> moduleBuffer;
 static std::vector<CUdeviceptr> temporaryBuffer;
 static CUstream stream;
 
-extern "C" int32_t init() {
+extern "C" int32_t oecInit() {
   CUcontext context;
   CUdevice device;
   int32_t err;
@@ -38,16 +38,10 @@ extern "C" int32_t oecTeardown() {
   int32_t err;
   for (auto module : moduleBuffer)
     err = reportError(cuModuleUnload(module), "ModuleUnload");
-  for (auto param : paramBuffer) {
-    if (param.first) {
-      free(param.first);
-    } else {
-      err = reportError(cuMemFree(param.second), "MemFree");
-    }
-  }
-  for (auto temporary : temporaryBuffer) {
+  for (auto param : paramBuffer)
+    free(param);
+  for (auto temporary : temporaryBuffer)
     err = reportError(cuMemFree(temporary), "MemFree");
-  }
   return err;
 }
 
@@ -89,29 +83,14 @@ extern "C" int32_t oecStreamSynchronize() {
   return reportError(cuStreamSynchronize(stream), "StreamSync");
 }
 
-extern "C" int32_t oecStoreParameter(void *paramPtr, int64_t size,
-                                     int32_t device) {
-  int32_t err = CUDA_SUCCESS;
-  CUdeviceptr devPtr = reinterpret_cast<CUdeviceptr>(nullptr);
-  void *hostPtr = nullptr;
-  if (device) {
-    err = reportError(cuMemAlloc(&devPtr, size), "MemAlloc");
-    err = reportError(cuMemcpyHtoD(devPtr, paramPtr, size), "MemCopy");
-  } else {
-    hostPtr = malloc(size);
-    memcpy(hostPtr, paramPtr, size);
-  }
-  paramBuffer.push_back(std::make_pair(hostPtr, devPtr));
-  return err;
+extern "C" void oecStoreParameter(void *paramPtr, int64_t size) {
+  void *ptrToPtr = malloc(size);
+  memcpy(ptrToPtr, paramPtr, size);
+  paramBuffer.push_back(ptrToPtr);
 }
 
 extern "C" void oecLoadParameters(void **paramArray, int32_t offset,
                                   int32_t size) {
-  for (size_t i = 0; i != size; ++i) {
-    if (paramBuffer[offset + i].first) {
-      paramArray[i] = reinterpret_cast<void *>(paramBuffer[offset + i].first);
-    } else {
-      paramArray[i] = reinterpret_cast<void *>(&paramBuffer[offset + i].second);
-    }
-  }
+  for (size_t i = 0; i != size; ++i)
+    paramArray[i] = reinterpret_cast<void *>(paramBuffer[offset + i]);
 }
