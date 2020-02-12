@@ -90,7 +90,7 @@ void pipelineBuilder(OpPassManager &pm) {
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
   kernelPm.addPass(createIndexOptimizationPass());
   kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
-  pm.addPass(createLowerToLLVMPass(false, true));
+  pm.addPass(createLowerToLLVMPass(false, false, true));
 }
 
 } // namespace

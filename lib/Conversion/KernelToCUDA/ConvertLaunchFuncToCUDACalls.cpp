@@ -41,7 +41,6 @@ static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
 
 static constexpr const char *kInitName = "init";
 static constexpr const char *kRunName = "run";
-static constexpr const char *kSetupName = "setup";
 static constexpr const char *kTeardownName = "teardown";
 
 namespace {
@@ -129,12 +128,12 @@ public:
     if (failed(declareTeardownFunc(loc, builder)))
       return signalPassFailure();
 
-    // Transform the kernel function
-    if (failed(declareSetupFunc(parentOp, loc, builder)))
-      return signalPassFailure();
-
     // Declare the run function
     if (failed(declareRunFunc(parentOp, loc, builder)))
+      return signalPassFailure();
+
+    // Transform the kernel function
+    if (failed(declareSetupFunc(parentOp, loc, builder)))
       return signalPassFailure();
 
     // GPU kernel modules are no longer necessary since we have a global
@@ -142,8 +141,6 @@ public:
     for (auto m :
          llvm::make_early_inc_range(getModule().getOps<gpu::GPUModuleOp>()))
       m.erase();
-
-    parentOp.erase();
   }
 
 private:
@@ -392,24 +389,9 @@ void LaunchFuncToCUDACallsPass::addParamToList(OpBuilder &builder, Location loc,
 LogicalResult
 LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
                                             Location loc, OpBuilder &builder) {
-  // Insert at the end of the module
-  builder.setInsertionPoint(getModule().getBody()->getTerminator());
-
-  // Verify the method does not conflict with an existing one
-  std::string setupName =
-      llvm::formatv("{0}_{1}", kSetupName, parentOp.getName());
-  if (getModule().lookupSymbol(setupName))
-    return failure();
-
-  // Clone the kernel launch method
-  auto funcOp =
-      builder.create<LLVM::LLVMFuncOp>(loc, setupName, parentOp.getType());
-  BlockAndValueMapping mapper;
-  parentOp.getBody().cloneInto(&funcOp.getBody(), mapper);
-
   // Walk the cloned op and replace all kernel launch
   SmallVector<mlir::gpu::LaunchFuncOp, 10> launchOps;
-  funcOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
+  parentOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
     // Set the insertion point
     builder.setInsertionPoint(launchOp);
 
@@ -461,9 +443,10 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
       auto operand = launchOp.getKernelOperand(idx);
       auto llvmType = operand.getType().cast<LLVM::LLVMType>();
 
-      // Assume all struct arguments come from MemRef. If this assumption does not
-      // hold anymore then we `launchOp` to lower from MemRefType and not after
-      // LLVMConversion has taken place and the MemRef information is lost.
+      // Assume all struct arguments come from MemRef. If this assumption does
+      // not hold anymore then we `launchOp` to lower from MemRefType and not
+      // after LLVMConversion has taken place and the MemRef information is
+      // lost.
       if (!llvmType.isStructTy()) {
         addParamToList(builder, loc, operand, one);
         continue;
@@ -537,12 +520,11 @@ LaunchFuncToCUDACallsPass::declareRunFunc(LLVM::LLVMFuncOp parentOp,
   builder.setInsertionPoint(getModule().getBody()->getTerminator());
 
   // Verify the method does not conflict with an existing one
-  std::string runName = llvm::formatv("{0}_{1}", kRunName, parentOp.getName());
-  if (getModule().lookupSymbol(runName))
+  if (getModule().lookupSymbol(kRunName))
     return failure();
 
   auto funcOp = builder.create<LLVM::LLVMFuncOp>(
-      loc, runName, LLVM::LLVMType::getFunctionTy(getVoidType(), {}));
+      loc, kRunName, LLVM::LLVMType::getFunctionTy(getVoidType(), {}));
 
   auto entryBlock = funcOp.addEntryBlock();
   builder.setInsertionPointToStart(entryBlock);
@@ -552,10 +534,9 @@ LaunchFuncToCUDACallsPass::declareRunFunc(LLVM::LLVMFuncOp parentOp,
   LogicalResult result = success();
   parentOp.walk([&](mlir::gpu::LaunchFuncOp launchOp) {
     // Load the function
-    std::string funcName =
-        llvm::formatv("{0}_function", launchOp.getKernelModuleName());
-    Value funcPtr = builder.create<LLVM::AddressOfOp>(
-        loc, cast<LLVM::GlobalOp>(getModule().lookupSymbol(funcName)));
+    auto funcHandle =
+        declareGlobalFuncPtr(launchOp.getKernelModuleName(), loc, builder);
+    Value funcPtr = builder.create<LLVM::AddressOfOp>(loc, funcHandle);
     auto function =
         builder.create<LLVM::LoadOp>(loc, getPointerType(), funcPtr);
 
