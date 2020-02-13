@@ -10,11 +10,13 @@
 namespace mlir {
 namespace stencil {
 
-std::unique_ptr<OpPassBase<mlir::ModuleOp>>
-createConvertStencilToStandardPass();
+std::unique_ptr<OpPassBase<ModuleOp>> createCallInliningPass();
 
-std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>>
-createIndexOptimizationPass();
+std::unique_ptr<OpPassBase<FuncOp>> createStencilInliningPass();
+
+std::unique_ptr<OpPassBase<FuncOp>> createShapeShiftPass();
+
+std::unique_ptr<OpPassBase<FuncOp>> createShapeInferencePass();
 
 } // namespace stencil
 } // namespace mlir

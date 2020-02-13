@@ -1,5 +1,5 @@
+#include "Conversion/StencilToStandard/Passes.h"
 #include "Conversion/StencilToStandard/ConvertStencilToStandard.h"
-#include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
@@ -259,7 +259,8 @@ public:
 
     // Compute the replacement types
     auto inputType = loadOp.field().getType().cast<MemRefType>();
-    SmallVector<int64_t, 3> shape = computeShape(loadOp.getLB(), loadOp.getUB());
+    SmallVector<int64_t, 3> shape =
+        computeShape(loadOp.getLB(), loadOp.getUB());
     SmallVector<int64_t, 3> strides = computeStrides(inputType.getShape());
     auto outputType = computeMemRefType(inputType.getElementType(), shape,
                                         strides, loadOp.getLB(), rewriter);
@@ -445,7 +446,8 @@ public:
 
     // Compute the replacement types
     auto inputType = storeOp.field().getType().cast<MemRefType>();
-    SmallVector<int64_t, 3> shape = computeShape(storeOp.getLB(), storeOp.getUB());
+    SmallVector<int64_t, 3> shape =
+        computeShape(storeOp.getLB(), storeOp.getUB());
     SmallVector<int64_t, 3> strides = computeStrides(inputType.getShape());
     auto outputType = computeMemRefType(inputType.getElementType(), shape,
                                         strides, storeOp.getLB(), rewriter);
@@ -520,8 +522,7 @@ void mlir::populateStencilToStandardConversionPatterns(
               AccessOpLowering, StoreOpLowering, ReturnOpLowering>(ctx);
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>>
-mlir::stencil::createConvertStencilToStandardPass() {
+std::unique_ptr<OpPassBase<ModuleOp>> mlir::stencil::createConvertStencilToStandardPass() {
   return std::make_unique<StencilToStandardPass>();
 }
 

@@ -285,6 +285,10 @@ void ShapeInferencePass::runOnFunction() {
   }
 }
 
+std::unique_ptr<OpPassBase<FuncOp>> mlir::stencil::createShapeInferencePass() {
+  return std::make_unique<ShapeInferencePass>();
+}
+
 static PassRegistration<ShapeInferencePass>
     pass("stencil-shape-inference",
          "Infer the shapes of stencil loads and stencil applies.");

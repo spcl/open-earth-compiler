@@ -1,3 +1,4 @@
+#include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
@@ -255,7 +256,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     }
     return matchFailure();
   }
-}; 
+};
 
 struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
   void runOnFunction() override;
@@ -266,9 +267,13 @@ void StencilInliningPass::runOnFunction() {
   OwningRewritePatternList patterns;
   patterns.insert<InliningRewrite, RerouteRewrite>(&getContext());
   applyPatternsGreedily(funcOp, patterns);
-}
+} 
 
 } // namespace
+
+std::unique_ptr<OpPassBase<FuncOp>> mlir::stencil::createStencilInliningPass() {
+  return std::make_unique<StencilInliningPass>();
+}
 
 static PassRegistration<StencilInliningPass> pass("stencil-inlining",
                                                   "Inline stencil apply ops");

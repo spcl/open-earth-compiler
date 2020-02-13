@@ -83,18 +83,14 @@ OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
   return result;
 }
 
-void pipelineBuilder(OpPassManager &pm) {
+} // namespace
+
+void mlir::stencil::createGPUToCubinPipeline(OpPassManager &pm) {
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-  kernelPm.addPass(createIndexOptimizationPass());
+  kernelPm.addPass(stencil::createIndexOptimizationPass());
   kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
-  pm.addPass(createLowerToLLVMPass(false, false, true));
+  pm.addPass(createLowerToLLVMPass(false, false, true));  
 }
-
-} // namespace
-
-static PassPipelineRegistration<>
-    pipeline("stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
-             pipelineBuilder);

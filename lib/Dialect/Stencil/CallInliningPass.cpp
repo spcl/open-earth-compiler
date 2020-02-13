@@ -1,3 +1,4 @@
+#include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -70,13 +71,13 @@ struct CallInliningPass : public ModulePass<CallInliningPass> {
 
 void CallInliningPass::runOnModule() {
   ModuleOp moduleOp = getModule();
-  
+
   // Walk the body of all stencil functions and apply ops and inline the calls
-  moduleOp.walk([](Operation* op) {
-    if(auto funcOp = dyn_cast<FuncOp>(*op))
+  moduleOp.walk([](Operation *op) {
+    if (auto funcOp = dyn_cast<FuncOp>(*op))
       if (stencil::StencilDialect::isStencilFunction(funcOp))
         funcOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
-    if(auto applyOp = dyn_cast<stencil::ApplyOp>(*op))
+    if (auto applyOp = dyn_cast<stencil::ApplyOp>(*op))
       applyOp.walk([](stencil::CallOp callOp) { inlineCalls(callOp); });
   });
 
@@ -88,6 +89,10 @@ void CallInliningPass::runOnModule() {
 }
 
 } // namespace
+
+std::unique_ptr<OpPassBase<ModuleOp>> mlir::stencil::createCallInliningPass() {
+  return std::make_unique<CallInliningPass>();
+}
 
 static PassRegistration<CallInliningPass> pass("stencil-call-inlining",
                                                "Inline stencil function calls");

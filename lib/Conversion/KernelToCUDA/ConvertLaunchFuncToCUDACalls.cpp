@@ -1,3 +1,4 @@
+#include "Conversion/KernelToCUDA/Passes.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Attributes.h"
@@ -453,12 +454,13 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
       }
 
       // Put individual components of a memref descriptor into the flat argument
-      // list. We cannot use unpackMemref from LLVM lowering here because we have
-      // no access to MemRefType that had been lowered away.
+      // list. We cannot use unpackMemref from LLVM lowering here because we
+      // have no access to MemRefType that had been lowered away.
       for (int32_t j = 0, ej = llvmType.getStructNumElements(); j < ej; ++j) {
         auto elemType = llvmType.getStructElementType(j);
         if (elemType.isArrayTy()) {
-          for (int32_t k = 0, ek = elemType.getArrayNumElements(); k < ek; ++k) {
+          for (int32_t k = 0, ek = elemType.getArrayNumElements(); k < ek;
+               ++k) {
             Value elem = builder.create<LLVM::ExtractValueOp>(
                 loc, elemType.getArrayElementType(), operand,
                 builder.getI32ArrayAttr({j, k}));
@@ -467,7 +469,7 @@ LaunchFuncToCUDACallsPass::declareSetupFunc(LLVM::LLVMFuncOp parentOp,
         } else {
           assert((elemType.isIntegerTy() || elemType.isFloatTy() ||
                   elemType.isDoubleTy() || elemType.isPointerTy()) &&
-                "expected scalar type");
+                 "expected scalar type");
           Value strct = builder.create<LLVM::ExtractValueOp>(
               loc, elemType, operand, builder.getI32ArrayAttr(j));
           addParamToList(builder, loc, strct, one);
@@ -609,6 +611,10 @@ LaunchFuncToCUDACallsPass::declareRunFunc(LLVM::LLVMFuncOp parentOp,
   // Add a terminator
   builder.create<LLVM::ReturnOp>(loc, ValueRange());
   return success();
+}
+
+std::unique_ptr<OpPassBase<ModuleOp>> mlir::stencil::createLaunchFuncToCUDACallsPass() {
+  return std::make_unique<LaunchFuncToCUDACallsPass>();
 }
 
 static PassRegistration<LaunchFuncToCUDACallsPass>

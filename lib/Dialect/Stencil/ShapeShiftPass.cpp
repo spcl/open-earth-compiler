@@ -66,7 +66,7 @@ void ShapeShiftPass::runOnFunction() {
 
   // Only run on functions marked as stencil programs
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
-    return; 
+    return;
 
   // Verify all apply and load ops have valid bounds
   bool invalidBounds = false;
@@ -94,10 +94,12 @@ void ShapeShiftPass::runOnFunction() {
       SmallVector<int64_t, 3> input;
       // Compute the shift for the operand
       auto operand = applyOp.getOperand(i);
-      if (auto loadOp = dyn_cast_or_null<stencil::LoadOp>(operand.getDefiningOp())) {
+      if (auto loadOp =
+              dyn_cast_or_null<stencil::LoadOp>(operand.getDefiningOp())) {
         input = loadOp.getLB();
       }
-      if (auto applyOp = dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
+      if (auto applyOp =
+              dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
         input = applyOp.getLB();
       }
       // Shift all accesses of the corresponding operand
@@ -140,22 +142,34 @@ void ShapeShiftPass::runOnFunction() {
   // Update bounds of lower dimensional fields
   funcOp.walk([](Operation *op) {
     if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
-      accessOp.setOffset(markIgnoredDimensions(accessOp.getViewType(), accessOp.getOffset()));
+      accessOp.setOffset(
+          markIgnoredDimensions(accessOp.getViewType(), accessOp.getOffset()));
     }
     if (auto loadOp = dyn_cast<stencil::LoadOp>(op)) {
-      loadOp.setLB(markIgnoredDimensions(loadOp.getResultViewType(), loadOp.getLB()));
-      loadOp.setUB(markIgnoredDimensions(loadOp.getResultViewType(), loadOp.getUB()));
+      loadOp.setLB(
+          markIgnoredDimensions(loadOp.getResultViewType(), loadOp.getLB()));
+      loadOp.setUB(
+          markIgnoredDimensions(loadOp.getResultViewType(), loadOp.getUB()));
     }
     if (auto storeOp = dyn_cast<stencil::StoreOp>(op)) {
-      storeOp.setLB(markIgnoredDimensions(storeOp.getFieldType(), storeOp.getLB()));
-      storeOp.setUB(markIgnoredDimensions(storeOp.getFieldType(), storeOp.getUB()));
+      storeOp.setLB(
+          markIgnoredDimensions(storeOp.getFieldType(), storeOp.getLB()));
+      storeOp.setUB(
+          markIgnoredDimensions(storeOp.getFieldType(), storeOp.getUB()));
     }
     if (auto assertOp = dyn_cast<stencil::AssertOp>(op)) {
-      assertOp.setLB(markIgnoredDimensions(assertOp.getFieldType(), assertOp.getLB()));
-      assertOp.setUB(markIgnoredDimensions(assertOp.getFieldType(), assertOp.getUB()));
+      assertOp.setLB(
+          markIgnoredDimensions(assertOp.getFieldType(), assertOp.getLB()));
+      assertOp.setUB(
+          markIgnoredDimensions(assertOp.getFieldType(), assertOp.getUB()));
     }
   });
 }
 
+std::unique_ptr<OpPassBase<FuncOp>> mlir::stencil::createShapeShiftPass() {
+  return std::make_unique<ShapeShiftPass>();
+}
+
 static PassRegistration<ShapeShiftPass>
-    pass("stencil-shape-shift", "Shift the bounds to start at zero and mark unused dimensions");
+    pass("stencil-shape-shift",
+         "Shift the bounds to start at zero and mark unused dimensions");

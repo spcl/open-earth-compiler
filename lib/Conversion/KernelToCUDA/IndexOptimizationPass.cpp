@@ -135,8 +135,7 @@ void IndexOptimizationPass::runOnOperation() {
 
 } // namespace
 
-std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>>
-mlir::createIndexOptimizationPass() {
+std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>> mlir::stencil::createIndexOptimizationPass() {
   return std::make_unique<IndexOptimizationPass>();
 }
 

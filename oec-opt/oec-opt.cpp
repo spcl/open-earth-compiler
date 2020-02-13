@@ -19,7 +19,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Conversion/KernelToCUDA/Passes.h"
+#include "Conversion/StencilToStandard/Passes.h"
+#include "Dialect/Stencil/Passes.h"
+#include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/Analysis/Passes.h"
+#include "mlir/InitAllDialects.h"
+#include "mlir/InitAllPasses.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
@@ -57,6 +63,22 @@ static cl::opt<bool>
                  cl::init(true));
 
 int main(int argc, char **argv) {
+  // Regster all MLIR dialects and passes
+  registerAllDialects();
+  registerAllPasses();
+
+  // Register the stencil dialect
+  registerDialect<stencil::StencilDialect>();
+
+  // Register the stencil passes
+  stencil::createCallInliningPass();
+  stencil::createShapeInferencePass();
+  stencil::createShapeShiftPass();
+  stencil::createStencilInliningPass();
+  stencil::createConvertStencilToStandardPass();
+  stencil::createLaunchFuncToCUDACallsPass();
+
+  // Initialize LLVM
   InitLLVM y(argc, argv);
 
   // Register any pass manager command line options.
@@ -83,3 +105,7 @@ int main(int argc, char **argv) {
   return failed(MlirOptMain(output->os(), std::move(file), passPipeline,
                             splitInputFile, verifyDiagnostics, verifyPasses));
 }
+
+static PassPipelineRegistration<>
+    pipeline("stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
+             stencil::createGPUToCubinPipeline);
