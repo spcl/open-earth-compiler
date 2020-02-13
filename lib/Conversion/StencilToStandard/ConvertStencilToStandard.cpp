@@ -1,5 +1,5 @@
-#include "Conversion/StencilToStandard/Passes.h"
 #include "Conversion/StencilToStandard/ConvertStencilToStandard.h"
+#include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
@@ -52,6 +52,16 @@ bool isZero(ArrayRef<int64_t> offset) {
   });
 }
 
+// Helper to filter ignored dimensions
+SmallVector<int64_t, 3> filterIgnoredDimensions(ArrayRef<int64_t> offset) {
+  SmallVector<int64_t, 3> filtered(offset.size());
+  auto it = llvm::copy_if(offset, filtered.begin(), [](int64_t x) {
+    return x != stencil::kIgnoreDimension;
+  });
+  filtered.erase(it, filtered.end());
+  return filtered;
+}
+
 // Helper method computing the strides given the size
 SmallVector<int64_t, 3> computeStrides(ArrayRef<int64_t> shape) {
   SmallVector<int64_t, 3> result(shape.size());
@@ -77,18 +87,15 @@ SmallVector<int64_t, 3> computeShape(ArrayRef<int64_t> begin,
 
 // Helper method computing linearizing the offset
 int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
-  SmallVector<int64_t, 3> filteredOffsets(offset.size());
-  auto it = llvm::copy_if(offset, filteredOffsets.begin(), [](int64_t x) {
-    return x != stencil::kIgnoreDimension;
-  });
+  SmallVector<int64_t, 3> filtered = filterIgnoredDimensions(offset);
   // Delete the ignored dimensions
-  assert(std::distance(filteredOffsets.begin(), it) == strides.size() &&
+  assert(filtered.size() == strides.size() &&
          "expected offset and strides to have the same size");
 
   // Compute the linear offset
   int64_t result = 0;
   for (size_t i = 0, e = strides.size(); i != e; ++i) {
-    result += filteredOffsets[i] * strides[i];
+    result += filtered[i] * strides[i];
   }
   return result;
 }
@@ -137,10 +144,10 @@ public:
         Type inputType = NoneType();
         for (auto &use : argument.getUses()) {
           if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
-            SmallVector<int64_t, 3> strides = computeStrides(assertOp.getUB());
+            auto shape = filterIgnoredDimensions(assertOp.getUB());
             inputType =
                 computeMemRefType(assertOp.getFieldType().getElementType(),
-                                  assertOp.getUB(), strides, {}, rewriter);
+                                  shape, computeStrides(shape), {}, rewriter);
             break;
           }
         }
@@ -259,11 +266,14 @@ public:
 
     // Compute the replacement types
     auto inputType = loadOp.field().getType().cast<MemRefType>();
-    SmallVector<int64_t, 3> shape =
-        computeShape(loadOp.getLB(), loadOp.getUB());
-    SmallVector<int64_t, 3> strides = computeStrides(inputType.getShape());
-    auto outputType = computeMemRefType(inputType.getElementType(), shape,
-                                        strides, loadOp.getLB(), rewriter);
+    auto shape = computeShape(loadOp.getLB(), loadOp.getUB());
+    auto strides = computeStrides(inputType.getShape());
+    assert(shape.size() == inputType.getRank() &&
+           strides.size() == inputType.getRank() &&
+           "expected input field shape and strides to have the same rank");
+    auto outputType =
+        computeMemRefType(inputType.getElementType(), shape, strides,
+                          filterIgnoredDimensions(loadOp.getLB()), rewriter);
 
     // Replace the load op
     auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
@@ -346,7 +356,7 @@ public:
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
       Type elementType = applyOp.getResultViewType(i).getElementType();
-      SmallVector<int64_t, 3> strides = computeStrides(applyOp.getUB());
+      auto strides = computeStrides(applyOp.getUB());
       auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
                                          {}, rewriter);
 
@@ -359,7 +369,7 @@ public:
     }
 
     // Generate the apply loop nest
-    SmallVector<int64_t, 3> upper = applyOp.getUB();
+    auto upper = applyOp.getUB();
     assert(upper.size() >= 1 && "expected bounds to at least one dimension");
     for (size_t i = 0, e = upper.size(); i != e; ++i) {
       auto loop = rewriter.create<AffineForOp>(loc, 0, upper.rbegin()[i]);
@@ -420,6 +430,9 @@ public:
         loadOffset.push_back(affineApplyOp.getResult());
       }
     }
+    assert(loadOffset.size() ==
+               accessOp.view().getType().cast<MemRefType>().getRank() &&
+           "expected load offset size to match memref rank");
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<AffineLoadOp>(operation, accessOp.view(),
@@ -446,9 +459,10 @@ public:
 
     // Compute the replacement types
     auto inputType = storeOp.field().getType().cast<MemRefType>();
-    SmallVector<int64_t, 3> shape =
-        computeShape(storeOp.getLB(), storeOp.getUB());
-    SmallVector<int64_t, 3> strides = computeStrides(inputType.getShape());
+    assert(storeOp.getLB().size() == inputType.getRank() &&
+           "expected lower bounds and memref to have the same rank");
+    auto shape = computeShape(storeOp.getLB(), storeOp.getUB());
+    auto strides = computeStrides(inputType.getShape());
     auto outputType = computeMemRefType(inputType.getElementType(), shape,
                                         strides, storeOp.getLB(), rewriter);
 
@@ -522,7 +536,8 @@ void mlir::populateStencilToStandardConversionPatterns(
               AccessOpLowering, StoreOpLowering, ReturnOpLowering>(ctx);
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::stencil::createConvertStencilToStandardPass() {
+std::unique_ptr<OpPassBase<ModuleOp>>
+mlir::stencil::createConvertStencilToStandardPass() {
   return std::make_unique<StencilToStandardPass>();
 }
 
