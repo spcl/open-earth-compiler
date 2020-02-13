@@ -25,6 +25,7 @@
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
@@ -54,11 +55,10 @@ bool isZero(ArrayRef<int64_t> offset) {
 
 // Helper to filter ignored dimensions
 SmallVector<int64_t, 3> filterIgnoredDimensions(ArrayRef<int64_t> offset) {
-  SmallVector<int64_t, 3> filtered(offset.size());
-  auto it = llvm::copy_if(offset, filtered.begin(), [](int64_t x) {
-    return x != stencil::kIgnoreDimension;
+  SmallVector<int64_t, 3> filtered(llvm::make_range(offset.begin(), offset.end()));
+  llvm::erase_if(filtered, [](int64_t x) {
+    return x == stencil::kIgnoreDimension;
   });
-  filtered.erase(it, filtered.end());
   return filtered;
 }
 
