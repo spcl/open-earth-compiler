@@ -641,11 +641,59 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
     return matchFailure();
   }
 };
+
+/// This is a pattern that sorts the all stencil accesses
+struct ApplyOpSortAccesses : public OpRewritePattern<stencil::ApplyOp> {
+  using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
+
+  // Remove duplicates if needed
+  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                     PatternRewriter &rewriter) const override {
+    // Collect all accesses and sort them by offset
+    std::vector<stencil::AccessOp> original;
+    std::vector<stencil::AccessOp> sorted;
+    applyOp.walk([&original, &sorted](stencil::AccessOp accessOp) {
+      original.push_back(accessOp);
+      sorted.push_back(accessOp);
+    });
+    llvm::sort(sorted, [](stencil::AccessOp x, stencil::AccessOp y) {
+      auto xOff = x.getOffset();
+      auto yOff = y.getOffset();
+      assert(xOff.size() == yOff.size() &&
+             "expect offsets to have the same size");
+      // Sort starting from j-dimension
+      for (size_t i = 1, e = xOff.size(); i != e; ++i) {
+        if (xOff[i] != yOff[i])
+          return xOff[i] < yOff[i];
+      }
+      // Sort access by argument
+      if (x.getOperand() != y.getOperand())
+        return x.getOperand() < y.getOperand();
+      // Sort vector dimension last
+      return xOff[0] < yOff[0];
+    });
+
+    // Check if order changed
+    if (original == sorted)
+      return matchFailure();
+
+    // Clone accesses in order
+    rewriter.setInsertionPointToStart(applyOp.getBody());
+    DenseSet<Value> scheduledValues;
+    for (auto accessOp : sorted) {
+      auto clonedOp = rewriter.clone(*accessOp.getOperation());
+      accessOp.getResult().replaceAllUsesWith(clonedOp->getResult(0));
+    }
+
+    return matchSuccess();
+  }
+};
 } // end anonymous namespace
 
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<ApplyOpArgCleaner, ApplyOpResCleaner>(context);
+  results.insert<ApplyOpArgCleaner, ApplyOpResCleaner, ApplyOpSortAccesses>(
+      context);
 }
 
 //===----------------------------------------------------------------------===//

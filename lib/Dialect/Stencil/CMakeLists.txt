@@ -13,6 +13,7 @@ add_llvm_library(MLIRStencil
   StencilTypes.cpp
   CallInliningPass.cpp
   StencilInliningPass.cpp
+  StencilSchedulingPass.cpp
   ShapeInferencePass.cpp
   ShapeShiftPass.cpp
 
