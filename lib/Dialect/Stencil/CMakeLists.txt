@@ -1,5 +1,4 @@
 set(LIBS
-  
   MLIREDSC
   MLIRIR
   MLIRStandardOps
@@ -13,7 +12,7 @@ add_llvm_library(MLIRStencil
   StencilTypes.cpp
   CallInliningPass.cpp
   StencilInliningPass.cpp
-  StencilSchedulingPass.cpp
+  StencilRegPass.cpp
   ShapeInferencePass.cpp
   ShapeShiftPass.cpp
 
@@ -24,6 +23,7 @@ add_llvm_library(MLIRStencil
 # Make sure that the TableGen generated files are up-to-date
 add_dependencies(MLIRStencil
   MLIRStencilOpsIncGen
+  MLIRStencilRegPassPatternsIncGen
   ${LIBS})
 target_link_libraries(MLIRStencil ${LIBS})
 

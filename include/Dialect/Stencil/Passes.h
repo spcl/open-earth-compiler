@@ -19,9 +19,9 @@ std::unique_ptr<OpPassBase<FuncOp>> createShapeShiftPass();
 
 std::unique_ptr<OpPassBase<FuncOp>> createShapeInferencePass();
 
-std::unique_ptr<OpPassBase<stencil::ApplyOp>> createStencilSchedulingPass();
+std::unique_ptr<OpPassBase<stencil::ApplyOp>> createStencilRegPass();
 
-void createStencilSchedulingPipeline(OpPassManager &pm);
+void createStencilRegPipeline(OpPassManager &pm);
 
 } // namespace stencil
 } // namespace mlir

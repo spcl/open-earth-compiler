@@ -1,1 +1,5 @@
 add_mlir_dialect(StencilOps StencilOps)
+
+set(LLVM_TARGET_DEFINITIONS StencilRegPassPatterns.td)
+mlir_tablegen(StencilRegPassPatterns.cpp.inc -gen-rewriters)
+add_public_tablegen_target(MLIRStencilRegPassPatternsIncGen)
