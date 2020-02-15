@@ -53,6 +53,16 @@ bool canMoveArithmeticOp(Operation *op) {
   return ip && ip->getNextNode() != op;
 }
 
+// Helper method that returns true if first argument is produced before
+bool isProducedBefore(Value before, Value after) {
+  auto beforeOp = before.getDefiningOp();
+  auto afterOp = after.getDefiningOp();
+  if(beforeOp && afterOp) {
+    return beforeOp->isBeforeInBlock(afterOp);
+  }
+  return false;
+}
+
 // Helper method to move arithmetic op
 template <typename TOp>
 SmallVector<Value, 4> moveArithmeticOp(PatternRewriter &rewriter, TOp op) {
