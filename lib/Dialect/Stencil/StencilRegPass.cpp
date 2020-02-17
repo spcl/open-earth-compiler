@@ -53,11 +53,20 @@ bool canMoveArithmeticOp(Operation *op) {
   return ip && ip->getNextNode() != op;
 }
 
+// Helper method skipping unary operations
+Operation *skipUnaryOperations(Operation *op) {
+  // TODO skip only arithmetic ops
+  // while (op && (op->getNumResults() == 1 && op->getNumOperands() == 1)) {
+  //   op = op->getOperand(0).getDefiningOp();
+  // }
+  return op;
+}
+
 // Helper method that returns true if first argument is produced before
 bool isProducedBefore(Value before, Value after) {
-  auto beforeOp = before.getDefiningOp();
-  auto afterOp = after.getDefiningOp();
-  if(beforeOp && afterOp) {
+  auto beforeOp = skipUnaryOperations(before.getDefiningOp());
+  auto afterOp = skipUnaryOperations(after.getDefiningOp());
+  if (beforeOp && afterOp) {
     return beforeOp->isBeforeInBlock(afterOp);
   }
   return false;
