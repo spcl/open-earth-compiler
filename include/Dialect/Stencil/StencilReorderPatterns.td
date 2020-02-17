@@ -41,7 +41,9 @@ def : Pat<(AddFOp $arg1, (AddFOp $arg2, $arg3)),
 //           [(Constraint<IsProducedBefore> $arg3, $arg2)],
 //           (addBenefit 1)>;
 
-
+// add patterns for multiplication and division?
+// (keep subtraction or not)
+// iterate between commutativity patterns and scheduling?
 
 
 //===----------------------------------------------------------------------===//
@@ -72,10 +74,10 @@ def : Pat<(MulFOp:$op $_, $_),
 //           [(Constraint<CanMoveArithmeticOp>)],
 //           (addBenefit 2)>;
 
-// def : Pat<(DivFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"DivFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 1)>;
+def : Pat<(DivFOp:$op $_, $_), 
+          (MoveArithmeticOp<"DivFOp">),
+          [(Constraint<CanMoveArithmeticOp>)],
+          (addBenefit 1)>;
 
 def : Pat<(CmpFOp:$op $_, $_), 
           (MoveArithmeticOp<"CmpFOp">),
