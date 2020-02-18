@@ -1,5 +1,13 @@
 add_mlir_dialect(StencilOps StencilOps)
 
-set(LLVM_TARGET_DEFINITIONS StencilReorderPatterns.td)
-mlir_tablegen(StencilReorderPatterns.cpp.inc -gen-rewriters)
-add_public_tablegen_target(MLIRStencilReorderPatternsIncGen)
+set(LLVM_TARGET_DEFINITIONS StencilPreShufflePatterns.td)
+mlir_tablegen(StencilPreShufflePatterns.cpp.inc -gen-rewriters)
+add_public_tablegen_target(MLIRStencilPreShufflePatternsIncGen)
+
+set(LLVM_TARGET_DEFINITIONS StencilShufflePatterns.td)
+mlir_tablegen(StencilShufflePatterns.cpp.inc -gen-rewriters)
+add_public_tablegen_target(MLIRStencilShufflePatternsIncGen)
+
+set(LLVM_TARGET_DEFINITIONS StencilPostShufflePatterns.td)
+mlir_tablegen(StencilPostShufflePatterns.cpp.inc -gen-rewriters)
+add_public_tablegen_target(MLIRStencilPostShufflePatternsIncGen)

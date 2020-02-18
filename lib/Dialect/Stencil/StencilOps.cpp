@@ -652,7 +652,7 @@ struct ApplyOpSortAccesses : public OpRewritePattern<stencil::ApplyOp> {
     // Collect all accesses and sort them by offset
     std::vector<stencil::AccessOp> original;
     std::vector<stencil::AccessOp> sorted;
-    applyOp.walk([&original, &sorted](stencil::AccessOp accessOp) {
+    applyOp.getBody()->walk([&original, &sorted](stencil::AccessOp accessOp) {
       original.push_back(accessOp);
       sorted.push_back(accessOp);
     });

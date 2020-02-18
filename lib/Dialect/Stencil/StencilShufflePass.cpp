@@ -81,13 +81,13 @@ SmallVector<Value, 4> moveArithmeticOp(PatternRewriter &rewriter, TOp op) {
   return clonedOp->getResults();
 }
 
-#include "Dialect/Stencil/StencilReorderPatterns.cpp.inc"
+#include "Dialect/Stencil/StencilShufflePatterns.cpp.inc"
 
-struct StencilReorderPass : public OperationPass<StencilReorderPass, stencil::ApplyOp> {
+struct StencilShufflePass : public OperationPass<StencilShufflePass, stencil::ApplyOp> {
   void runOnOperation() override;
 };
 
-void StencilReorderPass::runOnOperation() {
+void StencilShufflePass::runOnOperation() {
   auto applyOp = getOperation();
 
   OwningRewritePatternList patterns;
@@ -98,12 +98,7 @@ void StencilReorderPass::runOnOperation() {
 } // namespace
 
 std::unique_ptr<OpPassBase<stencil::ApplyOp>>
-stencil::createStencilReorderPass() {
-  return std::make_unique<StencilReorderPass>();
+stencil::createStencilShufflePass() {
+  return std::make_unique<StencilShufflePass>();
 }
 
-void stencil::createStencilRegisterOptPipeline(OpPassManager &pm) {
-  auto &funcPm = pm.nest<FuncOp>();
-  funcPm.addPass(createStencilReorderPass());
-  funcPm.addPass(createStencilSchedulePass());
-}

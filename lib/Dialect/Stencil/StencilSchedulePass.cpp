@@ -41,12 +41,13 @@ Operation *cloneOperation(OpBuilder &builder, Operation *op) {
   for (unsigned i = 0, e = clonedOp->getNumResults(); i != e; ++i) {
     op->getResult(i).replaceAllUsesWith(clonedOp->getResult(i));
   }
+  op->erase();
   return clonedOp;
 }
 
 // Helper method picking the next operation to schedule
-Operation *pickReadyOp(const std::vector<Operation *> &remainingOps,
-                       const llvm::DenseSet<Value> &lifeValues) {
+Operation *getNextReadyOp(const std::vector<Operation *> &remainingOps,
+                          const llvm::DenseSet<Value> &lifeValues) {
   // Select remaining op if all parameters are life
   for (auto remainingOp : remainingOps) {
     if (llvm::all_of(remainingOp->getOperands(), [&](Value value) {
@@ -59,7 +60,6 @@ Operation *pickReadyOp(const std::vector<Operation *> &remainingOps,
 }
 
 void updateLifeValuesAndScheduledOps(llvm::DenseSet<Value> &lifeValues,
-                                     llvm::DenseSet<Operation *> &originalOps,
                                      llvm::DenseSet<Operation *> &scheduledOps,
                                      Operation *clonedOp) {
   // Add all results to life values
@@ -68,14 +68,13 @@ void updateLifeValuesAndScheduledOps(llvm::DenseSet<Value> &lifeValues,
   }
   scheduledOps.insert(clonedOp);
 
-  // // Update life values
-  // for (auto value : clonedOp->getOperands()) {
-  //   if (llvm::all_of(value.getUsers(), [&](Operation *user) {
-  //         return scheduledOps.count(user) != 0 || originalOps.count(user) !=
-  //         0;
-  //       }))
-  //     lifeValues.erase(value);
-  // }
+  // Update life values
+  for (auto value : clonedOp->getOperands()) {
+    if (llvm::all_of(value.getUsers(), [&](Operation *user) {
+          return scheduledOps.count(user) != 0;
+        }))
+      lifeValues.erase(value);
+  }
 }
 
 struct StencilSchedulePass
@@ -87,85 +86,60 @@ void StencilSchedulePass::runOnOperation() {
   auto applyOp = getOperation();
 
   // Walk all operations and store constants and accesses separately
-  std::vector<stencil::AccessOp> accessOps;
-  std::vector<ConstantOp> constantOps;
-  std::vector<Operation *> remainingOps;
-
-  llvm::DenseSet<Operation *> originalOps;
-
-  applyOp.walk([&](Operation *op) {
-    if (isa<stencil::ApplyOp>(op) || isa<stencil::ReturnOp>(op)) {
+  std::vector<Operation *> accessOps;
+  std::vector<Operation *> constantOps;
+  std::vector<Operation *> arithmeticOps;
+  applyOp.getBody()->walk([&](Operation *op) {
+    // Store all other ops
+    if (isa<stencil::AccessOp>(op)) {
+      accessOps.push_back(op);
       return;
     }
-    if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
-      accessOps.push_back(accessOp);
-      originalOps.insert(op);
+    if (isa<ConstantOp>(op)) {
+      constantOps.push_back(op);
       return;
     }
-    if (auto constantOp = dyn_cast<ConstantOp>(op)) {
-      constantOps.push_back(constantOp);
-      originalOps.insert(op);
-      return;
-    }
-    remainingOps.push_back(op);
-    originalOps.insert(op);
-    return;
+    arithmeticOps.push_back(op);
   });
-
-  llvm::errs() << "filled arrays\n";
+  std::reverse(accessOps.begin(), accessOps.end());
 
   // Clone operation by operation
   OpBuilder builder(applyOp.getBody());
-  builder.setInsertionPointToStart(applyOp.getBody());
 
   // Keep scheduling operations
   llvm::DenseSet<Value> lifeValues;
   llvm::DenseSet<Operation *> scheduledOps;
+  std::map<size_t, unsigned> lifeFrequencies;
   // Schedule all constants
   for (auto constantOp : constantOps) {
-    auto clonedOp = cloneOperation(builder, constantOp.getOperation());
-    updateLifeValuesAndScheduledOps(lifeValues, originalOps, scheduledOps,
-                                    clonedOp);
+    auto clonedOp = cloneOperation(builder, constantOp);
+    updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
+    lifeFrequencies[lifeValues.size()]++;
   }
-  while (!(accessOps.empty() && remainingOps.empty())) {
-    // Schedule all remaining ops
-
-    bool success = false;
-
-    while (Operation *ready = pickReadyOp(remainingOps, lifeValues)) {
-      auto clonedOp = cloneOperation(builder, ready);
-      remainingOps.erase(
-          std::find(remainingOps.begin(), remainingOps.end(), ready));
-      updateLifeValuesAndScheduledOps(lifeValues, originalOps, scheduledOps,
-                                      clonedOp);
-
-      llvm::errs() << "clone remaining" << remainingOps.size() << "\n";
-      success = true;
+  // Schedule accesses and arithmetic Ops
+  while (!(accessOps.empty() && arithmeticOps.empty())) {
+    // Schedule all arithmetic Ops that are ready for execution
+    while (Operation *next = getNextReadyOp(arithmeticOps, lifeValues)) {
+      auto clonedOp = cloneOperation(builder, next);
+      updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
+      arithmeticOps.erase(llvm::find(arithmeticOps, next));
+      lifeFrequencies[lifeValues.size()]++;
     }
 
-    llvm::errs() << "#life vars " << lifeValues.size() << "\n";
-
-    // Schedule the next access op
+    // Schedule the next arithmetic op
     if (!accessOps.empty()) {
-      auto clonedOp = cloneOperation(builder, accessOps.front().getOperation());
-      accessOps.erase(accessOps.begin());
-      updateLifeValuesAndScheduledOps(lifeValues, originalOps, scheduledOps,
-                                      clonedOp);
-
-      llvm::errs() << "clone access" << accessOps.size() << "\n";
-      success = true;
-    }
-
-    llvm::errs() << "#life vars " << lifeValues.size() << "\n";
-
-    if (success == false) {
-      applyOp.dump();
-      llvm::errs() << "remaining \n";
-      remainingOps.front()->dump();
-
-      break;
+      auto clonedOp = cloneOperation(builder, accessOps.back());
+      updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
+      accessOps.pop_back();
+      lifeFrequencies[lifeValues.size()]++;
     }
   }
+
+  // Print the top5 life value frequencies
+  llvm::outs() << "// Life Value Frequencies\n"
+               << "// ======================\n";
+  for(auto it = lifeFrequencies.begin(); it != lifeFrequencies.end(); ++it)
+    llvm::outs() << "// - " << it->first << "(" << it->second << ")\n";
 }
 
 } // namespace
@@ -173,4 +147,12 @@ void StencilSchedulePass::runOnOperation() {
 std::unique_ptr<OpPassBase<stencil::ApplyOp>>
 stencil::createStencilSchedulePass() {
   return std::make_unique<StencilSchedulePass>();
+}
+
+void stencil::createStencilRegisterOptPipeline(OpPassManager &pm) {
+  auto &funcPm = pm.nest<FuncOp>();
+  funcPm.addPass(createStencilPreShufflePass());
+  funcPm.addPass(createStencilShufflePass());
+  funcPm.addPass(createStencilPostShufflePass());
+  funcPm.addPass(createStencilSchedulePass());
 }
