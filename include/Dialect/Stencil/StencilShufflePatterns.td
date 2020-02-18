@@ -3,181 +3,124 @@
 
 include "mlir/Dialect/StandardOps/Ops.td"
 
-def IsProducedBefore : CPred<[{ isProducedBefore($0, $1) }]>;
+def IsProducedBefore : Constraint<CPred<"isProducedBefore($0, $1)">>;
+def HasOneUse: Constraint<CPred<"$0.hasOneUse()">>;
 
-def HasSingleUse : CPred<[{ hasSingleUse($0) }]>;
+// def IsProducedByAddFOrSubFOp : Constraint<
+//   CPred<"isProducedBy<AddFOp>($0) || isProducedBy<SubFOp>($0)">>;
+// def IsProducedByMulFOp : Constraint<
+//   CPred<"isProducedBy<MulFOp>($0)">>;
+
+def IsNotProducedByAddFOrSubFOp : Constraint<
+  CPred<"!(isProducedBy<AddFOp>($0) || isProducedBy<SubFOp>($0))">>;
+def IsNotProducedByMulFOp : Constraint<
+  CPred<"!(isProducedBy<MulFOp>($0))">>;
 
 //===----------------------------------------------------------------------===//
-// Patterns to linearize expression tree
+// Patterns linearizing the expression tree
 //===----------------------------------------------------------------------===//
-def : Pat<(AddFOp (AddFOp:$res $arg1, $arg2), (AddFOp $arg3, $arg4)), 
-          (AddFOp (AddFOp (AddFOp $arg4, $arg3), $arg2), $arg1),
-          [(Constraint<HasSingleUse> $res)],
+def : Pat<(AddFOp $arg1, (AddFOp $arg2, $arg3)), 
+          (AddFOp (AddFOp $arg2, $arg3), $arg1),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg1) 
+          ],
+          (addBenefit 11)>;
+
+def : Pat<(SubFOp $arg1, (SubFOp $arg2, $arg3)), 
+          (AddFOp (SubFOp $arg3, $arg2), $arg1),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg1) 
+          ],
+          (addBenefit 11)>;
+
+def : Pat<(AddFOp $arg1, (AddFOp:$res $arg2, $arg3)), 
+          (AddFOp (AddFOp $arg1, $arg3), $arg2),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg2), 
+            (HasOneUse $res)
+          ],
+          (addBenefit 10)>;
+
+def : Pat<(SubFOp $arg1, (SubFOp:$res $arg2, $arg3)), 
+          (SubFOp (AddFOp $arg1, $arg3), $arg2),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg2), 
+            (HasOneUse $res)
+          ],
+          (addBenefit 10)>;
+
+def : Pat<(AddFOp $arg1, (SubFOp:$res $arg2, $arg3)), 
+          (AddFOp (SubFOp $arg1, $arg3), $arg2),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg2), 
+            (HasOneUse $res)
+          ],
+          (addBenefit 10)>;
+
+def : Pat<(SubFOp $arg1, (AddFOp:$res $arg2, $arg3)), 
+          (SubFOp (SubFOp $arg1, $arg3), $arg2),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg2), 
+            (HasOneUse $res)
+          ],
+          (addBenefit 10)>;
+
+def : Pat<(MulFOp $arg1, (MulFOp $arg2, $arg3)), 
+          (MulFOp (MulFOp $arg2, $arg3), $arg1),
+          [
+            (IsNotProducedByMulFOp $arg1) 
+          ],
+          (addBenefit 11)>;
+
+def : Pat<(MulFOp $arg1, (MulFOp:$res $arg2, $arg3)), 
+          (MulFOp (MulFOp $arg1, $arg3), $arg2),
+          [
+            (IsNotProducedByAddFOrSubFOp $arg2), 
+            (HasOneUse $res)
+          ],
           (addBenefit 10)>;
 
 //===----------------------------------------------------------------------===//
-// Patterns to sort arguments by production order
+// Patterns exploiting commutativity
 //===----------------------------------------------------------------------===//
-// def : Pat<(AddFOp $arg1, $arg2), 
-//           (AddFOp $arg2, $arg1),
-//           [(Constraint<IsProducedBefore> $arg1, $arg2)],
-//           (addBenefit 10)>;
-
-//===----------------------------------------------------------------------===//
-// Patterns to sort arguments by production order
-//===----------------------------------------------------------------------===//
-
 def : Pat<(AddFOp (AddFOp:$res $arg3, $arg2), $arg1),
           (AddFOp (AddFOp $arg3, $arg1), $arg2),
           [
-            (Constraint<IsProducedBefore> $arg1, $arg2),
-            (Constraint<HasSingleUse> $res)
+            (IsProducedBefore $arg1, $arg2),
+            (HasOneUse $res)
           ],
           (addBenefit 0)>;
 
-// def : Pat<(AddFOp $arg1, (AddFOp:$res $arg2, $arg3)),
-//           (AddFOp $arg3, (AddFOp $arg2, $arg1)),
-//           [
-//             (Constraint<IsProducedBefore> $arg1, $arg3),
-//             (Constraint<IsProducedBefore> $arg2, $arg3),
-//             (Constraint<HasSingleUse> $res)
-//           ],
-//           (addBenefit 0)>;
+def : Pat<(SubFOp (SubFOp:$res $arg3, $arg2), $arg1),
+          (SubFOp (SubFOp $arg3, $arg1), $arg2),
+          [
+            (IsProducedBefore $arg1, $arg2),
+            (HasOneUse $res)
+          ],
+          (addBenefit 0)>;
 
+def : Pat<(AddFOp (SubFOp:$res $arg3, $arg2), $arg1),
+          (SubFOp (AddFOp $arg3, $arg1), $arg2),
+          [
+            (IsProducedBefore $arg1, $arg2),
+            (HasOneUse $res)
+          ],
+          (addBenefit 0)>;
 
-// TODO only rewrite if temporary has single use
+def : Pat<(SubFOp (AddFOp:$res $arg3, $arg2), $arg1),
+          (AddFOp (SubFOp $arg3, $arg1), $arg2),
+          [
+            (IsProducedBefore $arg1, $arg2),
+            (HasOneUse $res)
+          ],
+          (addBenefit 0)>;
 
-// Pattern moves shortest dependency outward
-// def : Pat<(AddFOp $arg1, (AddFOp:$res $arg2, $arg3)),
-//           (AddFOp $arg2, (AddFOp $arg1, $arg3)),
-//           [
-//             (Constraint<IsProducedBefore> $arg1, $arg2),
-//             (Constraint<IsProducedBefore> $arg3, $arg2),
-//             (Constraint<HasSingleUse> $res)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp $arg1, (AddFOp:$res $arg2, $arg3)),
-//           (AddFOp $arg3, (AddFOp $arg2, $arg1)),
-//           [
-//             (Constraint<IsProducedBefore> $arg1, $arg3),
-//             (Constraint<IsProducedBefore> $arg2, $arg3),
-//             (Constraint<HasSingleUse> $res)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp (AddFOp:$res $arg2, $arg3), $arg1),
-//           (AddFOp (AddFOp $arg1, $arg3), $arg2),
-//           [
-//             (Constraint<IsProducedBefore> $arg1, $arg2),
-//             (Constraint<IsProducedBefore> $arg3, $arg2),
-//             (Constraint<HasSingleUse> $res)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp (AddFOp:$res $arg2, $arg3), $arg1),
-//           (AddFOp (AddFOp $arg2, $arg1), $arg3),
-//           [
-//             (Constraint<IsProducedBefore> $arg1, $arg3),
-//             (Constraint<IsProducedBefore> $arg2, $arg3),
-//             (Constraint<HasSingleUse> $res)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp $arg1, (AddFOp $arg2, $arg3)),
-//           (AddFOp $arg3, (AddFOp $arg2, $arg1)),
-//           [
-//             (Constraint<IsProducedLast> $arg3, $arg1, $arg2)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp $arg1, (AddFOp $arg2, $arg3)),
-//           (AddFOp $arg3, (AddFOp $arg1, $arg3)),
-//           [
-//             (Constraint<isProducedBefore> $arg1, $arg3)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp (AddFOp $arg2, $arg3), $arg1),
-//           (AddFOp (AddFOp $arg1, $arg3), $arg2),
-//           [
-//             (Constraint<isProducedBefore> $arg1, $arg2)
-//           ],
-//           (addBenefit 1)>;
-
-// def : Pat<(AddFOp (AddFOp $arg2, $arg3), $arg1),
-//           (AddFOp (AddFOp $arg1, $arg3), $arg3),
-//           [
-//             (Constraint<isProducedBefore> $arg1, $arg3)
-//           ],
-//           (addBenefit 1)>;
-
-
-// def : Pat<(MulFOp $arg1, $arg2), 
-//           (MulFOp $arg2, $arg1),
-//           [(Constraint<isProducedBefore> $arg2, $arg1)],
-//           (addBenefit 2)>;
-
-// def : Pat<(MulFOp $arg1, (MulFOp $arg2, $arg3)),
-//           (MulFOp $arg3, (MulFOp $arg2, $arg1)),
-//           [(Constraint<isProducedBefore> $arg1, $arg3)],
-//           (addBenefit 1)>;
-
-// add patterns for multiplication and division?
-// (keep subtraction or not)
-// iterate between commutativity patterns and scheduling?
-
-
-//===----------------------------------------------------------------------===//
-// Move operations closer to producer
-//===----------------------------------------------------------------------===//
-
-// def CanMoveArithmeticOp : CPred<[{ canMoveArithmeticOp(op) }]>;
-
-// class MoveArithmeticOp<string OpType> : NativeCodeCall<
-//   "moveArithmeticOp<" # OpType # ">($_builder, op)">;
-
-// def : Pat<(NegFOp:$op $_), 
-//           (MoveArithmeticOp<"NegFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 10)>;
-
-// def : Pat<(AddFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"AddFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 0)>;
-
-// def : Pat<(MulFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"MulFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 0)>;
-
-// def : Pat<(SubFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"SubFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 1)>;
-
-// def : Pat<(MulFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"MulFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 2)>;
-
-// def : Pat<(DivFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"DivFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 1)>;
-
-// def : Pat<(CmpFOp:$op $_, $_), 
-//           (MoveArithmeticOp<"CmpFOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 1)>;
-
-// def : Pat<(SelectOp:$op $_, $_, $_), 
-//           (MoveArithmeticOp<"SelectOp">),
-//           [(Constraint<CanMoveArithmeticOp>)],
-//           (addBenefit 1)>;
-
-// TODO this does not converge since many patterns may apply
-
+def : Pat<(MulFOp (MulFOp:$res $arg3, $arg2), $arg1),
+          (MulFOp (MulFOp $arg3, $arg1), $arg2),
+          [
+            (IsProducedBefore $arg1, $arg2),
+            (HasOneUse $res)
+          ],
+          (addBenefit 0)>;
 
 #endif // MLIR_DIALECT_STENCIL_SHUFFLEPATTERNS

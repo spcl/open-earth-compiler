@@ -76,10 +76,24 @@ bool isProducedBefore(Value before, Value after) {
 //   return isProducedBefore(val2, val1) && isProducedBefore(val3, val1);
 // }
 
-// Helper method returning true if there is a single use
-bool hasSingleUse(Value val) {
-  return std::distance(val.getUses().begin(), val.getUses().end()) == 1;
+// bool isArithmeticBinaryOp(Operation *op) {
+//   return isa<AddFOp>(op);
+// }
+
+// Helper method to check if a value was produced by a specific operation type
+template<typename TOp>
+bool isProducedBy(Value val) {
+  if(auto definingOp = val.getDefiningOp()) 
+    return isa<TOp>(definingOp);
+  return false;
 }
+// template<typename TOp1, typename TOp2>
+// bool isProducedBy(Value val) {
+//   if(auto definingOp = val.getDefiningOp()) 
+//     return isa<TOp1>(definingOp) || isa<TOp2>(definingOp);
+//   return false;
+// }
+
 
 // // Helper method to move arithmetic op
 // template <typename TOp>
@@ -103,8 +117,6 @@ void StencilShufflePass::runOnOperation() {
   OwningRewritePatternList patterns;
   populateWithGenerated(&getContext(), &patterns);
   applyPatternsGreedily(applyOp, patterns);
-
-  applyOp.dump();
 }
 
 } // namespace
