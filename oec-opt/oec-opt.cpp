@@ -107,8 +107,12 @@ int main(int argc, char **argv) {
 }
 
 static PassPipelineRegistration<>
-    pipeline0("stencil-scheduling", "Greedily optimize the instruction scheduling",
-             stencil::createStencilRegisterOptPipeline);
+    pipeline0("stencil-schedule", "Greedily optimize the instruction scheduling",
+             stencil::createStencilSchedulePipeline);
+
+static PassPipelineRegistration<>
+    pipeline00("stencil-schedule-only", "Greedily optimize the instruction scheduling",
+             stencil::createStencilScheduleOnlyPipeline);
 
 static PassPipelineRegistration<>
     pipeline1("stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",

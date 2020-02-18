@@ -149,10 +149,31 @@ stencil::createStencilSchedulePass() {
   return std::make_unique<StencilSchedulePass>();
 }
 
-void stencil::createStencilRegisterOptPipeline(OpPassManager &pm) {
+void stencil::createStencilSchedulePipeline(OpPassManager &pm) {
   auto &funcPm = pm.nest<FuncOp>();
-  funcPm.addPass(createStencilPreShufflePass());
+  //funcPm.addPass(createStencilPreShufflePass());
   funcPm.addPass(createStencilShufflePass());
-  funcPm.addPass(createStencilPostShufflePass());
+  //funcPm.addPass(createStencilPostShufflePass());
   funcPm.addPass(createStencilSchedulePass());
 }
+
+void stencil::createStencilScheduleOnlyPipeline(OpPassManager &pm) {
+  auto &funcPm = pm.nest<FuncOp>();
+  funcPm.addPass(createStencilSchedulePass());
+}
+
+// Life Value Frequencies
+// ======================
+
+// - 10(5)
+// - 11(6)
+// - 12(5)
+// - 13(6)
+// - 14(7)
+// - 15(3)
+// - 16(5)
+// - 17(8)
+// - 18(16)
+// - 19(6)
+// - 20(4)
+// - 21(1)

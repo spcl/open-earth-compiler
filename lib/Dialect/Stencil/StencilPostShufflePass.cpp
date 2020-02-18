@@ -33,6 +33,26 @@ using namespace mlir;
 
 namespace {
 
+// TODO factor this method to a separate file
+
+// Helper method skipping unary operations
+Operation *skipUnaryOperations(Operation *op) {
+  while (auto negOp = dyn_cast_or_null<NegFOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+  return op;
+}
+
+// Helper method that returns true if first argument is produced before
+bool isProducedBeforeOrSame(Value before, Value after) {
+  auto beforeOp = skipUnaryOperations(before.getDefiningOp());
+  auto afterOp = skipUnaryOperations(after.getDefiningOp());
+  if (beforeOp && afterOp) {
+    return beforeOp == afterOp || beforeOp->isBeforeInBlock(afterOp);
+  }
+  return false;
+}
+
 #include "Dialect/Stencil/StencilPostShufflePatterns.cpp.inc"
 
 struct StencilPostShufflePass : public OperationPass<StencilPostShufflePass, stencil::ApplyOp> {

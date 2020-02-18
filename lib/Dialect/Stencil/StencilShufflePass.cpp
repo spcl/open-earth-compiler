@@ -33,66 +33,78 @@ using namespace mlir;
 
 namespace {
 
-// Helper method that computes an early insertion point
-Operation *getInsertionPoint(Operation *op) {
-  // Insert after the operand computed last
-  Operation *ip = nullptr;
-  for (auto operand : op->getOperands()) {
-    if (auto definingOp = operand.getDefiningOp()) {
-      if (!ip || ip->isBeforeInBlock(definingOp))
-        ip = definingOp;
-    }
-  }
-  // Return the insertion point
-  return ip;
-}
+// // Helper method that computes an early insertion point
+// Operation *getInsertionPoint(Operation *op) {
+//   // Insert after the operand computed last
+//   Operation *ip = nullptr;
+//   for (auto operand : op->getOperands()) {
+//     if (auto definingOp = operand.getDefiningOp()) {
+//       if (!ip || ip->isBeforeInBlock(definingOp))
+//         ip = definingOp;
+//     }
+//   }
+//   // Return the insertion point
+//   return ip;
+// }
 
-// Helper method that returns true if op can be moved
-bool canMoveArithmeticOp(Operation *op) {
-  auto ip = getInsertionPoint(op);
-  return ip && ip->getNextNode() != op;
-}
+// // Helper method that returns true if op can be moved
+// bool canMoveArithmeticOp(Operation *op) {
+//   auto ip = getInsertionPoint(op);
+//   return ip && ip->getNextNode() != op;
+// }
 
 // Helper method skipping unary operations
-Operation *skipUnaryOperations(Operation *op) {
-  // TODO skip only arithmetic ops
-  // while (op && (op->getNumResults() == 1 && op->getNumOperands() == 1)) {
-  //   op = op->getOperand(0).getDefiningOp();
-  // }
-  return op;
-}
+// Operation *skipUnaryOperations(Operation *op) {
+//   while (auto negOp = dyn_cast_or_null<NegFOp>(op)) {
+//     op = op->getOperand(0).getDefiningOp();
+//   }
+//   return op;
+// }
 
 // Helper method that returns true if first argument is produced before
 bool isProducedBefore(Value before, Value after) {
-  auto beforeOp = skipUnaryOperations(before.getDefiningOp());
-  auto afterOp = skipUnaryOperations(after.getDefiningOp());
+  auto beforeOp = before.getDefiningOp();
+  auto afterOp = after.getDefiningOp();
   if (beforeOp && afterOp) {
     return beforeOp->isBeforeInBlock(afterOp);
   }
-  return false;
+  return before == nullptr;
 }
 
-// Helper method to move arithmetic op
-template <typename TOp>
-SmallVector<Value, 4> moveArithmeticOp(PatternRewriter &rewriter, TOp op) {
-  rewriter.setInsertionPointAfter(getInsertionPoint(op.getOperation()));
-  auto clonedOp = rewriter.clone(*op.getOperation());
-  clonedOp->getBlock()->recomputeOpOrder();
-  return clonedOp->getResults();
+// bool isProducedLast(Value val1, Value val2, Value val3) {
+//   llvm::outs() << "isProducedLast " << (isProducedBefore(val2, val1) && isProducedBefore(val3, val1)) << "\n";
+//   return isProducedBefore(val2, val1) && isProducedBefore(val3, val1);
+// }
+
+// Helper method returning true if there is a single use
+bool hasSingleUse(Value val) {
+  return std::distance(val.getUses().begin(), val.getUses().end()) == 1;
 }
+
+// // Helper method to move arithmetic op
+// template <typename TOp>
+// SmallVector<Value, 4> moveArithmeticOp(PatternRewriter &rewriter, TOp op) {
+//   rewriter.setInsertionPointAfter(getInsertionPoint(op.getOperation()));
+//   auto clonedOp = rewriter.clone(*op.getOperation());
+//   clonedOp->getBlock()->recomputeOpOrder();
+//   return clonedOp->getResults();
+// }
 
 #include "Dialect/Stencil/StencilShufflePatterns.cpp.inc"
 
-struct StencilShufflePass : public OperationPass<StencilShufflePass, stencil::ApplyOp> {
+struct StencilShufflePass
+    : public OperationPass<StencilShufflePass, stencil::ApplyOp> {
   void runOnOperation() override;
 };
 
 void StencilShufflePass::runOnOperation() {
   auto applyOp = getOperation();
-
+  
   OwningRewritePatternList patterns;
   populateWithGenerated(&getContext(), &patterns);
   applyPatternsGreedily(applyOp, patterns);
+
+  applyOp.dump();
 }
 
 } // namespace
@@ -101,4 +113,3 @@ std::unique_ptr<OpPassBase<stencil::ApplyOp>>
 stencil::createStencilShufflePass() {
   return std::make_unique<StencilShufflePass>();
 }
-

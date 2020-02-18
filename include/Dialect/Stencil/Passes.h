@@ -27,7 +27,9 @@ std::unique_ptr<OpPassBase<stencil::ApplyOp>> createStencilPostShufflePass();
 
 std::unique_ptr<OpPassBase<stencil::ApplyOp>> createStencilSchedulePass();
 
-void createStencilRegisterOptPipeline(OpPassManager &pm);
+void createStencilSchedulePipeline(OpPassManager &pm);
+
+void createStencilScheduleOnlyPipeline(OpPassManager &pm);
 
 } // namespace stencil
 } // namespace mlir
