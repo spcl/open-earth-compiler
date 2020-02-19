@@ -33,76 +33,67 @@ using namespace mlir;
 
 namespace {
 
-// // Helper method that computes an early insertion point
-// Operation *getInsertionPoint(Operation *op) {
-//   // Insert after the operand computed last
-//   Operation *ip = nullptr;
-//   for (auto operand : op->getOperands()) {
-//     if (auto definingOp = operand.getDefiningOp()) {
-//       if (!ip || ip->isBeforeInBlock(definingOp))
-//         ip = definingOp;
-//     }
-//   }
-//   // Return the insertion point
-//   return ip;
-// }
-
-// // Helper method that returns true if op can be moved
-// bool canMoveArithmeticOp(Operation *op) {
-//   auto ip = getInsertionPoint(op);
-//   return ip && ip->getNextNode() != op;
-// }
-
-// Helper method skipping unary operations
-// Operation *skipUnaryOperations(Operation *op) {
-//   while (auto negOp = dyn_cast_or_null<NegFOp>(op)) {
-//     op = op->getOperand(0).getDefiningOp();
-//   }
-//   return op;
-// }
-
-// Helper method that returns true if first argument is produced before
-bool isProducedBefore(Value before, Value after) {
-  auto beforeOp = before.getDefiningOp();
-  auto afterOp = after.getDefiningOp();
-  if (beforeOp && afterOp) {
-    return beforeOp->isBeforeInBlock(afterOp);
+// Helper method computing the minimal access offset per field
+llvm::DenseMap<Value, int64_t> computeMinJOffset(Value value) {
+  llvm::DenseMap<Value, int64_t> result;
+  // Return an empty map for arguments
+  auto op = value.getDefiningOp();
+  if (!op) 
+    return result;
+  // Return the current map offset
+  if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
+    if(llvm::is_contained(accessOp.getViewType().getDimensions(), stencil::kUnrollDimension))
+      result[accessOp.getOperand()] = accessOp.getOffset()[stencil::kUnrollDimension];
+    return result;
   }
-  return before == nullptr;
+  // Compute the offset recursively
+  for (auto operand : op->getOperands()) {
+    auto offsets = computeMinJOffset(operand);
+    for (auto offset : offsets) {
+      if (result.count(offset.getFirst()) == 0)
+        result[offset.getFirst()] = offset.getSecond();
+      else
+        result[offset.getFirst()] =
+            std::min(offset.getSecond(), result[offset.getFirst()]);
+    }
+  }
+  return result;
 }
 
-// bool isProducedLast(Value val1, Value val2, Value val3) {
-//   llvm::outs() << "isProducedLast " << (isProducedBefore(val2, val1) && isProducedBefore(val3, val1)) << "\n";
-//   return isProducedBefore(val2, val1) && isProducedBefore(val3, val1);
-// }
+// Helper method that orders values according to the accessed j-offsets
+bool isAccessedBefore(Value before, Value after) {
+  llvm::DenseMap<Value, int64_t> beforeOffsets = computeMinJOffset(before);
+  llvm::DenseMap<Value, int64_t> afterOffsets = computeMinJOffset(after);
+  int64_t beforeWins = 0;
+  int64_t afterWins = 0;
+  for(auto beforeOffset : beforeOffsets) {
+    if(afterOffsets.count(beforeOffset.getFirst()) != 0) {
+      if(beforeOffset.getSecond() < afterOffsets[beforeOffset.getFirst()])
+        beforeWins++;
+      else 
+        afterWins++;
+    }
+  }
+  return beforeWins > afterWins;
+}
 
-// bool isArithmeticBinaryOp(Operation *op) {
-//   return isa<AddFOp>(op);
+// Helper method that returns true if first argument is produced before
+// bool isProducedBefore(Value before, Value after) {
+//   auto beforeOp = before.getDefiningOp();
+//   auto afterOp = after.getDefiningOp();
+//   if (beforeOp && afterOp) {
+//     return beforeOp->isBeforeInBlock(afterOp);
+//   }
+//   return before == nullptr;
 // }
 
 // Helper method to check if a value was produced by a specific operation type
-template<typename TOp>
-bool isProducedBy(Value val) {
-  if(auto definingOp = val.getDefiningOp()) 
+template <typename TOp>
+bool isProducedBy(Value value) {
+  if (auto definingOp = value.getDefiningOp())
     return isa<TOp>(definingOp);
   return false;
 }
-// template<typename TOp1, typename TOp2>
-// bool isProducedBy(Value val) {
-//   if(auto definingOp = val.getDefiningOp()) 
-//     return isa<TOp1>(definingOp) || isa<TOp2>(definingOp);
-//   return false;
-// }
-
-
-// // Helper method to move arithmetic op
-// template <typename TOp>
-// SmallVector<Value, 4> moveArithmeticOp(PatternRewriter &rewriter, TOp op) {
-//   rewriter.setInsertionPointAfter(getInsertionPoint(op.getOperation()));
-//   auto clonedOp = rewriter.clone(*op.getOperation());
-//   clonedOp->getBlock()->recomputeOpOrder();
-//   return clonedOp->getResults();
-// }
 
 #include "Dialect/Stencil/StencilShufflePatterns.cpp.inc"
 
@@ -113,7 +104,7 @@ struct StencilShufflePass
 
 void StencilShufflePass::runOnOperation() {
   auto applyOp = getOperation();
-  
+
   OwningRewritePatternList patterns;
   populateWithGenerated(&getContext(), &patterns);
   applyPatternsGreedily(applyOp, patterns);

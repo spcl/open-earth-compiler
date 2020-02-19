@@ -3,7 +3,8 @@
 
 include "mlir/Dialect/StandardOps/Ops.td"
 
-def IsProducedBefore : Constraint<CPred<"isProducedBefore($0, $1)">>;
+//def IsProducedBefore : Constraint<CPred<"isProducedBefore($0, $1)">>;
+def IsAccessedBefore : Constraint<CPred<"isAccessedBefore($0, $1)">>;
 def HasOneUse: Constraint<CPred<"$0.hasOneUse()">>;
 
 // def IsProducedByAddFOrSubFOp : Constraint<
@@ -86,7 +87,7 @@ def : Pat<(MulFOp $arg1, (MulFOp:$res $arg2, $arg3)),
 def : Pat<(AddFOp (AddFOp:$res $arg3, $arg2), $arg1),
           (AddFOp (AddFOp $arg3, $arg1), $arg2),
           [
-            (IsProducedBefore $arg1, $arg2),
+            (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
           (addBenefit 0)>;
@@ -94,7 +95,7 @@ def : Pat<(AddFOp (AddFOp:$res $arg3, $arg2), $arg1),
 def : Pat<(SubFOp (SubFOp:$res $arg3, $arg2), $arg1),
           (SubFOp (SubFOp $arg3, $arg1), $arg2),
           [
-            (IsProducedBefore $arg1, $arg2),
+            (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
           (addBenefit 0)>;
@@ -102,7 +103,7 @@ def : Pat<(SubFOp (SubFOp:$res $arg3, $arg2), $arg1),
 def : Pat<(AddFOp (SubFOp:$res $arg3, $arg2), $arg1),
           (SubFOp (AddFOp $arg3, $arg1), $arg2),
           [
-            (IsProducedBefore $arg1, $arg2),
+            (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
           (addBenefit 0)>;
@@ -110,7 +111,7 @@ def : Pat<(AddFOp (SubFOp:$res $arg3, $arg2), $arg1),
 def : Pat<(SubFOp (AddFOp:$res $arg3, $arg2), $arg1),
           (AddFOp (SubFOp $arg3, $arg1), $arg2),
           [
-            (IsProducedBefore $arg1, $arg2),
+            (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
           (addBenefit 0)>;
@@ -118,7 +119,7 @@ def : Pat<(SubFOp (AddFOp:$res $arg3, $arg2), $arg1),
 def : Pat<(MulFOp (MulFOp:$res $arg3, $arg2), $arg1),
           (MulFOp (MulFOp $arg3, $arg1), $arg2),
           [
-            (IsProducedBefore $arg1, $arg2),
+            (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
           (addBenefit 0)>;
