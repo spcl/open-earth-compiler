@@ -17,6 +17,7 @@ constexpr static int kKDimension = 2;
 
 // Constant used to define the loop unrolling dimension
 constexpr static int kUnrollDimension = kJDimension;
+constexpr static int kVectorDimension = kIDimension;
 
 class StencilDialect : public Dialect {
 public:

@@ -59,6 +59,19 @@ Operation *getNextReadyOp(const std::vector<Operation *> &remainingOps,
   return nullptr;
 }
 
+// Helper method to count the number of ready ops
+unsigned countReadyOps(const std::vector<Operation *> &remainingOps,
+                       const llvm::DenseSet<Value> &lifeValues) {
+  unsigned result = 0;
+  // Select remaining op if all parameters are life
+  for (auto remainingOp : remainingOps) {
+    if (llvm::all_of(remainingOp->getOperands(),
+                     [&](Value value) { return lifeValues.count(value) != 0; }))
+      result++;
+  }
+  return result;
+}
+
 void updateLifeValuesAndScheduledOps(llvm::DenseSet<Value> &lifeValues,
                                      llvm::DenseSet<Operation *> &scheduledOps,
                                      Operation *clonedOp) {
@@ -84,24 +97,44 @@ struct StencilSchedulePass
 
 void StencilSchedulePass::runOnOperation() {
   auto applyOp = getOperation();
-
   // Walk all operations and store constants and accesses separately
-  std::vector<Operation *> accessOps;
   std::vector<Operation *> constantOps;
-  std::vector<Operation *> arithmeticOps;
-  applyOp.getBody()->walk([&](Operation *op) {
-    // Store all other ops
-    if (isa<stencil::AccessOp>(op)) {
-      accessOps.push_back(op);
-      return;
-    }
-    if (isa<ConstantOp>(op)) {
-      constantOps.push_back(op);
-      return;
-    }
-    arithmeticOps.push_back(op);
-  });
-  std::reverse(accessOps.begin(), accessOps.end());
+  std::vector<Operation *> remainingOps;
+  // Store the access ops of every field in buckets with the same j-Offset
+  typedef SmallVector<int64_t, 3> Offset;
+  typedef std::vector<Operation *> OpList;
+  typedef std::pair<Offset, OpList> Bucket;
+  llvm::DenseMap<Value, std::map<int64_t, std::vector<Bucket>>> accessOps;
+  applyOp.getBody()->walk(
+      [&accessOps, &constantOps, &remainingOps](Operation *op) {
+        // Store all access ops
+        if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
+          auto idx = accessOp.getOffset()[stencil::kUnrollDimension];
+          auto &buckets = accessOps[accessOp.getOperand()][idx];
+          // Search the bucket for entry with same index
+          auto it = std::find_if(buckets.begin(), buckets.end(),
+                                 [&accessOp](auto bucket) {
+                                   Offset offset = accessOp.getOffset();
+                                   offset[stencil::kVectorDimension] =
+                                       bucket.first[stencil::kVectorDimension];
+                                   return offset == bucket.first;
+                                 });
+          if (it != buckets.end()) {
+            it->second.push_back(op);
+          } else {
+            buckets.push_back(
+                std::make_pair<Offset, OpList>(accessOp.getOffset(), {op}));
+          }
+          return;
+        }
+        // Store all constant ops
+        if (isa<ConstantOp>(op)) {
+          constantOps.push_back(op);
+          return;
+        }
+        // Store all remaining ops
+        remainingOps.push_back(op);
+      });
 
   // Clone operation by operation
   OpBuilder builder(applyOp.getBody());
@@ -109,37 +142,120 @@ void StencilSchedulePass::runOnOperation() {
   // Keep scheduling operations
   llvm::DenseSet<Value> lifeValues;
   llvm::DenseSet<Operation *> scheduledOps;
-  std::map<size_t, unsigned> lifeFrequencies;
+  //std::map<size_t, unsigned> lifeFrequencies;
   // Schedule all constants
   for (auto constantOp : constantOps) {
     auto clonedOp = cloneOperation(builder, constantOp);
     updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-    lifeFrequencies[lifeValues.size()]++;
+    //lifeFrequencies[lifeValues.size()]++;
   }
   // Schedule accesses and arithmetic Ops
-  while (!(accessOps.empty() && arithmeticOps.empty())) {
+  while (!(accessOps.empty() && remainingOps.empty())) {
     // Schedule all arithmetic Ops that are ready for execution
-    while (Operation *next = getNextReadyOp(arithmeticOps, lifeValues)) {
+    while (Operation *next = getNextReadyOp(remainingOps, lifeValues)) {
       auto clonedOp = cloneOperation(builder, next);
       updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-      arithmeticOps.erase(llvm::find(arithmeticOps, next));
-      lifeFrequencies[lifeValues.size()]++;
+      remainingOps.erase(llvm::find(remainingOps, next));
+      //lifeFrequencies[lifeValues.size()]++;
     }
 
-    // Schedule the next arithmetic op
-    if (!accessOps.empty()) {
-      auto clonedOp = cloneOperation(builder, accessOps.back());
-      updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-      accessOps.pop_back();
-      lifeFrequencies[lifeValues.size()]++;
+    // Print the access ops
+    llvm::outs() << "-> accessOps\n";
+    for(auto value : accessOps) {
+      llvm::outs() << "  -> " << value.getFirst() << "\n";
+      for(auto index : value.getSecond()) {
+        llvm::outs() << "    -> " << index.first << "\n";
+        for(auto bucket : index.second) {
+          llvm::outs() << "    -> " << bucket.first[0] << "," << bucket.first[1] << "," << bucket.first[2] << "\n";
+          llvm::outs() << "    -> bucket size " << bucket.second.size() << "\n";
+          for(auto op : bucket.second)
+            llvm::outs() << "    -> " << op << "\n";
+        }
+      }
     }
+
+    // Schedule the access op bucket that enables most arithmetic ops
+    unsigned maxReadyOpCount = 0;
+    Value maxValue(nullptr);
+    size_t maxIdx;
+    for (auto value : accessOps) {
+      // Compute the number of ready ops for all buckets with minimal index
+      auto &buckets = value.getSecond().begin()->second;
+      for (auto it = buckets.begin(); it != buckets.end(); ++it) {
+        // Compute the next life values
+        llvm::DenseSet<Value> nextLifeValues = lifeValues;
+        for (auto op : it->second) {
+          nextLifeValues.insert(op->getResult(0));
+        }
+        unsigned readyOpCount = countReadyOps(remainingOps, nextLifeValues);
+        if (readyOpCount >= maxReadyOpCount) {
+          maxReadyOpCount = readyOpCount;
+          maxValue = value.getFirst();
+          maxIdx = std::distance(buckets.begin(), it);
+        }
+      }
+    }
+    
+        // Print the access ops
+    llvm::outs() << "-> accessOps\n";
+    for(auto value : accessOps) {
+      llvm::outs() << "  -> " << value.getFirst() << "\n";
+      for(auto index : value.getSecond()) {
+        llvm::outs() << "    -> " << index.first << "\n";
+        for(auto bucket : index.second) {
+          llvm::outs() << "    -> " << bucket.first[0] << "," << bucket.first[1] << "," << bucket.first[2] << "\n";
+          llvm::outs() << "    -> bucket size " << bucket.second.size() << "\n";
+          for(auto op : bucket.second)
+            llvm::outs() << "    -> " << op << "\n";
+        }
+      }
+    }
+
+    llvm::outs() << "-> maxReadyOpCount" << maxReadyOpCount << "\n";
+
+    // Schedule the next access operations
+    if (maxValue) {
+      // Clone all ops of the bucket
+      auto &buckets = accessOps[maxValue].begin()->second;
+      for(auto op : buckets[maxIdx].second) {
+        llvm::outs() << "-> cloning" << op << "\n";
+        auto clonedOp = cloneOperation(builder, op);
+        updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);        
+      }
+      llvm::outs() << "-> erasing\n";
+      // Erase the bucket from the bucket data structure
+      buckets.erase(buckets.begin() + maxIdx);
+      if(buckets.empty()) {
+        accessOps[maxValue].erase(accessOps[maxValue].begin()->first);
+        if(accessOps[maxValue].empty()) {
+          accessOps.erase(maxValue);
+        }
+      }
+      //lifeFrequencies[lifeValues.size()]++;
+    }
+
+    // Print the access ops
+    llvm::outs() << "-> accessOps\n";
+    for(auto value : accessOps) {
+      llvm::outs() << "  -> " << value.getFirst() << "\n";
+      for(auto index : value.getSecond()) {
+        llvm::outs() << "    -> " << index.first << "\n";
+        for(auto bucket : index.second) {
+          llvm::outs() << "    -> " << bucket.first[0] << "," << bucket.first[1] << "," << bucket.first[2] << "\n";
+          llvm::outs() << "    -> bucket size " << bucket.second.size() << "\n";
+          for(auto op : bucket.second)
+            llvm::outs() << "    -> " << op << "\n";
+        }
+      }
+    }
+
   }
 
   // Print the top5 life value frequencies
-  llvm::outs() << "// Life Value Frequencies\n"
-               << "// ======================\n";
-  for(auto it = lifeFrequencies.begin(); it != lifeFrequencies.end(); ++it)
-    llvm::outs() << "// - " << it->first << "(" << it->second << ")\n";
+  // llvm::outs() << "// Life Value Frequencies\n"
+  //              << "// ======================\n";
+  // for (auto it = lifeFrequencies.begin(); it != lifeFrequencies.end(); ++it)
+  //   llvm::outs() << "// - " << it->first << "(" << it->second << ")\n";
 }
 
 } // namespace
@@ -151,9 +267,9 @@ stencil::createStencilSchedulePass() {
 
 void stencil::createStencilSchedulePipeline(OpPassManager &pm) {
   auto &funcPm = pm.nest<FuncOp>();
-  //funcPm.addPass(createStencilPreShufflePass());
+  // funcPm.addPass(createStencilPreShufflePass());
   funcPm.addPass(createStencilShufflePass());
-  //funcPm.addPass(createStencilPostShufflePass());
+  // funcPm.addPass(createStencilPostShufflePass());
   funcPm.addPass(createStencilSchedulePass());
 }
 
