@@ -34,7 +34,7 @@ using namespace mlir;
 namespace {
 
 // Helper method computing the minimal access offset per field
-llvm::DenseMap<Value, int64_t> computeMinJOffset(Value value) {
+llvm::DenseMap<Value, int64_t> computeMinOffset(Value value) {
   llvm::DenseMap<Value, int64_t> result;
   // Return an empty map for arguments
   auto op = value.getDefiningOp();
@@ -48,7 +48,7 @@ llvm::DenseMap<Value, int64_t> computeMinJOffset(Value value) {
   }
   // Compute the offset recursively
   for (auto operand : op->getOperands()) {
-    auto offsets = computeMinJOffset(operand);
+    auto offsets = computeMinOffset(operand);
     for (auto offset : offsets) {
       if (result.count(offset.getFirst()) == 0)
         result[offset.getFirst()] = offset.getSecond();
@@ -62,8 +62,8 @@ llvm::DenseMap<Value, int64_t> computeMinJOffset(Value value) {
 
 // Helper method that orders values according to the accessed j-offsets
 bool isAccessedBefore(Value before, Value after) {
-  llvm::DenseMap<Value, int64_t> beforeOffsets = computeMinJOffset(before);
-  llvm::DenseMap<Value, int64_t> afterOffsets = computeMinJOffset(after);
+  llvm::DenseMap<Value, int64_t> beforeOffsets = computeMinOffset(before);
+  llvm::DenseMap<Value, int64_t> afterOffsets = computeMinOffset(after);
   int64_t beforeWins = 0;
   int64_t afterWins = 0;
   for(auto beforeOffset : beforeOffsets) {

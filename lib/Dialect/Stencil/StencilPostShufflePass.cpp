@@ -35,21 +35,29 @@ namespace {
 
 // TODO factor this method to a separate file
 
-// Helper method skipping unary operations
-Operation *skipUnaryOperations(Operation *op) {
-  while (auto negOp = dyn_cast_or_null<NegFOp>(op)) {
-    op = op->getOperand(0).getDefiningOp();
-  }
-  return op;
-}
+// // Helper method skipping unary operations
+// Operation *skipUnaryOperations(Operation *op) {
+//   while (auto negOp = dyn_cast_or_null<NegFOp>(op)) {
+//     op = op->getOperand(0).getDefiningOp();
+//   }
+//   return op;
+// }
 
-// Helper method that returns true if first argument is produced before
-bool isProducedBeforeOrSame(Value before, Value after) {
-  auto beforeOp = skipUnaryOperations(before.getDefiningOp());
-  auto afterOp = skipUnaryOperations(after.getDefiningOp());
-  if (beforeOp && afterOp) {
-    return beforeOp == afterOp || beforeOp->isBeforeInBlock(afterOp);
-  }
+// // Helper method that returns true if first argument is produced before
+// bool isProducedBeforeOrSame(Value before, Value after) {
+//   auto beforeOp = skipUnaryOperations(before.getDefiningOp());
+//   auto afterOp = skipUnaryOperations(after.getDefiningOp());
+//   if (beforeOp && afterOp) {
+//     return beforeOp == afterOp || beforeOp->isBeforeInBlock(afterOp);
+//   }
+//   return false;
+// }
+
+// Helper method to check if a value was produced by a specific operation type
+template <typename TOp>
+bool isProducedBy(Value value) {
+  if (auto definingOp = value.getDefiningOp())
+    return isa<TOp>(definingOp);
   return false;
 }
 

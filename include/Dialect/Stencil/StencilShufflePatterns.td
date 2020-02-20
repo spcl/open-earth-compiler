@@ -25,14 +25,14 @@ def : Pat<(AddFOp $arg1, (AddFOp $arg2, $arg3)),
           [
             (IsNotProducedByAddFOrSubFOp $arg1) 
           ],
-          (addBenefit 11)>;
+          (addBenefit 10)>;
 
 def : Pat<(SubFOp $arg1, (SubFOp $arg2, $arg3)), 
           (AddFOp (SubFOp $arg3, $arg2), $arg1),
           [
             (IsNotProducedByAddFOrSubFOp $arg1) 
           ],
-          (addBenefit 11)>;
+          (addBenefit 10)>;
 
 def : Pat<(AddFOp $arg1, (AddFOp:$res $arg2, $arg3)), 
           (AddFOp (AddFOp $arg1, $arg3), $arg2),
@@ -71,7 +71,7 @@ def : Pat<(MulFOp $arg1, (MulFOp $arg2, $arg3)),
           [
             (IsNotProducedByMulFOp $arg1) 
           ],
-          (addBenefit 11)>;
+          (addBenefit 10)>;
 
 def : Pat<(MulFOp $arg1, (MulFOp:$res $arg2, $arg3)), 
           (MulFOp (MulFOp $arg1, $arg3), $arg2),
@@ -90,7 +90,7 @@ def : Pat<(AddFOp (AddFOp:$res $arg3, $arg2), $arg1),
             (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
-          (addBenefit 0)>;
+          (addBenefit 1)>;
 
 def : Pat<(SubFOp (SubFOp:$res $arg3, $arg2), $arg1),
           (SubFOp (SubFOp $arg3, $arg1), $arg2),
@@ -98,7 +98,7 @@ def : Pat<(SubFOp (SubFOp:$res $arg3, $arg2), $arg1),
             (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
-          (addBenefit 0)>;
+          (addBenefit 1)>;
 
 def : Pat<(AddFOp (SubFOp:$res $arg3, $arg2), $arg1),
           (SubFOp (AddFOp $arg3, $arg1), $arg2),
@@ -106,7 +106,7 @@ def : Pat<(AddFOp (SubFOp:$res $arg3, $arg2), $arg1),
             (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
-          (addBenefit 0)>;
+          (addBenefit 1)>;
 
 def : Pat<(SubFOp (AddFOp:$res $arg3, $arg2), $arg1),
           (AddFOp (SubFOp $arg3, $arg1), $arg2),
@@ -114,7 +114,7 @@ def : Pat<(SubFOp (AddFOp:$res $arg3, $arg2), $arg1),
             (IsAccessedBefore $arg1, $arg2),
             (HasOneUse $res)
           ],
-          (addBenefit 0)>;
+          (addBenefit 1)>;
 
 def : Pat<(MulFOp (MulFOp:$res $arg3, $arg2), $arg1),
           (MulFOp (MulFOp $arg3, $arg1), $arg2),
