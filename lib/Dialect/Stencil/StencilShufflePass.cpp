@@ -26,6 +26,7 @@
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <iterator>
+#include <limits>
 #include <tuple>
 #include <utility>
 
@@ -33,28 +34,35 @@ using namespace mlir;
 
 namespace {
 
-// Helper method computing the minimal access offset per field
-llvm::DenseMap<Value, int64_t> computeMinOffset(Value value) {
-  llvm::DenseMap<Value, int64_t> result;
+// Helper method computing the minimal and maximal access offset per field
+llvm::DenseMap<Value, std::tuple<int64_t, int64_t>>
+computeOffsetRange(Value value) {
+  llvm::DenseMap<Value, std::tuple<int64_t, int64_t>> result;
   // Return an empty map for arguments
   auto op = value.getDefiningOp();
-  if (!op) 
+  if (!op)
     return result;
   // Return the current map offset
   if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
-    if(llvm::is_contained(accessOp.getViewType().getDimensions(), stencil::kUnrollDimension))
-      result[accessOp.getOperand()] = accessOp.getOffset()[stencil::kUnrollDimension];
+    if (llvm::is_contained(accessOp.getViewType().getDimensions(),
+                           stencil::kUnrollDimension))
+      result[accessOp.getOperand()] =
+          std::make_tuple(accessOp.getOffset()[stencil::kUnrollDimension],
+                          accessOp.getOffset()[stencil::kUnrollDimension]);
     return result;
   }
   // Compute the offset recursively
   for (auto operand : op->getOperands()) {
-    auto offsets = computeMinOffset(operand);
+    auto offsets = computeOffsetRange(operand);
     for (auto offset : offsets) {
       if (result.count(offset.getFirst()) == 0)
         result[offset.getFirst()] = offset.getSecond();
       else
         result[offset.getFirst()] =
-            std::min(offset.getSecond(), result[offset.getFirst()]);
+            std::make_tuple(std::min(std::get<0>(offset.getSecond()),
+                                     std::get<0>(result[offset.getFirst()])),
+                            std::max(std::get<1>(offset.getSecond()),
+                                     std::get<1>(result[offset.getFirst()])));
     }
   }
   return result;
@@ -62,19 +70,45 @@ llvm::DenseMap<Value, int64_t> computeMinOffset(Value value) {
 
 // Helper method that orders values according to the accessed j-offsets
 bool isAccessedBefore(Value before, Value after) {
-  llvm::DenseMap<Value, int64_t> beforeOffsets = computeMinOffset(before);
-  llvm::DenseMap<Value, int64_t> afterOffsets = computeMinOffset(after);
-  int64_t beforeWins = 0;
-  int64_t afterWins = 0;
-  for(auto beforeOffset : beforeOffsets) {
-    if(afterOffsets.count(beforeOffset.getFirst()) != 0) {
-      if(beforeOffset.getSecond() < afterOffsets[beforeOffset.getFirst()])
-        beforeWins++;
-      else 
-        afterWins++;
-    }
+  // llvm::errs() << "before " << before.getDefiningOp() << " after " << after.getDefiningOp() << "\n";
+
+  llvm::DenseMap<Value, std::tuple<int64_t, int64_t>> beforeOffsets =
+      computeOffsetRange(before);
+  llvm::DenseMap<Value, std::tuple<int64_t, int64_t>> afterOffsets =
+      computeOffsetRange(after);
+
+  int64_t beforeMin = std::numeric_limits<int64_t>::max();
+  for(auto range : beforeOffsets) {
+    beforeMin = std::min(beforeMin, std::get<0>(range.getSecond()));
   }
-  return beforeWins > afterWins;
+
+  int64_t afterMin = std::numeric_limits<int64_t>::max();
+  for(auto range : afterOffsets) {
+    afterMin = std::min(afterMin, std::get<0>(range.getSecond()));
+  }
+  
+  return beforeMin < afterMin;
+
+  // int64_t beforeWins = 0;
+  // int64_t afterWins = 0;
+  // for (auto beforeOffset : beforeOffsets) {
+  //   if (afterOffsets.count(beforeOffset.getFirst()) != 0) {
+  //     if (std::get<1>(beforeOffset.getSecond()) <=
+  //         std::get<0>(afterOffsets[beforeOffset.getFirst()]))
+  //       beforeWins++;
+  //     if (std::get<0>(beforeOffset.getSecond()) >
+  //         std::get<1>(afterOffsets[beforeOffset.getFirst()]))
+  //       afterWins++;
+  //   }
+
+  //   llvm::errs() << "before min" << std::get<0>(beforeOffset.getSecond()) << " max " << std::get<1>(beforeOffset.getSecond()) << "\n";
+  //   llvm::errs() << "after min" << std::get<0>(afterOffsets[beforeOffset.getFirst()]) << " max " << std::get<1>(afterOffsets[beforeOffset.getFirst()]) << "\n";
+    
+  // }
+
+  // // TODO debug
+  // llvm::errs() << "before " << beforeWins << " after " << afterWins << "\n";
+  // return beforeWins > afterWins;
 }
 
 // Helper method that returns true if first argument is produced before

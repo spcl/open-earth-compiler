@@ -25,9 +25,11 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <iterator>
+#include <limits>
 #include <tuple>
 #include <utility>
 
@@ -45,46 +47,111 @@ Operation *cloneOperation(OpBuilder &builder, Operation *op) {
   return clonedOp;
 }
 
-// Helper method picking the next operation to schedule
-Operation *getNextReadyOp(const std::vector<Operation *> &remainingOps,
-                          const llvm::DenseSet<Value> &lifeValues) {
+// Compute the
+float getAverageOffset(std::vector<Operation *> &accessOps) {
+  float result = 0.0f;
+  for (auto accessOp : accessOps) {
+    result += cast<stencil::AccessOp>(accessOp)
+                  .getOffset()[stencil::kUnrollDimension];
+  }
+  return result / (float)accessOps.size();
+}
+
+// Compute the distance for all operands (L2-norm)
+float getReuseDistance(OperandRange operands,
+                       std::vector<Operation *> &scheduledOps) {
+  float result = 0.0f;
+  for (auto operand : operands) {
+    // Assume constant ops have zero cost
+    if (isa_and_nonnull<ConstantOp>(operand.getDefiningOp()))
+      continue;
+    // Compute the distance for all dependencies
+    auto it = std::find(scheduledOps.begin(), scheduledOps.end(),
+                        operand.getDefiningOp());
+    if (it != scheduledOps.end()) {
+      auto distance = std::distance(it, scheduledOps.end());
+      result += (float)(distance * distance);
+    }
+  }
+  return std::sqrt(result);
+}
+
+// Compute operations that are ready for execution
+std::vector<Operation *>
+getReadyOps(const std::vector<Operation *> &remainingOps,
+            const llvm::DenseSet<Value> &lifeValues) {
+  std::vector<Operation *> result;
   // Select remaining op if all parameters are life
   for (auto remainingOp : remainingOps) {
     if (llvm::all_of(remainingOp->getOperands(), [&](Value value) {
           return lifeValues.count(value) != 0;
         })) {
-      return remainingOp;
+      result.push_back(remainingOp);
     }
-  }
-  return nullptr;
-}
-
-// Helper method to count the number of ready ops
-unsigned countReadyOps(const std::vector<Operation *> &remainingOps,
-                       const llvm::DenseSet<Value> &lifeValues) {
-  unsigned result = 0;
-  // Select remaining op if all parameters are life
-  for (auto remainingOp : remainingOps) {
-    if (llvm::all_of(remainingOp->getOperands(),
-                     [&](Value value) { return lifeValues.count(value) != 0; }))
-      result++;
   }
   return result;
 }
 
+// Helper method picking the next op with maximal locality
+Operation *getOpWithMaxLoc(const std::vector<Operation *> &remainingOps,
+                           std::vector<Operation *> &scheduledOps,
+                           const llvm::DenseSet<Value> &lifeValues) {
+  Operation *result = nullptr;
+  // Compute the candidates and pick the one that maximizes locality
+  auto candidates = getReadyOps(remainingOps, lifeValues);
+  double minDist = std::numeric_limits<float>::max();
+  for (auto candidate : candidates) {
+    float candidateDist =
+        getReuseDistance(candidate->getOperands(), scheduledOps);
+    if (candidateDist < minDist) {
+      minDist = candidateDist;
+      result = candidate;
+    }
+  }
+  return result;
+}
+
+// // Helper method picking the next operation to schedule
+// Operation *getNextReadyOp(const std::vector<Operation *> &remainingOps,
+//                           const llvm::DenseSet<Value> &lifeValues) {
+//   // Select remaining op if all parameters are life
+//   for (auto remainingOp : remainingOps) {
+//     if (llvm::all_of(remainingOp->getOperands(), [&](Value value) {
+//           return lifeValues.count(value) != 0;
+//         })) {
+//       return remainingOp;
+//     }
+//   }
+//   return nullptr;
+// }
+
+// // Helper method to count the number of ready ops
+// unsigned countReadyOps(const std::vector<Operation *> &remainingOps,
+//                        const llvm::DenseSet<Value> &lifeValues) {
+//   unsigned result = 0;
+//   // Select remaining op if all parameters are life
+//   for (auto remainingOp : remainingOps) {
+//     if (llvm::all_of(remainingOp->getOperands(),
+//                      [&](Value value) { return lifeValues.count(value) != 0;
+//                      }))
+//       result++;
+//   }
+//   return result;
+// }
+
 void updateLifeValuesAndScheduledOps(llvm::DenseSet<Value> &lifeValues,
-                                     llvm::DenseSet<Operation *> &scheduledOps,
+                                     std::vector<Operation *> &scheduledOps,
                                      Operation *clonedOp) {
   // Add all results to life values
   for (auto result : clonedOp->getResults()) {
     lifeValues.insert(result);
   }
-  scheduledOps.insert(clonedOp);
+  scheduledOps.push_back(clonedOp);
 
   // Update life values
   for (auto value : clonedOp->getOperands()) {
     if (llvm::all_of(value.getUsers(), [&](Operation *user) {
-          return scheduledOps.count(user) != 0;
+          return llvm::is_contained(scheduledOps, user);
         }))
       lifeValues.erase(value);
   }
@@ -122,7 +189,7 @@ void StencilSchedulePass::runOnOperation() {
 
   // Keep scheduling operations
   llvm::DenseSet<Value> lifeValues;
-  llvm::DenseSet<Operation *> scheduledOps;
+  std::vector<Operation *> scheduledOps;
   std::map<size_t, unsigned> lifeFrequencies;
   // Schedule all constants
   for (auto constantOp : constantOps) {
@@ -132,24 +199,169 @@ void StencilSchedulePass::runOnOperation() {
   }
   // Schedule accesses and arithmetic Ops
   while (!(accessOps.empty() && remainingOps.empty())) {
-    // Schedule all arithmetic Ops that are ready for execution
-    while (Operation *next = getNextReadyOp(remainingOps, lifeValues)) {
+    // Schedule the next operation with maximal locality
+    // (If multiple operations have the same )
+    while (Operation *next =
+               getOpWithMaxLoc(remainingOps, scheduledOps, lifeValues)) {
       auto clonedOp = cloneOperation(builder, next);
       updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
       remainingOps.erase(llvm::find(remainingOps, next));
       lifeFrequencies[lifeValues.size()]++;
     }
 
-    // Schedule the access ops needed to release the next arithmetic op
-    for(auto it = accessOps.begin(); it != accessOps.end(); ++it) {
-      if(llvm::is_contained(remainingOps.front()->getOperands(), (*it)->getResult(0))) {
-        auto clonedOp = cloneOperation(builder, *it);
-        updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-        accessOps.erase(it);
-        lifeFrequencies[lifeValues.size()]++;
-        break;
+    // Schedule all arithmetic Ops that are ready for execution
+    // while (Operation *next = getNextReadyOp(remainingOps, lifeValues)) {
+    //   auto clonedOp = cloneOperation(builder, next);
+    //   updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
+    //   remainingOps.erase(llvm::find(remainingOps, next));
+    //   lifeFrequencies[lifeValues.size()]++;
+    // }
+
+    // Compute accessOp / arithmeticOp pairs
+    typedef std::tuple<std::vector<Operation *>, float, float> Candidate;
+    std::vector<Candidate> candidateOps;
+    for (auto remainingOp : remainingOps) {
+      // Test scheduling the access op
+      std::vector<Operation *> scheduled = scheduledOps;
+      llvm::DenseSet<Value> life = lifeValues;
+      // Compute the dependencies needed to schedule the op
+      std::vector<Operation *> dependencies;
+      for (auto operand : remainingOp->getOperands()) {
+        if (operand.getDefiningOp() &&
+            !llvm::is_contained(scheduledOps, operand.getDefiningOp())) {
+          dependencies.push_back(operand.getDefiningOp());
+        }
+      }
+      // Verify all dependencies are access ops
+      if (llvm::any_of(dependencies, [&](Operation *op) {
+            return !llvm::is_contained(accessOps, op);
+          }))
+        continue;
+      std::sort(dependencies.begin(), dependencies.end(), [](Operation* op1, Operation* op2) {
+        return cast<stencil::AccessOp>(op1).getOffset()[stencil::kUnrollDimension] <
+              cast<stencil::AccessOp>(op2).getOffset()[stencil::kUnrollDimension];
+      });
+      // Test schedule the access dependencies
+      for (auto dependency : dependencies) {
+        scheduled.push_back(dependency);
+        life.insert(dependency->getResult(0));
+      }
+      // Get the next operation
+      Operation *next = getOpWithMaxLoc(remainingOps, scheduled, life);
+      if (next) {
+        float reuseDistance = getReuseDistance(next->getOperands(), scheduled);
+        float unrollOffset = getAverageOffset(dependencies);
+        candidateOps.push_back(
+            std::make_tuple(dependencies, unrollOffset, reuseDistance));
       }
     }
+
+    // TODO consider reduction of life values!!!
+    
+    // Sort the access op candidates
+    // pick the one with minimal unroll index
+    std::sort(candidateOps.begin(), candidateOps.end(),
+              [](Candidate x, Candidate y) {
+                return std::get<1>(x) < std::get<1>(y) ||
+                       (std::get<1>(x) == std::get<1>(y) &&
+                        std::get<2>(x) < std::get<2>(y));
+              });
+
+    // // print the candidates
+    // llvm::outs() << "candidates : \n";
+    // for (auto candidateOp : candidateOps)
+    //   llvm::outs() << " - op loc "
+    //                << std::get<1>(candidateOp) << " off "
+    //                << std::get<2>(candidateOp) << "\n";
+
+    if (!candidateOps.empty()) {
+      for(auto candidateOp : std::get<0>(candidateOps.front())) {
+        auto clonedOp = cloneOperation(builder, candidateOp);
+        updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
+        accessOps.erase(llvm::find(accessOps, candidateOp));
+        lifeFrequencies[lifeValues.size()]++;
+      }
+    }
+
+    // // Compute list of operands needed to get ops ready
+    // llvm::DenseSet<Value> candidateValues;
+    // llvm::DenseSet<Operation *> predecessorOps;
+    // for (auto remainingOp : remainingOps) {
+    //   if (llvm::none_of(remainingOp->getOperands(), [&](Value value) {
+    //         return predecessorOps.count(value.getDefiningOp()) != 0;
+    //       })) {
+    //     for (auto operand : remainingOp->getOperands()) {
+    //       candidateValues.insert(operand);
+    //     }
+    //   }
+    //   // Keep track of earlier operations
+    //   predecessorOps.insert(remainingOp);
+    // }
+
+    // // Compute list of operands needed to get ops ready
+    // llvm::DenseSet<Value> candidateValues;
+    // llvm::DenseSet<Operation *> predecessorOps;
+    // for (auto remainingOp : remainingOps) {
+    //   if (llvm::none_of(remainingOp->getOperands(), [&](Value value) {
+    //         return predecessorOps.count(value.getDefiningOp()) != 0;
+    //       })) {
+    //     for (auto operand : remainingOp->getOperands()) {
+    //       candidateValues.insert(operand);
+    //     }
+    //   }
+    //   // Keep track of earlier operations
+    //   predecessorOps.insert(remainingOp);
+    // }
+
+    // Consider locality of the remaining op
+    // Consider unroll coordinate
+    // (if similar locality choose min coordinate)
+
+    // Consider Locality
+    // TODO sort by locality & then j-index
+
+    // Local  ops
+
+    // std::vector<stencil::AccessOp> candidates;
+    // for (auto it = accessOps.begin(); it != accessOps.end(); ++it) {
+    //   if (candidateValues.count((*it)->getResult(0)) != 0) {
+    //     candidates.push_back(cast<stencil::AccessOp>(*it));
+    //   }
+
+    //   // if(llvm::is_contained(remainingOps.front()->getOperands(),
+    //   // (*it)->getResult(0))) {
+    //   //   auto clonedOp = cloneOperation(builder, *it);
+    //   //   updateLifeValuesAndScheduledOps(lifeValues, scheduledOps,
+    //   clonedOp);
+    //   //   accessOps.erase(it);
+    //   //   lifeFrequencies[lifeValues.size()]++;
+    //   //   break;
+    //   // }
+    // }
+    // // pick the one with minimal unroll index
+    // std::sort(candidates.begin(), candidates.end(),
+    //           [](stencil::AccessOp x, stencil::AccessOp y) {
+    //             return x.getOffset()[stencil::kUnrollDimension] <
+    //                    y.getOffset()[stencil::kUnrollDimension];
+    //           });
+
+    // schedule local computation
+    // TODO
+    // (if there is nothing go choose the next bulk of work purely by j index)
+
+    // for (auto candidate : candidates)
+    //   llvm::outs() << candidate.getOffset()[stencil::kUnrollDimension] << ",
+    //   ";
+    // llvm::outs() << "\n";
+
+    // if (!candidates.empty()) {
+    //   auto clonedOp =
+    //       cloneOperation(builder, candidates.front().getOperation());
+    //   updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
+    //   accessOps.erase(llvm::find(accessOps,
+    //   candidates.front().getOperation()));
+    //   lifeFrequencies[lifeValues.size()]++;
+    // }
   }
 
   // Print the top5 life value frequencies
@@ -170,13 +382,13 @@ void stencil::createStencilSchedulePipeline(OpPassManager &pm) {
   auto &funcPm = pm.nest<FuncOp>();
   // funcPm.addPass(createStencilPreShufflePass());
   funcPm.addPass(createStencilShufflePass());
-  funcPm.addPass(createStencilSchedulePass());
   funcPm.addPass(createStencilPostShufflePass());
+  funcPm.addPass(createStencilSchedulePass());
 }
 
 void stencil::createStencilScheduleOnlyPipeline(OpPassManager &pm) {
   auto &funcPm = pm.nest<FuncOp>();
-  funcPm.addPass(createStencilShufflePass());
+  // funcPm.addPass(createStencilShufflePass());
   funcPm.addPass(createStencilSchedulePass());
 }
 
@@ -195,7 +407,6 @@ void stencil::createStencilScheduleOnlyPipeline(OpPassManager &pm) {
 // - 19(6)
 // - 20(4)
 // - 21(1)
-
 
 // OLD SCHEDULING
 // void StencilSchedulePass::runOnOperation() {
@@ -291,7 +502,7 @@ void stencil::createStencilScheduleOnlyPipeline(OpPassManager &pm) {
 //       auto &buckets = accessOps[maxValue].begin()->second;
 //       for(auto op : buckets[maxIdx].second) {
 //         auto clonedOp = cloneOperation(builder, op);
-//         updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);        
+//         updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
 //       }
 //       // Erase the bucket from the bucket data structure
 //       buckets.erase(buckets.begin() + maxIdx);
@@ -311,8 +522,10 @@ void stencil::createStencilScheduleOnlyPipeline(OpPassManager &pm) {
 //     //   for(auto index : value.getSecond()) {
 //     //     llvm::outs() << "    -> " << index.first << "\n";
 //     //     for(auto bucket : index.second) {
-//     //       llvm::outs() << "    -> " << bucket.first[0] << "," << bucket.first[1] << "," << bucket.first[2] << "\n";
-//     //       llvm::outs() << "    -> bucket size " << bucket.second.size() << "\n";
+//     //       llvm::outs() << "    -> " << bucket.first[0] << "," <<
+//     bucket.first[1] << "," << bucket.first[2] << "\n";
+//     //       llvm::outs() << "    -> bucket size " << bucket.second.size() <<
+//     "\n";
 //     //       for(auto op : bucket.second)
 //     //         llvm::outs() << "    -> " << op << "\n";
 //     //     }
