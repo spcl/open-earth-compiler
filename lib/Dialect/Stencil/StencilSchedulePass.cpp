@@ -47,7 +47,7 @@ Operation *cloneOperation(OpBuilder &builder, Operation *op) {
   return clonedOp;
 }
 
-// Compute the
+// Compute the average unroll offset
 float getAverageOffset(std::vector<Operation *> &accessOps) {
   float result = 0.0f;
   for (auto accessOp : accessOps) {
@@ -55,6 +55,24 @@ float getAverageOffset(std::vector<Operation *> &accessOps) {
                   .getOffset()[stencil::kUnrollDimension];
   }
   return result / (float)accessOps.size();
+}
+
+// Compute the life value reduction
+int64_t getLifeValueReduction(Operation *op,
+                              const std::vector<Operation *> &remainingOps,
+                              const llvm::DenseSet<Value> &lifeValues) {
+  // Check if there is a life value
+  llvm::DenseSet<Value> remainingValues;
+  for (auto remainingOp : remainingOps) {
+    if (remainingOp != op) {
+      for (auto operand : remainingOp->getOperands()) {
+        if (lifeValues.count(operand) == 1 &&
+            remainingValues.count(operand) == 0)
+          remainingValues.insert(operand);
+      }
+    }
+  }
+  return (int64_t)remainingValues.size() - (int64_t)lifeValues.size();
 }
 
 // Compute the distance for all operands (L2-norm)
@@ -93,51 +111,31 @@ getReadyOps(const std::vector<Operation *> &remainingOps,
 }
 
 // Helper method picking the next op with maximal locality
-Operation *getOpWithMaxLoc(const std::vector<Operation *> &remainingOps,
-                           std::vector<Operation *> &scheduledOps,
-                           const llvm::DenseSet<Value> &lifeValues) {
+Operation *getNextOp(const std::vector<Operation *> &remainingOps,
+                     std::vector<Operation *> &scheduledOps,
+                     const llvm::DenseSet<Value> &lifeValues) {
   Operation *result = nullptr;
   // Compute the candidates and pick the one that maximizes locality
   auto candidates = getReadyOps(remainingOps, lifeValues);
+  int64_t minRed = std::numeric_limits<int64_t>::max();
   double minDist = std::numeric_limits<float>::max();
   for (auto candidate : candidates) {
+    int64_t candidateRed =
+        getLifeValueReduction(candidate, remainingOps, lifeValues);
     float candidateDist =
         getReuseDistance(candidate->getOperands(), scheduledOps);
-    if (candidateDist < minDist) {
+    if (candidateRed < minRed) {
+      minRed = candidateRed;
+      minDist = candidateDist;
+      result = candidate;
+    }
+    if (candidateRed == minRed && candidateDist < minDist) {
       minDist = candidateDist;
       result = candidate;
     }
   }
   return result;
 }
-
-// // Helper method picking the next operation to schedule
-// Operation *getNextReadyOp(const std::vector<Operation *> &remainingOps,
-//                           const llvm::DenseSet<Value> &lifeValues) {
-//   // Select remaining op if all parameters are life
-//   for (auto remainingOp : remainingOps) {
-//     if (llvm::all_of(remainingOp->getOperands(), [&](Value value) {
-//           return lifeValues.count(value) != 0;
-//         })) {
-//       return remainingOp;
-//     }
-//   }
-//   return nullptr;
-// }
-
-// // Helper method to count the number of ready ops
-// unsigned countReadyOps(const std::vector<Operation *> &remainingOps,
-//                        const llvm::DenseSet<Value> &lifeValues) {
-//   unsigned result = 0;
-//   // Select remaining op if all parameters are life
-//   for (auto remainingOp : remainingOps) {
-//     if (llvm::all_of(remainingOp->getOperands(),
-//                      [&](Value value) { return lifeValues.count(value) != 0;
-//                      }))
-//       result++;
-//   }
-//   return result;
-// }
 
 void updateLifeValuesAndScheduledOps(llvm::DenseSet<Value> &lifeValues,
                                      std::vector<Operation *> &scheduledOps,
@@ -202,30 +200,23 @@ void StencilSchedulePass::runOnOperation() {
     // Schedule the next operation with maximal locality
     // (If multiple operations have the same )
     while (Operation *next =
-               getOpWithMaxLoc(remainingOps, scheduledOps, lifeValues)) {
+               getNextOp(remainingOps, scheduledOps, lifeValues)) {
       auto clonedOp = cloneOperation(builder, next);
       updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
       remainingOps.erase(llvm::find(remainingOps, next));
       lifeFrequencies[lifeValues.size()]++;
     }
 
-    // Schedule all arithmetic Ops that are ready for execution
-    // while (Operation *next = getNextReadyOp(remainingOps, lifeValues)) {
-    //   auto clonedOp = cloneOperation(builder, next);
-    //   updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-    //   remainingOps.erase(llvm::find(remainingOps, next));
-    //   lifeFrequencies[lifeValues.size()]++;
-    // }
-
     // Compute accessOp / arithmeticOp pairs
-    typedef std::tuple<std::vector<Operation *>, float, float> Candidate;
+    typedef std::vector<Operation *> OpList;
+    typedef std::tuple<OpList, int64_t, float, float> Candidate;
     std::vector<Candidate> candidateOps;
     for (auto remainingOp : remainingOps) {
       // Test scheduling the access op
-      std::vector<Operation *> scheduled = scheduledOps;
+      OpList scheduled = scheduledOps;
       llvm::DenseSet<Value> life = lifeValues;
       // Compute the dependencies needed to schedule the op
-      std::vector<Operation *> dependencies;
+      OpList dependencies;
       for (auto operand : remainingOp->getOperands()) {
         if (operand.getDefiningOp() &&
             !llvm::is_contained(scheduledOps, operand.getDefiningOp())) {
@@ -237,131 +228,60 @@ void StencilSchedulePass::runOnOperation() {
             return !llvm::is_contained(accessOps, op);
           }))
         continue;
-      std::sort(dependencies.begin(), dependencies.end(), [](Operation* op1, Operation* op2) {
-        return cast<stencil::AccessOp>(op1).getOffset()[stencil::kUnrollDimension] <
-              cast<stencil::AccessOp>(op2).getOffset()[stencil::kUnrollDimension];
-      });
+      std::sort(dependencies.begin(), dependencies.end(),
+                [](Operation *op1, Operation *op2) {
+                  return cast<stencil::AccessOp>(op1)
+                             .getOffset()[stencil::kUnrollDimension] <
+                         cast<stencil::AccessOp>(op2)
+                             .getOffset()[stencil::kUnrollDimension];
+                });
       // Test schedule the access dependencies
       for (auto dependency : dependencies) {
         scheduled.push_back(dependency);
         life.insert(dependency->getResult(0));
       }
       // Get the next operation
-      Operation *next = getOpWithMaxLoc(remainingOps, scheduled, life);
+      Operation *next = getNextOp(remainingOps, scheduled, life);
       if (next) {
-        float reuseDistance = getReuseDistance(next->getOperands(), scheduled);
+        int64_t lifeValueReduction =
+            getLifeValueReduction(next, remainingOps, lifeValues);
         float unrollOffset = getAverageOffset(dependencies);
-        candidateOps.push_back(
-            std::make_tuple(dependencies, unrollOffset, reuseDistance));
+        float reuseDistance = getReuseDistance(next->getOperands(), scheduled);
+        candidateOps.push_back(std::make_tuple(dependencies, lifeValueReduction,
+                                               reuseDistance, unrollOffset));
       }
     }
 
     // TODO consider reduction of life values!!!
-    
+
     // Sort the access op candidates
     // pick the one with minimal unroll index
     std::sort(candidateOps.begin(), candidateOps.end(),
               [](Candidate x, Candidate y) {
                 return std::get<1>(x) < std::get<1>(y) ||
                        (std::get<1>(x) == std::get<1>(y) &&
-                        std::get<2>(x) < std::get<2>(y));
+                        std::get<3>(x) < std::get<3>(y));
+                      //    ||
+                      //  (std::get<1>(x) == std::get<1>(y) &&
+                      //   std::get<2>(x) == std::get<2>(y) &&
+                      //   std::get<3>(x) < std::get<3>(y));
               });
 
-    // // print the candidates
+    // print the candidates
     // llvm::outs() << "candidates : \n";
     // for (auto candidateOp : candidateOps)
-    //   llvm::outs() << " - op loc "
-    //                << std::get<1>(candidateOp) << " off "
-    //                << std::get<2>(candidateOp) << "\n";
+    //   llvm::outs() << " - cand " << std::get<1>(candidateOp) << " - "
+    //                << std::get<2>(candidateOp) << " - "
+    //                << std::get<3>(candidateOp) << "\n";
 
     if (!candidateOps.empty()) {
-      for(auto candidateOp : std::get<0>(candidateOps.front())) {
+      for (auto candidateOp : std::get<0>(candidateOps.front())) {
         auto clonedOp = cloneOperation(builder, candidateOp);
         updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
         accessOps.erase(llvm::find(accessOps, candidateOp));
         lifeFrequencies[lifeValues.size()]++;
       }
     }
-
-    // // Compute list of operands needed to get ops ready
-    // llvm::DenseSet<Value> candidateValues;
-    // llvm::DenseSet<Operation *> predecessorOps;
-    // for (auto remainingOp : remainingOps) {
-    //   if (llvm::none_of(remainingOp->getOperands(), [&](Value value) {
-    //         return predecessorOps.count(value.getDefiningOp()) != 0;
-    //       })) {
-    //     for (auto operand : remainingOp->getOperands()) {
-    //       candidateValues.insert(operand);
-    //     }
-    //   }
-    //   // Keep track of earlier operations
-    //   predecessorOps.insert(remainingOp);
-    // }
-
-    // // Compute list of operands needed to get ops ready
-    // llvm::DenseSet<Value> candidateValues;
-    // llvm::DenseSet<Operation *> predecessorOps;
-    // for (auto remainingOp : remainingOps) {
-    //   if (llvm::none_of(remainingOp->getOperands(), [&](Value value) {
-    //         return predecessorOps.count(value.getDefiningOp()) != 0;
-    //       })) {
-    //     for (auto operand : remainingOp->getOperands()) {
-    //       candidateValues.insert(operand);
-    //     }
-    //   }
-    //   // Keep track of earlier operations
-    //   predecessorOps.insert(remainingOp);
-    // }
-
-    // Consider locality of the remaining op
-    // Consider unroll coordinate
-    // (if similar locality choose min coordinate)
-
-    // Consider Locality
-    // TODO sort by locality & then j-index
-
-    // Local  ops
-
-    // std::vector<stencil::AccessOp> candidates;
-    // for (auto it = accessOps.begin(); it != accessOps.end(); ++it) {
-    //   if (candidateValues.count((*it)->getResult(0)) != 0) {
-    //     candidates.push_back(cast<stencil::AccessOp>(*it));
-    //   }
-
-    //   // if(llvm::is_contained(remainingOps.front()->getOperands(),
-    //   // (*it)->getResult(0))) {
-    //   //   auto clonedOp = cloneOperation(builder, *it);
-    //   //   updateLifeValuesAndScheduledOps(lifeValues, scheduledOps,
-    //   clonedOp);
-    //   //   accessOps.erase(it);
-    //   //   lifeFrequencies[lifeValues.size()]++;
-    //   //   break;
-    //   // }
-    // }
-    // // pick the one with minimal unroll index
-    // std::sort(candidates.begin(), candidates.end(),
-    //           [](stencil::AccessOp x, stencil::AccessOp y) {
-    //             return x.getOffset()[stencil::kUnrollDimension] <
-    //                    y.getOffset()[stencil::kUnrollDimension];
-    //           });
-
-    // schedule local computation
-    // TODO
-    // (if there is nothing go choose the next bulk of work purely by j index)
-
-    // for (auto candidate : candidates)
-    //   llvm::outs() << candidate.getOffset()[stencil::kUnrollDimension] << ",
-    //   ";
-    // llvm::outs() << "\n";
-
-    // if (!candidates.empty()) {
-    //   auto clonedOp =
-    //       cloneOperation(builder, candidates.front().getOperation());
-    //   updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-    //   accessOps.erase(llvm::find(accessOps,
-    //   candidates.front().getOperation()));
-    //   lifeFrequencies[lifeValues.size()]++;
-    // }
   }
 
   // Print the top5 life value frequencies
@@ -381,8 +301,8 @@ stencil::createStencilSchedulePass() {
 void stencil::createStencilSchedulePipeline(OpPassManager &pm) {
   auto &funcPm = pm.nest<FuncOp>();
   // funcPm.addPass(createStencilPreShufflePass());
-  funcPm.addPass(createStencilShufflePass());
-  funcPm.addPass(createStencilPostShufflePass());
+  //funcPm.addPass(createStencilShufflePass());
+  //funcPm.addPass(createStencilPostShufflePass());
   funcPm.addPass(createStencilSchedulePass());
 }
 
