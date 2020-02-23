@@ -160,7 +160,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                                     stencil::ApplyOp consumerOp,
                                     ValueRange producerResults,
                                     PatternRewriter &rewriter) const {
-    // Compute the operand list and an argument mapper befor cloning
+    // Compute the operand list and an argument mapper before cloning
     BlockAndValueMapping mapper;
     SmallVector<Value, 10> newOperands;
     for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
