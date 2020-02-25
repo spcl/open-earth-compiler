@@ -76,9 +76,9 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
         auto it = llvm::find(newOperands, result);
         size_t index =
             std::distance(newOperands.begin(), llvm::find(newOperands, result));
+        SmallVector<int64_t, 3> zeroOffset = {0, 0, 0};
         auto accessOp = rewriter.create<stencil::AccessOp>(
-            loc, newOp.getBody()->getArgument(index),
-            llvm::makeArrayRef<int64_t>({0, 0, 0}));
+            loc, newOp.getBody()->getArgument(index), zeroOffset);
         returnOperands.push_back(accessOp.getResult());
       }
     }
