@@ -7,6 +7,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
@@ -21,6 +22,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CodeGen.h"
@@ -155,15 +157,93 @@ Operation *cloneOperation(OpBuilder &builder, Operation *op) {
   return clonedOp;
 }
 
+bool compareOperations(Operation *op1, Operation *op2) {
+  // Sort by view first
+  auto view1 = cast<stencil::AccessOp>(op1).getOperand().getAsOpaquePointer();
+  auto view2 = cast<stencil::AccessOp>(op2).getOperand().getAsOpaquePointer();
+  if (view1 == view2) {
+    // Sort by offset otherwise
+    SmallVector<int64_t, 3> offset1 = cast<stencil::AccessOp>(op1).getOffset();
+    SmallVector<int64_t, 3> offset2 = cast<stencil::AccessOp>(op2).getOffset();
+    return (offset1[stencil::kUnrollDimension] <
+            offset2[stencil::kUnrollDimension]) ||
+           (offset1[stencil::kUnrollDimension] ==
+                offset2[stencil::kUnrollDimension] &&
+            offset1[stencil::kKDimension] < offset2[stencil::kKDimension]) ||
+           (offset1[stencil::kUnrollDimension] ==
+                offset2[stencil::kUnrollDimension] &&
+            offset1[stencil::kKDimension] == offset2[stencil::kKDimension] &&
+            offset1[stencil::kVectorDimension] <
+                offset2[stencil::kVectorDimension]);
+  }
+  return view1 < view2;
+};
+
+// Helper that follows all dependencies down to the access offsets
+void collectAccessPattern(Operation *op,
+                          SmallVector<Operation *, 20> &accessOps) {
+  if (auto accessOp = dyn_cast_or_null<stencil::AccessOp>(op)) {
+    accessOps.push_back(op);
+  } else {
+    for (auto operand : op->getOperands()) {
+      collectAccessPattern(operand.getDefiningOp(), accessOps);
+    }
+  }
+}
+
+bool arePatternEqual(SmallVector<Operation *, 20> &pattern1,
+                     SmallVector<Operation *, 20> &pattern2) {
+  // Check they have the same size
+  if (pattern1.size() != pattern2.size())
+    return false;
+  // Check they access the same field
+  if (!llvm::all_of(
+          llvm::zip(pattern1, pattern2),
+          [](std::tuple<Operation *, Operation *> x) {
+            return std::get<0>(x)->getOperand(0).getAsOpaquePointer() ==
+                   std::get<1>(x)->getOperand(0).getAsOpaquePointer();
+          }))
+    return false;
+  // Compute the access offsets
+  if (pattern1.empty())
+    return false;
+  // Compute the shift for the first access
+  auto computeShift = [](Operation *op1, Operation *op2) {
+    SmallVector<int64_t, 3> result;
+    auto offset1 = cast<stencil::AccessOp>(op1).getOffset();
+    auto offset2 = cast<stencil::AccessOp>(op2).getOffset();
+    llvm::transform(llvm::zip(offset1, offset2), result.begin(),
+                    [](std::tuple<int64_t, int64_t> x) {
+                      return std::get<1>(x) - std::get<0>(x);
+                    });
+    return result;
+  };
+  SmallVector<int64_t, 3> shift = computeShift(pattern1[0], pattern2[0]);
+  return llvm::all_of(llvm::zip(pattern1, pattern2),
+                      [&](std::tuple<Operation *, Operation *> x) {
+                        return shift ==
+                               computeShift(std::get<0>(x), std::get<1>(x));
+                      });
+};
+
 // Class holding dependent one use operations
-struct OneUseBucket {
+struct Bucket {
   SmallVector<Operation *, 10> producerOps;
   SmallVector<Operation *, 10> constantOps;
   SmallVector<Operation *, 10> accessOps;
-  SmallVector<Operation *, 20> arithmeticOps;
-  Operation *resultOp;
-  int64_t minimalOffset;
+  SmallVector<Operation *, 20> internalOps;
+  Operation *rootOp;
+  int64_t minOffset;
 };
+
+// Helper method generating a bucket given the root operation
+Bucket createBucket(Operation *op) {
+  Bucket bucket = {};
+  bucket.internalOps = {op};
+  bucket.rootOp = op;
+  bucket.minOffset = std::numeric_limits<int64_t>::max();
+  return bucket;
+}
 
 struct StencilSchedulePass
     : public OperationPass<StencilSchedulePass, stencil::ApplyOp> {
@@ -192,27 +272,19 @@ void StencilSchedulePass::runOnOperation() {
   });
 
   // Initialize the one use buckets
-  std::vector<OneUseBucket> buckets;
-  for (auto remainingOp : remainingOps) {
-    if (!remainingOp->hasOneUse()) {
-      OneUseBucket bucket = {};
-      bucket.arithmeticOps = {remainingOp};
-      bucket.resultOp = remainingOp;
-      bucket.minimalOffset = std::numeric_limits<int64_t>::max();
-      buckets.push_back(bucket);
-    }
-  }
+  assert(dyn_cast<stencil::ReturnOp>(remainingOps.back()) &&
+         "expected stencil return op");
+  std::vector<Bucket> buckets = {createBucket(remainingOps.back())};
 
   // Fill the buckets
-  for (auto &bucket : buckets) {
+  for (unsigned i = 0; i < buckets.size(); ++i) {
     // Add dependencies level by level
-    llvm::DenseSet<Operation *> currentLevel = {bucket.resultOp};
-    llvm::DenseSet<Operation *> nextLevel; 
-    SmallVector<Operation *, 10> additionalOps = {};
+    SmallVector<Operation *, 10> currentLevel = {buckets[i].rootOp};
+    SmallVector<Operation *, 10> internalOps = {};
     do {
       // Clear collections
-      additionalOps.clear();
-      nextLevel.clear();
+      internalOps.clear();
+      llvm::DenseSet<Operation *> nextLevel;
       // Compute the next level
       for (auto op : currentLevel) {
         for (auto operand : op->getOperands()) {
@@ -220,97 +292,177 @@ void StencilSchedulePass::runOnOperation() {
             nextLevel.insert(operand.getDefiningOp());
         }
       }
+
       // Store the current level
       for (auto op : nextLevel) {
         if (isa<ConstantOp>(op)) {
-          bucket.constantOps.push_back(op);
+          buckets[i].constantOps.push_back(op);
           continue;
         }
         if (isa<stencil::AccessOp>(op)) {
-          bucket.accessOps.push_back(op);
+          buckets[i].accessOps.push_back(op);
           continue;
         }
         if (!op->hasOneUse()) {
-          bucket.producerOps.push_back(op);
+          buckets[i].producerOps.push_back(op);
+          if (llvm::none_of(buckets, [&op](Bucket &bucket) {
+                return bucket.rootOp == op;
+              })) {
+            buckets.push_back(createBucket(op));
+          }
           continue;
         }
-        additionalOps.push_back(op);
+        internalOps.push_back(op);
       }
+
+      // Check if there are stencils in the next level
+      llvm::DenseMap<Operation *, SmallVector<Operation *, 20>> accessPatterns;
+      // Compute all access patterns
+      for (auto internalOp : internalOps) {
+        SmallVector<Operation *, 20> accessOps;
+        collectAccessPattern(internalOp, accessOps);
+        std::sort(accessOps.begin(), accessOps.end());
+        auto it = std::unique(accessOps.begin(), accessOps.end());
+        accessOps.erase(it, accessOps.end());
+        std::sort(accessOps.begin(), accessOps.end(), compareOperations);
+        accessPatterns[internalOp] = accessOps;
+      }
+      // Search for equal patterns and make them producer ops
+      SmallVector<Operation *, 10> equalOps;
+      do {
+        equalOps.clear();
+        for (int64_t i1 = 0; i1 < (int64_t)internalOps.size() - 1; ++i1) {
+          equalOps.clear();
+          for (int64_t i2 = i1 + 1; i2 < (int64_t)internalOps.size(); ++i2) {
+            if (arePatternEqual(accessPatterns[internalOps[i1]],
+                                accessPatterns[internalOps[i2]]))
+              equalOps.push_back(internalOps[i2]);
+          }
+          // Update the additional ops
+          if (!equalOps.empty()) {
+            equalOps.push_back(internalOps[i1]);
+            for (auto equalOp : equalOps) {
+              buckets[i].producerOps.push_back(equalOp);
+              if (llvm::none_of(buckets, [&equalOp](Bucket &bucket) {
+                    return bucket.rootOp == equalOp;
+                  })) {
+                buckets.push_back(createBucket(equalOp));
+              }
+              auto it = llvm::find(internalOps, equalOp);
+              internalOps.erase(it);
+            }
+            break;
+          }
+        }
+      } while (!equalOps.empty());
+
       // Add the arithmetic ops
-      bucket.arithmeticOps.insert(bucket.arithmeticOps.begin(),
-                                  additionalOps.begin(), additionalOps.end());
+      buckets[i].internalOps.insert(buckets[i].internalOps.begin(),
+                                    internalOps.begin(), internalOps.end());
       // Update the current level
-      currentLevel.clear();
-      currentLevel.insert(additionalOps.begin(), additionalOps.end());
-    } while (!additionalOps.empty());
+      currentLevel = internalOps;
+    } while (!internalOps.empty());
+
     // Compute the minimal offset
-    for (auto accessOp : bucket.accessOps) {
-      bucket.minimalOffset = std::min(
-          bucket.minimalOffset, cast<stencil::AccessOp>(accessOp)
+    for (auto accessOp : buckets[i].accessOps) {
+      buckets[i].minOffset = std::min(
+          buckets[i].minOffset, cast<stencil::AccessOp>(accessOp)
                                     .getOffset()[stencil::kUnrollDimension]);
     }
+    // Sort the access ops
+    std::sort(buckets[i].accessOps.begin(), buckets[i].accessOps.end(),
+              compareOperations);
 
     // llvm::errs() << "- bucket\n";
-    // llvm::errs() << "  -> accessOps" << bucket.accessOps.size() << "\n";
-    // llvm::errs() << "  -> constantOps" << bucket.constantOps.size() << "\n";
-    // llvm::errs() << "  -> arithmeticOps" << bucket.arithmeticOps.size() << "\n";
-    // llvm::errs() << "  -> producerOps" << bucket.producerOps.size() << "\n";
+    // llvm::errs() << "  -> accessOps" << buckets[i].accessOps.size() << "\n";
+    // llvm::errs() << "  -> constantOps" << buckets[i].constantOps.size() <<
+    // "\n"; llvm::errs() << "  -> internalOps" << buckets[i].internalOps.size()
+    // << "\n"; llvm::errs() << "  -> producerOps" <<
+    // buckets[i].producerOps.size() << "\n";
   }
 
   // Clone operation by operation
   OpBuilder builder(applyOp.getBody());
 
   // Keep scheduling operations
-  //llvm::DenseSet<Value> lifeValues;
-  llvm::DenseSet<Operation*> scheduledOps;
-  //std::map<size_t, unsigned> lifeFrequencies;
+  llvm::DenseSet<Operation *> scheduledOps;
   // Schedule all constants
   for (auto constantOp : constantOps) {
     auto clonedOp = cloneOperation(builder, constantOp);
     scheduledOps.insert(constantOp);
-
-    //updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-    //lifeFrequencies[lifeValues.size()]++;
   }
 
-  // Schedule all buckets
-  for (auto &bucket : buckets) {
-    // Schedule the access ops
+  // Schedule all buckets by offset
+  // while (!buckets.empty()) {
+  //   // Find the bucket with the minimal offset
+  //   int64_t minOffset = std::numeric_limits<int64_t>::max();
+  //   std::vector<Bucket>::iterator minIt;
+  //   for (auto it = buckets.begin(); it != buckets.end(); ++it) {
+  //     if (it->minOffset <= minOffset &&
+  //         llvm::all_of(it->producerOps, [&](Operation *op) {
+  //           return scheduledOps.count(op) != 0;
+  //         })) {
+  //       minOffset = it->minOffset;
+  //       minIt = it;
+  //     }
+  //   }
+
+  //   // Schedule the actual bucket
+  //   for (auto accessOp : minIt->accessOps) {
+  //     if (scheduledOps.count(accessOp) == 0) {
+  //       auto clonedOp = cloneOperation(builder, accessOp);
+  //       scheduledOps.insert(accessOp);
+  //     }
+  //   }
+  //   for (auto internalOp : minIt->internalOps) {
+  //     auto clonedOp = cloneOperation(builder, internalOp);
+  //     scheduledOps.insert(internalOp);
+  //   }
+
+  //   // Erase the scheduled bucket
+  //   buckets.erase(minIt);
+  // }
+
+  // Compute scheduling order
+  std::vector<Bucket> orderedBuckets;
+  llvm::DenseSet<Operation *> alreadyProduced;
+  while (!buckets.empty()) {
+    auto &next = buckets.back();
+    // Check all producerers are already in the orderedBuckets
+    if (llvm::all_of(next.producerOps, [&alreadyProduced](Operation *op) {
+          return alreadyProduced.count(op) != 0;
+        })) {
+      orderedBuckets.push_back(next);
+      alreadyProduced.insert(next.rootOp);
+      buckets.pop_back();
+    } else {
+      // Schedule necessary producer
+      auto rIt = llvm::find_if(next.producerOps, [&](Operation *op) {
+        return alreadyProduced.count(op) == 0;
+      });
+      assert(rIt != next.producerOps.end() && "expected to find unsatisfied dependency");
+      auto bIt = llvm::find_if(
+          buckets, [&](Bucket &bucket) { return bucket.rootOp == *rIt; });
+      assert(bIt != buckets.end() && "expected to find producer bucket");
+      auto bucket = *bIt;
+      buckets.erase(bIt);
+      buckets.push_back(bucket);
+    }
+  }
+
+  for (auto &bucket : orderedBuckets) {
+    // Schedule the actual bucket
     for (auto accessOp : bucket.accessOps) {
-      //llvm::errs() << "accessOp " << accessOp << "\n";
       if (scheduledOps.count(accessOp) == 0) {
         auto clonedOp = cloneOperation(builder, accessOp);
-        //llvm::errs() << "clonedOp " << clonedOp << "\n";
         scheduledOps.insert(accessOp);
-        // updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-        // lifeFrequencies[lifeValues.size()]++;
-        //llvm::errs() << "cloning\n";
       }
     }
-
-    // ASSERT all poducers
-    // (alread scheduled...)
-    // for(auto producerOp : bucket.producerOps) {
-    //   assert(scheduledOps.count(producerOp) != 0 && "expect producerOp to be scheduled");
-    // }
-    // for(auto accessOp : bucket.accessOps) {
-    //   llvm::errs() << "asserting accessOp " << accessOp << "\n";
-    //   assert(scheduledOps.count(accessOp) != 0 && "expect accessOp to be scheduled");
-    // }
-
-    // Schedule the access ops
-    for (auto arithmeticOp : bucket.arithmeticOps) {
-      auto clonedOp = cloneOperation(builder, arithmeticOp);
-      scheduledOps.insert(arithmeticOp);
-
-      // updateLifeValuesAndScheduledOps(lifeValues, scheduledOps, clonedOp);
-      // lifeFrequencies[lifeValues.size()]++;
-
-      //llvm::outs() << "// life values " << lifeValues.size() << "\n";
+    for (auto internalOp : bucket.internalOps) {
+      auto clonedOp = cloneOperation(builder, internalOp);
+      scheduledOps.insert(internalOp);
     }
   }
-
-  //TODO order the stuff properly
 
   //applyOp.dump();
 
@@ -363,8 +515,8 @@ stencil::createStencilSchedulePass() {
 void stencil::createStencilSchedulePipeline(OpPassManager &pm) {
   auto &funcPm = pm.nest<FuncOp>();
   // funcPm.addPass(createStencilPreShufflePass());
-  // funcPm.addPass(createStencilShufflePass());
-  // funcPm.addPass(createStencilPostShufflePass());
+  funcPm.addPass(createStencilShufflePass());
+  funcPm.addPass(createStencilPostShufflePass());
   funcPm.addPass(createStencilSchedulePass());
 }
 
