@@ -24,6 +24,7 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
                      .concat(buffer)
                      .concat("]"));
 }
+} // namespace
 
 #define RETURN_ON_CUDA_ERROR(expr, msg)                                        \
   {                                                                            \
@@ -34,8 +35,8 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
     }                                                                          \
   }
 
-OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
-                             StringRef name) {
+OwnedCubin stencil::compilePtxToCubin(const std::string &ptx, Location loc,
+                                      StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
   RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
@@ -81,16 +82,4 @@ OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
   RETURN_ON_CUDA_ERROR(cuLinkDestroy(linkState), "cuLinkDestroy");
 
   return result;
-}
-
-} // namespace
-
-void mlir::stencil::createGPUToCubinPipeline(OpPassManager &pm) {
-  pm.addPass(createGpuKernelOutliningPass());
-  auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
-  kernelPm.addPass(createStripDebugInfoPass());
-  kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-  kernelPm.addPass(stencil::createIndexOptimizationPass());
-  kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
-  pm.addPass(createLowerToLLVMPass(false, false, true));  
 }

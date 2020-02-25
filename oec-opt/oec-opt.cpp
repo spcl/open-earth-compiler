@@ -24,6 +24,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/Analysis/Passes.h"
+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/Pass.h"
@@ -106,6 +107,20 @@ int main(int argc, char **argv) {
                             splitInputFile, verifyDiagnostics, verifyPasses));
 }
 
+namespace {
+// Declare all pipelines
+void createGPUToCubinPipeline(OpPassManager &pm) {
+  pm.addPass(createGpuKernelOutliningPass());
+  auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
+  kernelPm.addPass(createStripDebugInfoPass());
+  kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
+  kernelPm.addPass(stencil::createIndexOptimizationPass());
+  kernelPm.addPass(
+      createConvertGPUKernelToCubinPass(&stencil::compilePtxToCubin));
+  pm.addPass(createLowerToLLVMPass(false, false, true));
+}
+} // namespace
+
 static PassPipelineRegistration<>
     pipeline("stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
-             stencil::createGPUToCubinPipeline);
+             createGPUToCubinPipeline);

@@ -1,7 +1,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
@@ -267,7 +267,7 @@ void StencilInliningPass::runOnFunction() {
   OwningRewritePatternList patterns;
   patterns.insert<InliningRewrite, RerouteRewrite>(&getContext());
   applyPatternsGreedily(funcOp, patterns);
-} 
+}
 
 } // namespace
 

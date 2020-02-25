@@ -2,7 +2,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
@@ -135,7 +135,8 @@ void IndexOptimizationPass::runOnOperation() {
 
 } // namespace
 
-std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>> mlir::stencil::createIndexOptimizationPass() {
+std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>>
+mlir::stencil::createIndexOptimizationPass() {
   return std::make_unique<IndexOptimizationPass>();
 }
 

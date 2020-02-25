@@ -3,6 +3,7 @@ set(LLVM_OPTIONAL_SOURCES
 )
 
 set(LIBS
+  MLIRLoopOpsTransforms
   MLIRLoopAnalysis
   MLIRAnalysis
   MLIRAffineOps
@@ -19,6 +20,7 @@ set(LIBS
   MLIRGPUtoNVVMTransforms
   MLIRGPUtoROCDLTransforms
   MLIRGPUtoSPIRVTransforms
+  MLIRGPUtoVulkanTransforms
   MLIRLinalgOps
   MLIRLinalgAnalysis
   MLIRLinalgEDSC
@@ -45,11 +47,16 @@ set(LIBS
   MLIRStandardToLLVM
   MLIRTransforms
   MLIRTransformUtils
+  MLIRTestDialect
+  MLIRTestIR
+  MLIRTestPass
+  MLIRTestTransforms
   MLIRSupport
   MLIRVectorOps
   MLIRVectorToLLVM
   MLIRVectorToLoops
   MLIRIR
+  MLIROptLib
   LLVMSupport
   LLVMCore
   LLVMAsmParser
