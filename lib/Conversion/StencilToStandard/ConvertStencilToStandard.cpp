@@ -313,6 +313,10 @@ public:
 
     // Replace the return op by store ops
     for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
+      rewriter.setInsertionPoint(returnOp);
+      auto definingOp = returnOp.getOperand(i).getDefiningOp();
+      if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
+        rewriter.setInsertionPointAfter(definingOp);
       rewriter.create<StoreOp>(loc, returnOp.getOperand(i), allocVals[i],
                                loopIVs);
     }
@@ -382,20 +386,23 @@ public:
     SmallVector<Attribute, 4> attrs;
     attrs.reserve(loop.getNumInductionVars());
     for (int i = 0, e = loop.getNumInductionVars(); i < e; ++i) {
-      assert(loop.getNumInductionVars() == 3 && "expected three-dimensional loop nest");
+      assert(loop.getNumInductionVars() == 3 &&
+             "expected three-dimensional loop nest");
       // Map the last loop next to threads
       int64_t mapping = i == 0 ? 3 : i - 1;
       SmallVector<NamedAttribute, 3> entries;
       entries.emplace_back(rewriter.getNamedAttr(
-          gpu::kProcessorEntryName,
-          rewriter.getI64IntegerAttr(mapping)));
+          gpu::kProcessorEntryName, rewriter.getI64IntegerAttr(mapping)));
       entries.emplace_back(rewriter.getNamedAttr(
-          gpu::kIndexMapEntryName, AffineMapAttr::get(rewriter.getDimIdentityMap())));
+          gpu::kIndexMapEntryName,
+          AffineMapAttr::get(rewriter.getDimIdentityMap())));
       entries.emplace_back(rewriter.getNamedAttr(
-          gpu::kBoundMapEntryName, AffineMapAttr::get(rewriter.getDimIdentityMap())));
+          gpu::kBoundMapEntryName,
+          AffineMapAttr::get(rewriter.getDimIdentityMap())));
       attrs.push_back(DictionaryAttr::get(entries, rewriter.getContext()));
     }
-    loop.setAttr(gpu::kMappingAttributeName, ArrayAttr::get(attrs, rewriter.getContext()));
+    loop.setAttr(gpu::kMappingAttributeName,
+                 ArrayAttr::get(attrs, rewriter.getContext()));
 
     // Forward the apply operands and copy the body
     rewriter.setInsertionPointToStart(loop.getBody());
