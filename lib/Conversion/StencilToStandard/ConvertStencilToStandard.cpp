@@ -4,6 +4,8 @@
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
+#include "mlir/Dialect/GPU/ParallelLoopMapper.h"
+#include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -35,17 +37,6 @@ using namespace mlir;
 
 namespace {
 
-// Helper method getting the parent loop nest
-SmallVector<AffineForOp, 3> getLoopNest(Operation *operation) {
-  SmallVector<AffineForOp, 3> result;
-  Operation *current = operation;
-  while (AffineForOp loop = current->getParentOfType<AffineForOp>()) {
-    current = loop.getOperation();
-    result.push_back(loop);
-  }
-  return result;
-}
-
 // Helper method to check if lower bound is zero
 bool isZero(ArrayRef<int64_t> offset) {
   return llvm::all_of(offset, [](int64_t x) {
@@ -55,10 +46,10 @@ bool isZero(ArrayRef<int64_t> offset) {
 
 // Helper to filter ignored dimensions
 SmallVector<int64_t, 3> filterIgnoredDimensions(ArrayRef<int64_t> offset) {
-  SmallVector<int64_t, 3> filtered(llvm::make_range(offset.begin(), offset.end()));
-  llvm::erase_if(filtered, [](int64_t x) {
-    return x == stencil::kIgnoreDimension;
-  });
+  SmallVector<int64_t, 3> filtered(
+      llvm::make_range(offset.begin(), offset.end()));
+  llvm::erase_if(filtered,
+                 [](int64_t x) { return x == stencil::kIgnoreDimension; });
   return filtered;
 }
 
@@ -294,18 +285,22 @@ public:
     auto loc = operation->getLoc();
     auto returnOp = cast<stencil::ReturnOp>(operation);
 
-    // Get the affine loops
-    SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
-    SmallVector<Value, 3> loopIVs(loops.size(), nullptr);
-    llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
-      return affineForOp.getInductionVar();
-    });
-    if (loops.empty())
+    // Get the parallel loop
+    if (!isa<loop::ParallelOp>(operation->getParentOp()))
       return matchFailure();
+    auto loop = cast<loop::ParallelOp>(operation->getParentOp());
+    SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
+    llvm::transform(loop.getInductionVars(), loopIVs.begin(),
+                    [](BlockArgument blockArg) { return blockArg; });
 
     // Get temporary buffers
     SmallVector<Operation *, 10> allocOps;
-    Operation *currentOp = loops.back().getOperation();
+    Operation *currentOp = loop.getOperation();
+    // Skip the loop constants
+    while (isa<ConstantOp>(currentOp->getPrevNode())) {
+      currentOp = currentOp->getPrevNode();
+      assert(currentOp && "failed to find allocation for results");
+    }
     for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
       currentOp = currentOp->getPrevNode();
       allocOps.push_back(currentOp);
@@ -318,8 +313,8 @@ public:
 
     // Replace the return op by store ops
     for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
-      rewriter.create<AffineStoreOp>(loc, returnOp.getOperand(i), allocVals[i],
-                                     loopIVs);
+      rewriter.create<StoreOp>(loc, returnOp.getOperand(i), allocVals[i],
+                               loopIVs);
     }
     rewriter.eraseOp(operation);
     return matchSuccess();
@@ -371,12 +366,39 @@ public:
     // Generate the apply loop nest
     auto upper = applyOp.getUB();
     assert(upper.size() >= 1 && "expected bounds to at least one dimension");
+    auto zero = rewriter.create<ConstantIndexOp>(loc, 0);
+    auto one = rewriter.create<ConstantIndexOp>(loc, 1);
+    SmallVector<Value, 3> lb;
+    SmallVector<Value, 3> ub;
+    SmallVector<Value, 3> steps;
     for (size_t i = 0, e = upper.size(); i != e; ++i) {
-      auto loop = rewriter.create<AffineForOp>(loc, 0, upper.rbegin()[i]);
-      rewriter.setInsertionPointToStart(loop.getBody());
+      lb.push_back(zero);
+      ub.push_back(rewriter.create<ConstantIndexOp>(loc, upper.begin()[i]));
+      steps.push_back(one);
     }
+    auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
+
+    // Setup the parallel loop mapping
+    SmallVector<Attribute, 4> attrs;
+    attrs.reserve(loop.getNumInductionVars());
+    for (int i = 0, e = loop.getNumInductionVars(); i < e; ++i) {
+      assert(loop.getNumInductionVars() == 3 && "expected three-dimensional loop nest");
+      // Map the last loop next to threads
+      int64_t mapping = i == 0 ? 3 : i - 1;
+      SmallVector<NamedAttribute, 3> entries;
+      entries.emplace_back(rewriter.getNamedAttr(
+          gpu::kProcessorEntryName,
+          rewriter.getI64IntegerAttr(mapping)));
+      entries.emplace_back(rewriter.getNamedAttr(
+          gpu::kIndexMapEntryName, AffineMapAttr::get(rewriter.getDimIdentityMap())));
+      entries.emplace_back(rewriter.getNamedAttr(
+          gpu::kBoundMapEntryName, AffineMapAttr::get(rewriter.getDimIdentityMap())));
+      attrs.push_back(DictionaryAttr::get(entries, rewriter.getContext()));
+    }
+    loop.setAttr(gpu::kMappingAttributeName, ArrayAttr::get(attrs, rewriter.getContext()));
 
     // Forward the apply operands and copy the body
+    rewriter.setInsertionPointToStart(loop.getBody());
     BlockAndValueMapping mapper;
     for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
       mapper.map(applyOp.getBody()->getArgument(i), applyOp.getOperand(i));
@@ -405,17 +427,15 @@ public:
     if (!accessOp.view().getType().isa<MemRefType>())
       return matchFailure();
 
-    // Get the affine loops
-    SmallVector<AffineForOp, 3> loops = getLoopNest(operation);
-    SmallVector<Value, 3> loopIVs(loops.size());
-    llvm::transform(loops, loopIVs.begin(), [](AffineForOp affineForOp) {
-      return affineForOp.getInductionVar();
-    });
-    if (loops.empty()) {
+    // Get the parallel loop
+    if (!isa<loop::ParallelOp>(operation->getParentOp()))
       return matchFailure();
-    }
-    assert(loops.size() == accessOp.getOffset().size() &&
+    auto loop = cast<loop::ParallelOp>(operation->getParentOp());
+    assert(loop.getNumInductionVars() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
+    SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
+    llvm::transform(loop.getInductionVars(), loopIVs.begin(),
+                    [](BlockArgument arg) { return arg; });
 
     // Compute the access offsets
     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
@@ -435,8 +455,7 @@ public:
            "expected load offset size to match memref rank");
 
     // Replace the access op by a load op
-    rewriter.replaceOpWithNewOp<AffineLoadOp>(operation, accessOp.view(),
-                                              loadOffset);
+    rewriter.replaceOpWithNewOp<LoadOp>(operation, accessOp.view(), loadOffset);
     return matchSuccess();
   }
 };
@@ -519,6 +538,7 @@ void StencilToStandardPass::runOnModule() {
   StencilToStandardTarget target(*(module.getContext()));
   target.addLegalDialect<AffineOpsDialect>();
   target.addLegalDialect<StandardOpsDialect>();
+  target.addLegalDialect<loop::LoopOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
 
