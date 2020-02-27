@@ -4,7 +4,6 @@
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
-#include "mlir/Dialect/GPU/ParallelLoopMapper.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
@@ -382,27 +381,27 @@ public:
     }
     auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
 
-    // Setup the parallel loop mapping
-    SmallVector<Attribute, 4> attrs;
-    attrs.reserve(loop.getNumInductionVars());
-    for (int i = 0, e = loop.getNumInductionVars(); i < e; ++i) {
-      assert(loop.getNumInductionVars() == 3 &&
-             "expected three-dimensional loop nest");
-      // Map the last loop next to threads
-      int64_t mapping = i == 0 ? 3 : i - 1;
-      SmallVector<NamedAttribute, 3> entries;
-      entries.emplace_back(rewriter.getNamedAttr(
-          gpu::kProcessorEntryName, rewriter.getI64IntegerAttr(mapping)));
-      entries.emplace_back(rewriter.getNamedAttr(
-          gpu::kIndexMapEntryName,
-          AffineMapAttr::get(rewriter.getDimIdentityMap())));
-      entries.emplace_back(rewriter.getNamedAttr(
-          gpu::kBoundMapEntryName,
-          AffineMapAttr::get(rewriter.getDimIdentityMap())));
-      attrs.push_back(DictionaryAttr::get(entries, rewriter.getContext()));
-    }
-    loop.setAttr(gpu::kMappingAttributeName,
-                 ArrayAttr::get(attrs, rewriter.getContext()));
+    // // Setup the parallel loop mapping
+    // SmallVector<Attribute, 4> attrs;
+    // attrs.reserve(loop.getNumInductionVars());
+    // for (int i = 0, e = loop.getNumInductionVars(); i < e; ++i) {
+    //   assert(loop.getNumInductionVars() == 3 &&
+    //          "expected three-dimensional loop nest");
+    //   // Map the last loop next to threads
+    //   int64_t mapping = i == 0 ? 3 : i - 1;
+    //   SmallVector<NamedAttribute, 3> entries;
+    //   entries.emplace_back(rewriter.getNamedAttr(
+    //       gpu::kProcessorEntryName, rewriter.getI64IntegerAttr(mapping)));
+    //   entries.emplace_back(rewriter.getNamedAttr(
+    //       gpu::kIndexMapEntryName,
+    //       AffineMapAttr::get(rewriter.getDimIdentityMap())));
+    //   entries.emplace_back(rewriter.getNamedAttr(
+    //       gpu::kBoundMapEntryName,
+    //       AffineMapAttr::get(rewriter.getDimIdentityMap())));
+    //   attrs.push_back(DictionaryAttr::get(entries, rewriter.getContext()));
+    // }
+    // loop.setAttr(gpu::kMappingAttributeName,
+    //              ArrayAttr::get(attrs, rewriter.getContext()));
 
     // Forward the apply operands and copy the body
     rewriter.setInsertionPointToStart(loop.getBody());

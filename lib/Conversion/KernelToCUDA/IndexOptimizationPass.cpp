@@ -139,6 +139,3 @@ std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>>
 mlir::stencil::createIndexOptimizationPass() {
   return std::make_unique<IndexOptimizationPass>();
 }
-
-static PassRegistration<IndexOptimizationPass>
-    pass("index-optimization", "Perform 32-bit index computation");

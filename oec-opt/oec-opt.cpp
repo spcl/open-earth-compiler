@@ -77,6 +77,7 @@ int main(int argc, char **argv) {
   stencil::createShapeShiftPass();
   stencil::createStencilInliningPass();
   stencil::createConvertStencilToStandardPass();
+  stencil::createStencilLoopMappingPass();
   stencil::createLaunchFuncToCUDACallsPass();
 
   // Initialize LLVM
