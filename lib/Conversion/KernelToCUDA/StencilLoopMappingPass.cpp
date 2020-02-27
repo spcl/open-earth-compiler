@@ -4,6 +4,7 @@
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
@@ -44,11 +45,11 @@ int64_t getConstantValue(Value val) {
 }
 
 // Helper method setting the loop mapping attributes for a parallel loop
-void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp op,
+void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
                                 int64_t mappingOffset) {
   SmallVector<Attribute, 3> attrs;
-  attrs.reserve(op.getNumInductionVars());
-  for (int i = 0, e = op.getNumInductionVars(); i < e; ++i) {
+  attrs.reserve(parallelOp.getNumInductionVars());
+  for (int i = 0, e = parallelOp.getNumInductionVars(); i < e; ++i) {
     // Map the last loop next to threads
     SmallVector<NamedAttribute, 3> entries;
     entries.emplace_back(b.getNamedAttr(
@@ -59,76 +60,109 @@ void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp op,
         gpu::kBoundMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
     attrs.push_back(DictionaryAttr::get(entries, b.getContext()));
   }
-  op.setAttr(gpu::kMappingAttributeName, ArrayAttr::get(attrs, b.getContext()));
+  parallelOp.setAttr(gpu::kMappingAttributeName,
+                     ArrayAttr::get(attrs, b.getContext()));
 }
 
 // Method tiling and mapping a parallel loop for the GPU execution
-void tileAndMapParallelLoop(loop::ParallelOp op, ArrayRef<int64_t> blockSizes) {
-  assert(op.getNumInductionVars() == 3 &&
+void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
+                            ArrayRef<int64_t> blockSizes) {
+  assert(parallelOp.getNumInductionVars() == 3 &&
          "expected three-dimensional parallel loops");
-  assert(llvm::all_of(op.lowerBound(),
+  assert(llvm::all_of(parallelOp.lowerBound(),
                       [](Value val) {
                         return verifyIsConstant(val) &&
                                getConstantValue(val) == 0;
                       }) &&
          "expected zero lower bounds");
 
-  OpBuilder b(op);
+  OpBuilder b(parallelOp);
   SmallVector<Value, 3> blockSizeConstants;
-  blockSizeConstants.reserve(op.upperBound().size());
-  for (size_t i = 0, end = op.upperBound().size(); i != end; ++i) {
+  blockSizeConstants.reserve(parallelOp.upperBound().size());
+  for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
     if (i < blockSizes.size())
       blockSizeConstants.push_back(
-          b.create<ConstantIndexOp>(op.getLoc(), blockSizes[i]));
+          b.create<ConstantIndexOp>(parallelOp.getLoc(), blockSizes[i]));
     else
       // Just pick 1 for the remaining dimensions.
-      blockSizeConstants.push_back(b.create<ConstantIndexOp>(op.getLoc(), 1));
+      blockSizeConstants.push_back(
+          b.create<ConstantIndexOp>(parallelOp.getLoc(), 1));
   }
 
   // Create a parallel loop over blocks and threads.
-
-  // TODO directly compute the values!!
   SmallVector<Value, 3> newSteps;
-  for (size_t i = 0, end = op.step().size(); i != end; ++i) {
-    assert(verifyIsConstant(op.step()[i]) && "expected constant step");
+  for (size_t i = 0, end = parallelOp.step().size(); i != end; ++i) {
+    assert(verifyIsConstant(parallelOp.step()[i]) && "expected constant step");
     newSteps.push_back(b.create<ConstantIndexOp>(
-        op.getLoc(), blockSizes[i] * getConstantValue(op.step()[i])));
+        parallelOp.getLoc(),
+        blockSizes[i] * getConstantValue(parallelOp.step()[i])));
   }
-  auto outerLoop = b.create<loop::ParallelOp>(op.getLoc(), op.lowerBound(),
-                                              op.upperBound(), newSteps);
+  auto outerLoop =
+      b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
+                                 parallelOp.upperBound(), newSteps);
   b.setInsertionPointToStart(outerLoop.getBody());
 
   // Create the inner loop iterating over the block
-  auto innerLoop = b.create<loop::ParallelOp>(op.getLoc(), op.lowerBound(),
-                                              newSteps, op.step());
+  auto innerLoop =
+      b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
+                                 newSteps, parallelOp.step());
+
+  // // Add a guard for out-of-bounds execution if needed
+  // if (llvm::any_of(llvm::zip(op.upperBound(), blockSizeConstants),
+  //                  [](std::tuple<int64_t, int64_t> x) {
+  //                    return std::get<0>(x) % std::get<1>(x) != 0;
+  //                  })) {
+  //   b.setInsertionPointToStart(outerLoop.getBody());
+  //   // Add compare only the necessary dimensions
+  //   for (size_t i = 0, end = op.upperBound().size(); i != end; ++i) {
+  // }
+
   // Steal the body of the old parallel loop and erase it.
-  innerLoop.region().takeBody(op.region());
+  // innerLoop.region().takeBody(op.region());
 
   // Add the loop indexes of both loops
   b.setInsertionPointToStart(innerLoop.getBody());
   auto expr = b.getAffineDimExpr(0) + b.getAffineDimExpr(1);
   auto map = AffineMap::get(2, 0, expr);
-  // Replace all uses of loop induction variables with different constants
-  SmallVector<ConstantIndexOp, 3> constants;
-  for (auto inductionVar : innerLoop.getInductionVars()) {
-    auto constantOp = b.create<ConstantIndexOp>(op.getLoc(), -1);
-    inductionVar.replaceAllUsesWith(constantOp.getResult());
-    constants.push_back(constantOp);
-  }
+  SmallVector<Value, 3> loopIVs;
   // Compute the actual induction variable
-  for (size_t i = 0, end = op.upperBound().size(); i != end; ++i) {
-    // TODO avoid addition if not needed
+  for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
+    // Use the inner loop iv if the outer loop performs only one iteration
+    if (getConstantValue(outerLoop.upperBound()[i]) ==
+        getConstantValue(outerLoop.step()[i])) {
+      loopIVs.push_back(*(innerLoop.getInductionVars().begin() + i));
+      continue;
+    }
+    // Use the outer loop iv if the inner loop performs only one iteration
+    if (getConstantValue(innerLoop.upperBound()[i]) ==
+        getConstantValue(innerLoop.step()[i])) {
+      loopIVs.push_back(*(outerLoop.getInductionVars().begin() + i));
+      continue;
+    }
+    // Otherwise add the loop induction variables
     ValueRange params = {*(outerLoop.getInductionVars().begin() + i),
                          *(innerLoop.getInductionVars().begin() + i)};
-    auto affineApplyOp = b.create<AffineApplyOp>(op.getLoc(), map, params);
-    constants[i].getResult().replaceAllUsesWith(affineApplyOp.getResult());
-    constants[i].erase();
+    auto affineApplyOp =
+        b.create<AffineApplyOp>(parallelOp.getLoc(), map, params);
+    loopIVs.push_back(affineApplyOp.getResult());
   }
+
+  // Clone the loop body and map the new arguments
+  BlockAndValueMapping mapper;
+  for (size_t i = 0, e = parallelOp.getNumInductionVars(); i < e; ++i) {
+    mapper.map(parallelOp.getBody()->getArgument(i), loopIVs[i]);
+  }
+  for (auto &currentOp : parallelOp.getBody()->getOperations()) {
+    if(currentOp.isKnownNonTerminator())
+      b.clone(currentOp, mapper);
+  }
+  
   // Set the loop mapping for the different loop nests
   setTheGPUMappingAttributes(b, outerLoop, 0);
   setTheGPUMappingAttributes(b, innerLoop, outerLoop.lowerBound().size());
 
-  op.erase();
+  // Erase the original loop
+  parallelOp.erase();
 }
 
 struct StencilLoopMappingPass : public FunctionPass<StencilLoopMappingPass> {
@@ -139,15 +173,15 @@ struct StencilLoopMappingPass : public FunctionPass<StencilLoopMappingPass> {
   void runOnFunction() override;
 
   ListOption<int64_t> blockSizes{
-      *this, "stencil-loop-mapping-block-sizes",
-      llvm::cl::desc("block sizes used for the mapping"), llvm::cl::ZeroOrMore,
-      llvm::cl::MiscFlags::CommaSeparated};
+      *this, "block-sizes", llvm::cl::desc("block sizes used for the mapping"),
+      llvm::cl::ZeroOrMore, llvm::cl::MiscFlags::CommaSeparated};
 };
 
 void StencilLoopMappingPass::runOnFunction() {
   auto funcOp = getOperation();
-  funcOp.walk(
-      [&](loop::ParallelOp op) { tileAndMapParallelLoop(op, blockSizes); });
+  funcOp.walk([&](loop::ParallelOp parallelOp) {
+    tileAndMapParallelLoop(parallelOp, blockSizes);
+  });
 }
 
 } // namespace
