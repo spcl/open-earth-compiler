@@ -251,20 +251,36 @@ def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
   }];
 }
 
-def Stencil_ReturnOp : Stencil_Op<"return", [Terminator, HasParent<"ApplyOp">]> {
+def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
+                                             HasParent<"ApplyOp">]> {
   let summary = "return operation";
   let description = [{
     This operation represents the return operation of a stencil apply.
     The operation takes a variable number of operands that must match
     the element types of the returned views.
 
+    The optional unroll attribute should never be used when writing stencils by
+    hand. Instead it is used during the automatic optimization.
+
+    Examples:
+
       stencil.return %0 : f64
   }];
 
-  let arguments = (ins Variadic<AnyType>:$operands);
+  let arguments = (ins Variadic<AnyType>:$operands,
+                   OptionalAttr<I64ArrayAttr>:$unroll);
 
-  let builders = [
-    OpBuilder<"Builder *builder, OperationState &result">];
+  let extraClassDeclaration = [{
+    static StringRef getUnrollAttrName() { return "unroll"; }
+    SmallVector<int64_t, 3> getUnroll() {
+      assert(unroll().hasValue() && "expected unroll to have value");
+      return convertArrayAttrToSmallVector(unroll().getValue(), getContext());
+    }
+    void setUnroll(ArrayRef<int64_t> unroll_input) {
+      setAttr(stencil::ReturnOp::getUnrollAttrName(),
+              convertSmallVectorToArrayAttr(unroll_input, getContext()));
+    }
+  }];
 }
 
 #endif // STENCIL_OPS

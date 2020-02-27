@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <iterator>
 #include <llvm-9/llvm/ADT/STLExtras.h>
+#include <numeric>
 
 using namespace mlir;
 
@@ -568,7 +569,7 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
     if (newOperands.size() < returnOp.getNumOperands()) {
       // Replace the return op
       rewriter.setInsertionPoint(returnOp);
-      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands);
+      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands, nullptr);
       rewriter.eraseOp(returnOp);
 
       // Clone the apply op
@@ -748,15 +749,27 @@ static LogicalResult verify(stencil::CallOp callOp) {
 // stencil.return
 //===----------------------------------------------------------------------===//
 
-void stencil::ReturnOp::build(Builder *builder, OperationState &result) {
-  result.addOperands({});
-  result.addTypes({});
-}
-
 static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 2> operands;
   SmallVector<Type, 2> operandTypes;
   llvm::SMLoc loc = parser.getCurrentLocation();
+  ArrayAttr unrollAttr;
+
+  // Parse optional unroll attr
+  if (!parser.parseOptionalKeyword("unroll")) {
+    if (parser.parseAttribute(unrollAttr,
+                              stencil::ReturnOp::getUnrollAttrName(),
+                              result.attributes))
+      return failure();
+
+    // Make sure unroll parameters have right number of dimensions
+    if (unrollAttr.size() != 3) {
+      parser.emitError(parser.getCurrentLocation(),
+                       "expected unroll to have three components");
+      return failure();
+    }
+  }
+
   return failure(
       parser.parseOperandList(operands) ||
       parser.parseColonTypeList(operandTypes) ||
@@ -765,28 +778,48 @@ static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
 
 static void print(stencil::ReturnOp returnOp, OpAsmPrinter &printer) {
   printer << stencil::ReturnOp::getOperationName() << ' ';
+  if (returnOp.unroll().hasValue()) {
+    SmallVector<int64_t, 3> unroll = returnOp.getUnroll();
+    printer << "unroll [" << unroll[0] << ", " << unroll[1] << ", " << unroll[2]
+            << "] ";
+  }
   printer << returnOp.getOperands() << " : " << returnOp.getOperandTypes();
 }
 
 static LogicalResult verify(stencil::ReturnOp returnOp) {
   auto applyOp = cast<stencil::ApplyOp>(returnOp.getParentOp());
 
-  // The operand number and types must match the apply signature
+  unsigned unrollFactor = 1;
+
+  if (returnOp.unroll().hasValue()) {
+    SmallVector<int64_t, 3> unroll = returnOp.getUnroll();
+    unrollFactor =
+        std::accumulate(unroll.begin(),
+                        unroll.end(),
+                        1,
+                        [](const int64_t a, const int64_t b) { return a * b; });
+  }
+
+  // The operand number and types times the unroll factor must match the apply
+  // signature
   const auto &results = applyOp.res();
-  if (returnOp.getNumOperands() != results.size())
+  if (returnOp.getNumOperands() != unrollFactor*results.size())
     return returnOp.emitOpError("has ")
-           << returnOp.getNumOperands()
-           << " operands, but enclosing function returns " << results.size();
+        << returnOp.getNumOperands()
+        << " operands, but enclosing function returns "
+        << unrollFactor*results.size();
 
   // The return types must match the element types of the returned views
-  for (unsigned i = 0, e = results.size(); i != e; ++i)
-    if (returnOp.getOperand(i).getType() !=
-        applyOp.getResultViewType(i).getElementType())
-      return returnOp.emitError()
-             << "type of return operand " << i << " ("
-             << returnOp.getOperand(i).getType()
-             << ") doesn't match function result type ("
-             << applyOp.getResultViewType(i).getElementType() << ")";
+  for (unsigned i = 0, e = results.size(); i != e; ++i) {
+    for (unsigned j = 0; j < unrollFactor; j++)
+      if (returnOp.getOperand(i * unrollFactor + j).getType() !=
+          applyOp.getResultViewType(i).getElementType())
+        return returnOp.emitError()
+            << "type of return operand " << i * unrollFactor + j << " ("
+            << returnOp.getOperand(i * unrollFactor + j).getType()
+            << ") doesn't match function result type ("
+            << applyOp.getResultViewType(i).getElementType() << ")";
+  }
 
   return success();
 }

@@ -84,7 +84,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     }
 
     // Replace the return op
-    rewriter.create<stencil::ReturnOp>(loc, returnOperands);
+    rewriter.create<stencil::ReturnOp>(loc, returnOperands, nullptr);
     rewriter.eraseOp(returnOp);
 
     // Replace all producer and consumer results
