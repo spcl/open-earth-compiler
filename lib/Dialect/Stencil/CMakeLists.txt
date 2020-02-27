@@ -15,6 +15,7 @@ add_llvm_library(MLIRStencil
   StencilInliningPass.cpp
   ShapeInferencePass.cpp
   ShapeShiftPass.cpp
+  StencilUnrollingPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/Dialect/Stencil

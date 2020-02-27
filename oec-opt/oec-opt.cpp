@@ -76,6 +76,7 @@ int main(int argc, char **argv) {
   stencil::createShapeInferencePass();
   stencil::createShapeShiftPass();
   stencil::createStencilInliningPass();
+  stencil::createStencilUnrollingPass();
   stencil::createConvertStencilToStandardPass();
   stencil::createLaunchFuncToCUDACallsPass();
 
