@@ -91,15 +91,20 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
 
   // Create a parallel loop over blocks and threads.
   SmallVector<Value, 3> newSteps;
+  SmallVector<Value, 3> newUpperBound;
   for (size_t i = 0, end = parallelOp.step().size(); i != end; ++i) {
     assert(verifyIsConstant(parallelOp.step()[i]) && "expected constant step");
     newSteps.push_back(b.create<ConstantIndexOp>(
         parallelOp.getLoc(),
         blockSizes[i] * getConstantValue(parallelOp.step()[i])));
+    newUpperBound.push_back(b.create<ConstantIndexOp>(
+        parallelOp.getLoc(),
+        blockSizes[i] * ((blockSizes[i] - 1 +
+                          getConstantValue(parallelOp.upperBound()[i])) /
+                         blockSizes[i])));
   }
-  auto outerLoop =
-      b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
-                                 parallelOp.upperBound(), newSteps);
+  auto outerLoop = b.create<loop::ParallelOp>(
+      parallelOp.getLoc(), parallelOp.lowerBound(), newUpperBound, newSteps);
   b.setInsertionPointToStart(outerLoop.getBody());
 
   // Create the inner loop iterating over the block
@@ -107,25 +112,11 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
       b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
                                  newSteps, parallelOp.step());
 
-  // // Add a guard for out-of-bounds execution if needed
-  // if (llvm::any_of(llvm::zip(op.upperBound(), blockSizeConstants),
-  //                  [](std::tuple<int64_t, int64_t> x) {
-  //                    return std::get<0>(x) % std::get<1>(x) != 0;
-  //                  })) {
-  //   b.setInsertionPointToStart(outerLoop.getBody());
-  //   // Add compare only the necessary dimensions
-  //   for (size_t i = 0, end = op.upperBound().size(); i != end; ++i) {
-  // }
-
-  // Steal the body of the old parallel loop and erase it.
-  // innerLoop.region().takeBody(op.region());
-
-  // Add the loop indexes of both loops
+  // Sum the loop induction variables if necessary
   b.setInsertionPointToStart(innerLoop.getBody());
   auto expr = b.getAffineDimExpr(0) + b.getAffineDimExpr(1);
   auto map = AffineMap::get(2, 0, expr);
   SmallVector<Value, 3> loopIVs;
-  // Compute the actual induction variable
   for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
     // Use the inner loop iv if the outer loop performs only one iteration
     if (getConstantValue(outerLoop.upperBound()[i]) ==
@@ -147,16 +138,43 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
     loopIVs.push_back(affineApplyOp.getResult());
   }
 
+  // Add a guard for out-of-bounds execution if needed
+  if (llvm::any_of(llvm::zip(parallelOp.upperBound(), blockSizes),
+                   [](std::tuple<Value, int64_t> x) {
+                     return getConstantValue(std::get<0>(x)) % std::get<1>(x) != 0;
+                   })) {
+    // Add compare only the necessary dimensions
+    SmallVector<Value, 3> boundaryConditions;
+    for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
+      if (getConstantValue(parallelOp.upperBound()[i]) % blockSizes[i] != 0) {
+        auto cmpOp = b.create<CmpIOp>(parallelOp.getLoc(), CmpIPredicate::slt,
+                                      loopIVs[i], parallelOp.upperBound()[i]);
+        boundaryConditions.push_back(cmpOp);
+      }
+    }
+    // Accumulate the conditions
+    Value predicate = boundaryConditions.back();
+    boundaryConditions.pop_back();
+    while (!boundaryConditions.empty()) {
+      predicate = b.create<OrOp>(parallelOp.getLoc(), boundaryConditions.back(),
+                                 predicate);
+      boundaryConditions.pop_back();
+    }
+    // Insert the guard
+    auto ifOp = b.create<loop::IfOp>(parallelOp.getLoc(), predicate, false);
+    b.setInsertionPointToStart(&ifOp.thenRegion().front());
+  }
+
   // Clone the loop body and map the new arguments
   BlockAndValueMapping mapper;
   for (size_t i = 0, e = parallelOp.getNumInductionVars(); i < e; ++i) {
     mapper.map(parallelOp.getBody()->getArgument(i), loopIVs[i]);
   }
   for (auto &currentOp : parallelOp.getBody()->getOperations()) {
-    if(currentOp.isKnownNonTerminator())
+    if (currentOp.isKnownNonTerminator())
       b.clone(currentOp, mapper);
   }
-  
+
   // Set the loop mapping for the different loop nests
   setTheGPUMappingAttributes(b, outerLoop, 0);
   setTheGPUMappingAttributes(b, innerLoop, outerLoop.lowerBound().size());
