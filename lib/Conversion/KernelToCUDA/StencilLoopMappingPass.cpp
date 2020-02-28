@@ -66,7 +66,7 @@ void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
 
 // Method tiling and mapping a parallel loop for the GPU execution
 void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
-                            ArrayRef<int64_t> blockSizeConfiguration) {
+                            ArrayRef<int64_t> blockSizes) {
   assert(parallelOp.getNumInductionVars() == 3 &&
          "expected three-dimensional parallel loops");
   assert(llvm::all_of(parallelOp.lowerBound(),
@@ -80,38 +80,41 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
 
   // Compute the block sizes assuming 1 if no config provided
   SmallVector<Value, 3> blockSizeConstants;
-  SmallVector<int64_t, 3> blockSizes;
+  SmallVector<int64_t, 3> loopBounds;
   for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
-    if (i < blockSizeConfiguration.size())
-      blockSizes.push_back(blockSizeConfiguration[i]);
+    if (i < blockSizes.size())
+      blockSizeConstants.push_back(
+          b.create<ConstantIndexOp>(parallelOp.getLoc(), blockSizes[i]));
     else
-      blockSizes.push_back(1);
-    blockSizeConstants.push_back(
-        b.create<ConstantIndexOp>(parallelOp.getLoc(), blockSizes[i]));
+      blockSizeConstants.push_back(
+          b.create<ConstantIndexOp>(parallelOp.getLoc(), 1));
+    loopBounds.push_back(getConstantValue(parallelOp.upperBound()[i]));
   }
 
   // Create a parallel loop over blocks and threads.
-  SmallVector<Value, 3> newSteps;
+  SmallVector<Value, 3> newStepConstants;
+  SmallVector<int64_t, 3> newSteps;
   SmallVector<Value, 3> newUpperBound;
   for (size_t i = 0, end = parallelOp.step().size(); i != end; ++i) {
     assert(verifyIsConstant(parallelOp.step()[i]) && "expected constant step");
-    newSteps.push_back(b.create<ConstantIndexOp>(
-        parallelOp.getLoc(),
-        blockSizes[i] * getConstantValue(parallelOp.step()[i])));
+    int64_t newStep = getConstantValue(blockSizeConstants[i]) *
+                      getConstantValue(parallelOp.step()[i]);
+    newStepConstants.push_back(
+        b.create<ConstantIndexOp>(parallelOp.getLoc(), newStep));
+    newSteps.push_back(newStep);
     newUpperBound.push_back(b.create<ConstantIndexOp>(
         parallelOp.getLoc(),
-        (blockSizes[i] *
-         ((getConstantValue(parallelOp.upperBound()[i]) + blockSizes[i] - 1) /
-          blockSizes[i]))));
+        (newStep * ((loopBounds[i] + newStep - 1) / newStep))));
   }
-  auto outerLoop = b.create<loop::ParallelOp>(
-      parallelOp.getLoc(), parallelOp.lowerBound(), newUpperBound, newSteps);
+  auto outerLoop =
+      b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
+                                 newUpperBound, newStepConstants);
   b.setInsertionPointToStart(outerLoop.getBody());
 
   // Create the inner loop iterating over the block
   auto innerLoop =
       b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
-                                 newSteps, parallelOp.step());
+                                 newStepConstants, parallelOp.step());
 
   // Sum the loop induction variables if necessary
   b.setInsertionPointToStart(innerLoop.getBody());
@@ -140,16 +143,14 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
   }
 
   // Add a guard for out-of-bounds execution if needed
-  // TODO not working for with steps!!
-  if (llvm::any_of(llvm::zip(parallelOp.upperBound(), blockSizes),
-                   [](std::tuple<Value, int64_t> x) {
-                     return getConstantValue(std::get<0>(x)) % std::get<1>(x) !=
-                            0;
+  if (llvm::any_of(llvm::zip(loopBounds, newSteps),
+                   [](std::tuple<int64_t, int64_t> x) {
+                     return std::get<0>(x) % std::get<1>(x) != 0;
                    })) {
     // Add compare only the necessary dimensions
     SmallVector<Value, 3> predicates;
     for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
-      if (getConstantValue(parallelOp.upperBound()[i]) % blockSizes[i] != 0) {
+      if (loopBounds[i] % newSteps[i] != 0) {
         auto cmpOp = b.create<CmpIOp>(parallelOp.getLoc(), CmpIPredicate::slt,
                                       loopIVs[i], parallelOp.upperBound()[i]);
         predicates.push_back(cmpOp);
