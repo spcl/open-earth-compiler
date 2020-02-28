@@ -115,7 +115,7 @@ void createGPUToCubinPipeline(OpPassManager &pm) {
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-  kernelPm.addPass(stencil::createIndexOptimizationPass());
+  kernelPm.addPass(stencil::createStencilIndexOptimizationPass());
   kernelPm.addPass(
       createConvertGPUKernelToCubinPass(&stencil::compilePtxToCubin));
   pm.addPass(createLowerToLLVMPass(false, false, true));

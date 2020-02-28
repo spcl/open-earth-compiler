@@ -13,7 +13,7 @@ namespace stencil {
 
 std::unique_ptr<OpPassBase<ModuleOp>> createLaunchFuncToCUDACallsPass();
 
-std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>> createIndexOptimizationPass();
+std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>> createStencilIndexOptimizationPass();
 
 std::unique_ptr<OpPassBase<FuncOp>> createStencilLoopMappingPass();
 
