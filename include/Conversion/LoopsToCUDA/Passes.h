@@ -1,5 +1,5 @@
-#ifndef MLIR_CONVERSION_KERNELTOCUDA_PASSES_H
-#define MLIR_CONVERSION_KERNELTOCUDA_PASSES_H
+#ifndef MLIR_CONVERSION_LOOPSTOCUDA_PASSES_H
+#define MLIR_CONVERSION_LOOPSTOCUDA_PASSES_H
 
 #include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -23,4 +23,4 @@ OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
 } // namespace stencil
 } // namespace mlir
 
-#endif // MLIR_CONVERSION_KERNELTOCUDA_PASSES_H
+#endif // MLIR_CONVERSION_LOOPSTOCUDA_PASSES_H

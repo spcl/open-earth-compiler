@@ -1,4 +1,4 @@
-#include "Conversion/KernelToCUDA/Passes.h"
+#include "Conversion/LoopsToCUDA/Passes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/GPU/ParallelLoopMapper.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"

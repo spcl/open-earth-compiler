@@ -19,7 +19,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Conversion/KernelToCUDA/Passes.h"
+#include "Conversion/LoopsToCUDA/Passes.h"
 #include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"

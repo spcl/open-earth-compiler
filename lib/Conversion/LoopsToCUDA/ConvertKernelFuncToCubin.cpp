@@ -1,4 +1,4 @@
-#include "Conversion/KernelToCUDA/Passes.h"
+#include "Conversion/LoopsToCUDA/Passes.h"
 #include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
