@@ -189,8 +189,7 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
 
 struct StencilLoopMappingPass : public FunctionPass<StencilLoopMappingPass> {
   StencilLoopMappingPass() = default;
-  StencilLoopMappingPass(const StencilLoopMappingPass &) {
-  } // blockSize is non-copyable.
+  StencilLoopMappingPass(const StencilLoopMappingPass &) {}
 
   void runOnFunction() override;
 
