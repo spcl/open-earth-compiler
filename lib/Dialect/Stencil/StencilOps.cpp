@@ -23,6 +23,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
+#include <functional>
 #include <iterator>
 #include <llvm-9/llvm/ADT/STLExtras.h>
 #include <numeric>
@@ -569,7 +570,8 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
     if (newOperands.size() < returnOp.getNumOperands()) {
       // Replace the return op
       rewriter.setInsertionPoint(returnOp);
-      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands, nullptr);
+      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
+                                         nullptr);
       rewriter.eraseOp(returnOp);
 
       // Clone the apply op
@@ -765,7 +767,7 @@ static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
     // Make sure unroll parameters have right number of dimensions
     if (unrollAttr.size() != 3) {
       parser.emitError(parser.getCurrentLocation(),
-                       "expected unroll to have three components");
+                       "expected unroll attribute to have three components");
       return failure();
     }
   }
@@ -779,9 +781,9 @@ static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
 static void print(stencil::ReturnOp returnOp, OpAsmPrinter &printer) {
   printer << stencil::ReturnOp::getOperationName() << ' ';
   if (returnOp.unroll().hasValue()) {
-    SmallVector<int64_t, 3> unroll = returnOp.getUnroll();
-    printer << "unroll [" << unroll[0] << ", " << unroll[1] << ", " << unroll[2]
-            << "] ";
+    printer << "unroll ";
+    printer.printAttribute(returnOp.unroll().getValue());
+    printer << " ";
   }
   printer << returnOp.getOperands() << " : " << returnOp.getOperandTypes();
 }
@@ -790,24 +792,20 @@ static LogicalResult verify(stencil::ReturnOp returnOp) {
   auto applyOp = cast<stencil::ApplyOp>(returnOp.getParentOp());
 
   unsigned unrollFactor = 1;
-
   if (returnOp.unroll().hasValue()) {
     SmallVector<int64_t, 3> unroll = returnOp.getUnroll();
-    unrollFactor =
-        std::accumulate(unroll.begin(),
-                        unroll.end(),
-                        1,
-                        [](const int64_t a, const int64_t b) { return a * b; });
+    unrollFactor = std::accumulate(unroll.begin(), unroll.end(), 1,
+                                   std::multiplies<int64_t>());
   }
 
   // The operand number and types times the unroll factor must match the apply
   // signature
-  const auto &results = applyOp.res();
-  if (returnOp.getNumOperands() != unrollFactor*results.size())
+  auto results = applyOp.res();
+  if (returnOp.getNumOperands() != unrollFactor * results.size())
     return returnOp.emitOpError("has ")
-        << returnOp.getNumOperands()
-        << " operands, but enclosing function returns "
-        << unrollFactor*results.size();
+           << returnOp.getNumOperands()
+           << " operands, but enclosing function returns "
+           << unrollFactor * results.size();
 
   // The return types must match the element types of the returned views
   for (unsigned i = 0, e = results.size(); i != e; ++i) {
@@ -815,10 +813,10 @@ static LogicalResult verify(stencil::ReturnOp returnOp) {
       if (returnOp.getOperand(i * unrollFactor + j).getType() !=
           applyOp.getResultViewType(i).getElementType())
         return returnOp.emitError()
-            << "type of return operand " << i * unrollFactor + j << " ("
-            << returnOp.getOperand(i * unrollFactor + j).getType()
-            << ") doesn't match function result type ("
-            << applyOp.getResultViewType(i).getElementType() << ")";
+               << "type of return operand " << i * unrollFactor + j << " ("
+               << returnOp.getOperand(i * unrollFactor + j).getType()
+               << ") doesn't match function result type ("
+               << applyOp.getResultViewType(i).getElementType() << ")";
   }
 
   return success();
