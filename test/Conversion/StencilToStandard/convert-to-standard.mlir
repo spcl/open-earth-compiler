@@ -34,16 +34,16 @@ func @parallel_loop_unroll(%arg0 : f64) attributes {stencil.program} {
   // CHECK-DAG: [[C1:%.*]] = constant 1 : index
   // CHECK-DAG: [[C2:%.*]] = constant 2 : index
   // CHECK-DAG: [[C7:%.*]] = constant 7 : index
-  // CHECK-DAG: [[C77:%.*]] = constant 77 : index
+  // CHECK-DAG: [[C88:%.*]] = constant 88 : index
   // CHECK-DAG: [[C777:%.*]] = constant 777 : index
-  // CHECK-NEXT: loop.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) = ([[C0]], [[C0]], [[C0]]) to ([[C7]], [[C77]], [[C777]]) step ([[C1]], [[C2]], [[C1]]) {  
+  // CHECK-NEXT: loop.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) = ([[C0]], [[C0]], [[C0]]) to ([[C7]], [[C88]], [[C777]]) step ([[C1]], [[C2]], [[C1]]) {  
   %1 = stencil.apply %arg1 = %arg0  : f64 {
     // CHECK-NEXT: store %{{.*}}, %{{.*}}{{\[}}[[ARG0]], [[ARG1]], [[ARG2]]] 
     // CHECK-NEXT: [[OFF:%.*]] = constant 1 : index
     // CHECK-NEXT: [[IDX:%.*]] = affine.apply [[MAP0]]([[ARG1]], [[OFF]]) 
     // CHECK-NEXT: store %{{.*}}, %{{.*}}{{\[}}[[ARG0]], [[IDX]], [[ARG2]]] 
     stencil.return unroll [1, 2, 1] %arg1, %arg1 : f64, f64
-  } to ([0, 0, 0]:[7, 77, 777]) : !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 88, 777]) : !stencil.view<ijk,f64>
   return
 }
 

@@ -413,8 +413,11 @@ public:
     if (returnOp.unroll().hasValue()) {
       auto unroll = returnOp.getUnroll();
       for (size_t i = 0, e = steps.size(); i != e; ++i) {
-        if (unroll[i] != 1)
+        if (unroll[i] != 1) {
+          assert(upper.begin()[i] % unroll[i] == 0 &&
+                 "expected loop length to be a multiple of the unroll factor");
           steps[i] = rewriter.create<ConstantIndexOp>(loc, unroll[i]);
+        }
       }
     }
 
