@@ -280,6 +280,15 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
       setAttr(stencil::ReturnOp::getUnrollAttrName(),
               convertSmallVectorToArrayAttr(unroll_input, getContext()));
     }
+    unsigned getUnrollFactor() {
+      unsigned factor = 1;
+      if (unroll().hasValue()) {
+        SmallVector<int64_t, 3> unroll = getUnroll();
+        factor = std::accumulate(unroll.begin(), unroll.end(), 1,
+                                      std::multiplies<int64_t>());
+      }
+      return factor;
+    }
   }];
 }
 

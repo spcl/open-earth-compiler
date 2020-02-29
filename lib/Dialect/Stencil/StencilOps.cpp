@@ -26,7 +26,6 @@
 #include <functional>
 #include <iterator>
 #include <llvm-9/llvm/ADT/STLExtras.h>
-#include <numeric>
 
 using namespace mlir;
 
@@ -790,13 +789,7 @@ static void print(stencil::ReturnOp returnOp, OpAsmPrinter &printer) {
 
 static LogicalResult verify(stencil::ReturnOp returnOp) {
   auto applyOp = cast<stencil::ApplyOp>(returnOp.getParentOp());
-
-  unsigned unrollFactor = 1;
-  if (returnOp.unroll().hasValue()) {
-    SmallVector<int64_t, 3> unroll = returnOp.getUnroll();
-    unrollFactor = std::accumulate(unroll.begin(), unroll.end(), 1,
-                                   std::multiplies<int64_t>());
-  }
+  unsigned unrollFactor = returnOp.getUnrollFactor();
 
   // The operand number and types times the unroll factor must match the apply
   // signature
