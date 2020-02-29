@@ -11,7 +11,8 @@ set(LIBS
 add_llvm_library(OECGPUtoCUDATransforms
   ConvertLaunchFuncToCUDACalls.cpp
   ConvertKernelFuncToCubin.cpp
-  IndexOptimizationPass.cpp
+  StencilIndexOptimizationPass.cpp
+  StencilLoopMappingPass.cpp
 )
 
 target_link_libraries(OECGPUtoCUDATransforms ${LIBS})

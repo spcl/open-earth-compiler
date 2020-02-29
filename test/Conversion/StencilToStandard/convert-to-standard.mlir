@@ -20,9 +20,6 @@ func @parallel_loop(%arg0 : f64) attributes {stencil.program} {
   %1 = stencil.apply %arg1 = %arg0  : f64 {
     // CHECK: store %{{.*}}, %{{.*}}{{[[]}}[[ARG0]], [[ARG1]], [[ARG2]]{{[]]}} 
     stencil.return %arg1 : f64
-    // CHECK-COUNT-1: {bound = affine_map<(d0) -> (d0)>, map = affine_map<(d0) -> (d0)>, processor = 3 : i64}
-    // CHECK-COUNT-1: {bound = affine_map<(d0) -> (d0)>, map = affine_map<(d0) -> (d0)>, processor = 0 : i64}
-    // CHECK-COUNT-1: {bound = affine_map<(d0) -> (d0)>, map = affine_map<(d0) -> (d0)>, processor = 1 : i64}
   } to ([0, 0, 0]:[7, 77, 777]) : !stencil.view<ijk,f64>
   return
 }

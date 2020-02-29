@@ -1,4 +1,4 @@
-#include "Conversion/KernelToCUDA/Passes.h"
+#include "Conversion/LoopsToCUDA/Passes.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -8,6 +8,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
@@ -89,6 +90,26 @@ struct MulRewrite : public OpRewritePattern<LLVM::MulOp> {
   }
 };
 
+struct CmpRewrite : public OpRewritePattern<LLVM::ICmpOp> {
+  CmpRewrite(MLIRContext *context)
+      : OpRewritePattern<LLVM::ICmpOp>(context, /*benefit=*/1) {}
+
+  PatternMatchResult matchAndRewrite(LLVM::ICmpOp cmpOp,
+                                     PatternRewriter &rewriter) const override {
+    // Replace the add op if all operands are sign extended
+    if (allOperandsAreSignExtended(cmpOp.getOperands())) {
+      auto newOp = rewriter.create<LLVM::ICmpOp>(
+          cmpOp.getLoc(), cmpOp.predicate(),
+          cmpOp.getOperand(0).getDefiningOp()->getOperand(0),
+          cmpOp.getOperand(1).getDefiningOp()->getOperand(0));
+      cmpOp.getResult().replaceAllUsesWith(newOp.getResult());
+      cmpOp.erase();
+      return matchSuccess();
+    }
+    return matchFailure();
+  }
+};
+
 struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
   ConstantRewrite(MLIRContext *context)
       : OpRewritePattern<LLVM::ConstantOp>(context, /*benefit=*/1) {}
@@ -118,17 +139,18 @@ struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
   }
 };
 
-struct IndexOptimizationPass
-    : public OperationPass<IndexOptimizationPass, LLVM::LLVMFuncOp> {
+struct StencilIndexOptimizationPass
+    : public OperationPass<StencilIndexOptimizationPass, LLVM::LLVMFuncOp> {
   void runOnOperation() override;
 };
 
-void IndexOptimizationPass::runOnOperation() {
+void StencilIndexOptimizationPass::runOnOperation() {
   auto funcOp = getOperation();
   if (funcOp.getAttrOfType<UnitAttr>(
           gpu::GPUDialect::getKernelFuncAttrName())) {
     OwningRewritePatternList patterns;
-    patterns.insert<AddRewrite, MulRewrite, ConstantRewrite>(&getContext());
+    patterns.insert<AddRewrite, MulRewrite, CmpRewrite, ConstantRewrite>(
+        &getContext());
     applyPatternsGreedily(funcOp, patterns);
   }
 }
@@ -136,9 +158,10 @@ void IndexOptimizationPass::runOnOperation() {
 } // namespace
 
 std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>>
-mlir::stencil::createIndexOptimizationPass() {
-  return std::make_unique<IndexOptimizationPass>();
+stencil::createStencilIndexOptimizationPass() {
+  return std::make_unique<StencilIndexOptimizationPass>();
 }
 
-static PassRegistration<IndexOptimizationPass>
-    pass("index-optimization", "Perform 32-bit index computation");
+static PassRegistration<StencilIndexOptimizationPass>
+    pass("stencil-index-optimization",
+         "Convert 64-bit index computations to 32-bit index computations");

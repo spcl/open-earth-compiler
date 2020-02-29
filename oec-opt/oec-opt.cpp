@@ -19,7 +19,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Conversion/KernelToCUDA/Passes.h"
+#include "Conversion/LoopsToCUDA/Passes.h"
 #include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
@@ -78,6 +78,7 @@ int main(int argc, char **argv) {
   stencil::createStencilInliningPass();
   stencil::createStencilUnrollingPass();
   stencil::createConvertStencilToStandardPass();
+  stencil::createStencilLoopMappingPass();
   stencil::createLaunchFuncToCUDACallsPass();
 
   // Initialize LLVM
@@ -115,7 +116,7 @@ void createGPUToCubinPipeline(OpPassManager &pm) {
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-  kernelPm.addPass(stencil::createIndexOptimizationPass());
+  kernelPm.addPass(stencil::createStencilIndexOptimizationPass());
   kernelPm.addPass(
       createConvertGPUKernelToCubinPass(&stencil::compilePtxToCubin));
   pm.addPass(createLowerToLLVMPass(false, false, true));

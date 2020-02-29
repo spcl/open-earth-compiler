@@ -1,2 +1,2 @@
-add_subdirectory(KernelToCUDA)
+add_subdirectory(LoopsToCUDA)
 add_subdirectory(StencilToStandard)

@@ -1,8 +1,9 @@
-#ifndef MLIR_CONVERSION_KERNELTOCUDA_PASSES_H
-#define MLIR_CONVERSION_KERNELTOCUDA_PASSES_H
+#ifndef MLIR_CONVERSION_LOOPSTOCUDA_PASSES_H
+#define MLIR_CONVERSION_LOOPSTOCUDA_PASSES_H
 
 #include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/Pass/Pass.h"
@@ -12,7 +13,9 @@ namespace stencil {
 
 std::unique_ptr<OpPassBase<ModuleOp>> createLaunchFuncToCUDACallsPass();
 
-std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>> createIndexOptimizationPass();
+std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>> createStencilIndexOptimizationPass();
+
+std::unique_ptr<OpPassBase<FuncOp>> createStencilLoopMappingPass();
 
 OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
                              StringRef name);
@@ -20,4 +23,4 @@ OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
 } // namespace stencil
 } // namespace mlir
 
-#endif // MLIR_CONVERSION_KERNELTOCUDA_PASSES_H
+#endif // MLIR_CONVERSION_LOOPSTOCUDA_PASSES_H
