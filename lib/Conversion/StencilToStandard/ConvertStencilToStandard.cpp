@@ -17,6 +17,7 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
@@ -300,7 +301,12 @@ public:
       currentOp = currentOp->getPrevNode();
       assert(currentOp && "failed to find allocation for results");
     }
-    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
+    // Compute the number of result views
+    unsigned numResults =
+        returnOp.getNumOperands() / returnOp.getUnrollFactor();
+    assert(returnOp.getNumOperands() % returnOp.getUnrollFactor() == 0 &&
+           "expected number of operands to be a multiple of the unroll factor");
+    for (unsigned i = 0, e = numResults; i != e; ++i) {
       currentOp = currentOp->getPrevNode();
       allocOps.push_back(currentOp);
       assert(dyn_cast<AllocOp>(currentOp) &&
@@ -311,13 +317,32 @@ public:
                     [](Operation *allocOp) { return allocOp->getResult(0); });
 
     // Replace the return op by store ops
-    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
-      rewriter.setInsertionPoint(returnOp);
-      auto definingOp = returnOp.getOperand(i).getDefiningOp();
-      if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
-        rewriter.setInsertionPointAfter(definingOp);
-      rewriter.create<StoreOp>(loc, returnOp.getOperand(i), allocVals[i],
-                               loopIVs);
+    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+    auto map = AffineMap::get(2, 0, expr);
+    for (unsigned i = 0, e = numResults; i != e; ++i) {
+      for (unsigned j = 0, e = returnOp.getUnrollFactor(); j != e; ++j) {
+        rewriter.setInsertionPoint(returnOp);
+        unsigned operandIdx = i * returnOp.getUnrollFactor() + j;
+        auto definingOp = returnOp.getOperand(operandIdx).getDefiningOp();
+        if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
+          rewriter.setInsertionPointAfter(definingOp);
+        // Add the unrolling offset to the loop ivs
+        SmallVector<Value, 3> storeOffset = loopIVs;
+        if (j > 0) {
+          assert(llvm::count(returnOp.getUnroll(), 1) ==
+                     returnOp.getUnroll().size() - 1 &&
+                 "expected a single non-zero entry");
+          auto it = llvm::find_if(returnOp.getUnroll(),
+                                  [](int64_t x) { return x != 1; });
+          auto unrollDim = std::distance(returnOp.getUnroll().begin(), it);
+          auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
+          ValueRange params = {loopIVs[unrollDim], constantOp.getResult()};
+          auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+          storeOffset[unrollDim] = affineApplyOp.getResult();
+        }
+        rewriter.create<StoreOp>(loc, returnOp.getOperand(operandIdx),
+                                 allocVals[i], storeOffset);
+      }
     }
     rewriter.eraseOp(operation);
     return matchSuccess();
@@ -379,29 +404,22 @@ public:
       ub.push_back(rewriter.create<ConstantIndexOp>(loc, upper.begin()[i]));
       steps.push_back(one);
     }
-    auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
 
-    // // Setup the parallel loop mapping
-    // SmallVector<Attribute, 4> attrs;
-    // attrs.reserve(loop.getNumInductionVars());
-    // for (int i = 0, e = loop.getNumInductionVars(); i < e; ++i) {
-    //   assert(loop.getNumInductionVars() == 3 &&
-    //          "expected three-dimensional loop nest");
-    //   // Map the last loop next to threads
-    //   int64_t mapping = i == 0 ? 3 : i - 1;
-    //   SmallVector<NamedAttribute, 3> entries;
-    //   entries.emplace_back(rewriter.getNamedAttr(
-    //       gpu::kProcessorEntryName, rewriter.getI64IntegerAttr(mapping)));
-    //   entries.emplace_back(rewriter.getNamedAttr(
-    //       gpu::kIndexMapEntryName,
-    //       AffineMapAttr::get(rewriter.getDimIdentityMap())));
-    //   entries.emplace_back(rewriter.getNamedAttr(
-    //       gpu::kBoundMapEntryName,
-    //       AffineMapAttr::get(rewriter.getDimIdentityMap())));
-    //   attrs.push_back(DictionaryAttr::get(entries, rewriter.getContext()));
-    // }
-    // loop.setAttr(gpu::kMappingAttributeName,
-    //              ArrayAttr::get(attrs, rewriter.getContext()));
+    // Adjust the steps to account for the loop unrolling
+    auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+    assert(!returnOp.unroll().hasValue() ||
+           steps.size() == returnOp.getUnroll().size() &&
+               "expected unroll attribute to have loop bound size");
+    if (returnOp.unroll().hasValue()) {
+      auto unroll = returnOp.getUnroll();
+      for (size_t i = 0, e = steps.size(); i != e; ++i) {
+        if (unroll[i] != 1)
+          steps[i] = rewriter.create<ConstantIndexOp>(loc, unroll[i]);
+      }
+    }
+
+    // Introduce the parallel loop
+    auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
 
     // Forward the apply operands and copy the body
     rewriter.setInsertionPointToStart(loop.getBody());
