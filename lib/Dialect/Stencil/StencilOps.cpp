@@ -20,6 +20,7 @@
 #include "mlir/Support/STLExtras.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
@@ -555,12 +556,21 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
                                      PatternRewriter &rewriter) const override {
     // Get the terminator and compute the result list
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+    unsigned unrollFactor = returnOp.getUnrollFactor();
+    unsigned numResults = returnOp.getNumOperands() / unrollFactor;
+    assert(returnOp.getNumOperands() % unrollFactor == 0 &&
+           "expected number of operands to be a multiple of the unroll factor");
     SmallVector<Value, 10> oldOperands = returnOp.getOperands();
     SmallVector<Value, 10> newOperands;
     SmallVector<Value, 10> newResults;
-    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
-      if (!llvm::is_contained(newOperands, returnOp.getOperand(i))) {
-        newOperands.push_back(returnOp.getOperand(i));
+    for (unsigned i = 0, e = numResults; i != e; ++i) {
+      // Get the operands for every result
+      auto operands =
+          returnOp.getOperands().slice(i * unrollFactor, unrollFactor);
+      if (!llvm::all_of(operands, [&](Value value) {
+            return llvm::is_contained(newOperands, value);
+          })) {
+        newOperands.insert(newOperands.end(), operands.begin(), operands.end());
         newResults.push_back(applyOp.getResult(i));
       }
     }
@@ -570,7 +580,7 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
       // Replace the return op
       rewriter.setInsertionPoint(returnOp);
       rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
-                                         nullptr);
+                                         returnOp.unroll().getValueOr(nullptr));
       rewriter.eraseOp(returnOp);
 
       // Clone the apply op
