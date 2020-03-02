@@ -4,6 +4,7 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
@@ -28,15 +29,24 @@ using namespace mlir;
 
 namespace {
 
+// Helper method to check if lower bound is zero
+// (TODO factor this out to a stencil utils header)
+bool isZero(ArrayRef<int64_t> offset) {
+  return llvm::all_of(offset, [](int64_t x) {
+    return x == 0 || x == stencil::kIgnoreDimension;
+  });
+}
+
 // Method updating the loop body of the apply op
-void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor) {
+void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
+                        unsigned unrollIndex) {
   // Setup the builder and
   OpBuilder b(applyOp);
-  
+
   // Set the insertion point before the return operation
   auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
   b.setInsertionPoint(returnOp);
-  
+
   // Allocate container to store ther results of the unrolled iterations
   // (Store the results of the first iteration)
   std::vector<SmallVector<Value, 4>> resultBuffer;
@@ -47,8 +57,8 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor) {
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
       SmallVector<int64_t, 3> current = accessOp.getOffset();
-      ArrayAttr sum = b.getI64ArrayAttr(
-          llvm::makeArrayRef({current[0], current[1] + i, current[2]}));
+      current[unrollIndex] += i;
+      ArrayAttr sum = b.getI64ArrayAttr(current);
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
     });
     // Clone the body except of the shifted apply op
@@ -84,7 +94,20 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor) {
 }
 
 struct StencilUnrollingPass : public FunctionPass<StencilUnrollingPass> {
+  StencilUnrollingPass() {
+    unrollFactor = 2;
+    unrollIndex = 1;
+  }
+  StencilUnrollingPass(const StencilUnrollingPass &) {}
+
   void runOnFunction() override;
+
+  Option<unsigned> unrollFactor{
+      *this, "unroll-factor",
+      llvm::cl::desc("number of unrolled loop iterations")};
+  Option<unsigned> unrollIndex{
+      *this, "unroll-index",
+      llvm::cl::desc("unroll index specifying the unrolling dimension")};
 };
 
 void StencilUnrollingPass::runOnFunction() {
@@ -92,9 +115,35 @@ void StencilUnrollingPass::runOnFunction() {
   // Only run on functions marked as stencil programs
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
     return;
+
+  // Check for valid unrolling indexes
+  if (!(unrollIndex == 1 || unrollIndex == 2)) {
+    funcOp.emitError("unrolling is only supported in the j-dimension (=1) or "
+                     "k-dimension (=2)");
+    signalPassFailure();
+    return;
+  }
+
   // Unroll all stencil apply ops
-  funcOp.walk(
-      [&](stencil::ApplyOp applyOp) { unrollStencilApply(applyOp, 2); });
+  funcOp.walk([&](stencil::ApplyOp applyOp) {
+    // Check the loop bounds are known and valid
+    if (!(applyOp.lb().hasValue() && applyOp.ub().hasValue() &&
+          isZero(applyOp.getLB()))) {
+      applyOp.emitError("run the shape shift and shape inference passes first");
+      signalPassFailure();
+      return;
+    }
+    // Check the unroll factor is a multiple of the domain size
+    if (applyOp.getUB()[unrollIndex.getValue()] % unrollFactor.getValue() !=
+        0) {
+      applyOp.emitError(
+          "expected loop bounds to be a multiple of the unroll factor");
+      signalPassFailure();
+      return;
+    }
+    unrollStencilApply(applyOp, unrollFactor.getValue(),
+                       unrollIndex.getValue());
+  });
 }
 
 } // namespace
