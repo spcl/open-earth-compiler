@@ -127,20 +127,27 @@ void StencilUnrollingPass::runOnFunction() {
   // Unroll all stencil apply ops
   funcOp.walk([&](stencil::ApplyOp applyOp) {
     // Check the loop bounds are known and valid
-    if (!(applyOp.lb().hasValue() && applyOp.ub().hasValue() &&
-          isZero(applyOp.getLB()))) {
-      applyOp.emitError("run the shape shift and shape inference passes first");
+    if (!(applyOp.lb().hasValue() && applyOp.ub().hasValue())) {
+      applyOp.emitError("run the shape inference passes first");
       signalPassFailure();
       return;
     }
+    if (!isZero(applyOp.getLB())) {
+      applyOp.emitError("run the shape shift passes first");
+      signalPassFailure();
+      return;
+    }
+
     // Check the unroll factor is a multiple of the domain size
-    if (applyOp.getUB()[unrollIndex.getValue()] % unrollFactor.getValue() !=
-        0) {
+    auto ub = applyOp.getUB();
+    if (ub[unrollIndex.getValue()] % unrollFactor.getValue() != 0) {
       applyOp.emitError(
-          "expected loop bounds to be a multiple of the unroll factor");
+          "loop bounds have to be a multiple of the unroll factor");
       signalPassFailure();
       return;
     }
+
+    // Unroll the stencil
     unrollStencilApply(applyOp, unrollFactor.getValue(),
                        unrollIndex.getValue());
   });
