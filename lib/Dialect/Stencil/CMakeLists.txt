@@ -15,6 +15,7 @@ add_llvm_library(MLIRStencil
   StencilInliningPass.cpp
   ShapeInferencePass.cpp
   ShapeShiftPass.cpp
+  StencilShufflePass.cpp
   StencilUnrollingPass.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -24,6 +25,7 @@ add_llvm_library(MLIRStencil
 # Make sure that the TableGen generated files are up-to-date
 add_dependencies(MLIRStencil
   MLIRStencilOpsIncGen
+  MLIRStencilShufflePatternsIncGen
   ${LIBS})
 target_link_libraries(MLIRStencil ${LIBS})
 
