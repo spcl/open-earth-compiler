@@ -7,11 +7,7 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Region.h"
-#include "mlir/IR/StandardTypes.h"
-#include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
@@ -19,11 +15,9 @@
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
-#include <iterator>
 
 using namespace mlir;
 
@@ -47,17 +41,17 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
   b.setInsertionPoint(returnOp);
 
-  // Allocate container to store ther results of the unrolled iterations
+  // Allocate container to store the results of the unrolled iterations
   // (Store the results of the first iteration)
   std::vector<SmallVector<Value, 4>> resultBuffer;
   resultBuffer.push_back(SmallVector<Value, 4>(returnOp.getOperands()));
   // Clone the body of the apply op and replicate it multiple times
+  auto clonedOp = applyOp.clone();
   for (unsigned i = 1, e = unrollFactor; i != e; ++i) {
-    auto clonedOp = applyOp.clone();
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
       SmallVector<int64_t, 3> current = accessOp.getOffset();
-      current[unrollIndex] += i;
+      current[unrollIndex]++;
       ArrayAttr sum = b.getI64ArrayAttr(current);
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
     });
@@ -75,8 +69,9 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
         currentOp->erase();
       }
     }
-    clonedOp.erase();
   }
+
+  clonedOp.erase();
 
   // Create a new return op returning all results
   SmallVector<Value, 16> newResults;
@@ -154,7 +149,6 @@ void StencilUnrollingPass::runOnFunction() {
 }
 
 } // namespace
-
 std::unique_ptr<OpPassBase<FuncOp>>
 mlir::stencil::createStencilUnrollingPass() {
   return std::make_unique<StencilUnrollingPass>();
