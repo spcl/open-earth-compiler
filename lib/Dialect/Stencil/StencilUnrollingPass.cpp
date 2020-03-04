@@ -47,6 +47,12 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   resultBuffer.push_back(SmallVector<Value, 4>(returnOp.getOperands()));
   // Clone the body of the apply op and replicate it multiple times
   auto clonedOp = applyOp.clone();
+  // construct mapper
+  BlockAndValueMapping mapper;
+  for (size_t i = 0, e = clonedOp.getBody()->getNumArguments(); i < e; ++i) {
+    mapper.map(clonedOp.getBody()->getArgument(i),
+               applyOp.getBody()->getArgument(i));
+  }
   for (unsigned i = 1, e = unrollFactor; i != e; ++i) {
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
@@ -56,11 +62,6 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
     });
     // Clone the body except of the shifted apply op
-    BlockAndValueMapping mapper;
-    for (size_t i = 0, e = clonedOp.getBody()->getNumArguments(); i < e; ++i) {
-      mapper.map(clonedOp.getBody()->getArgument(i),
-                 applyOp.getBody()->getArgument(i));
-    }
     for (auto &op : clonedOp.getBody()->getOperations()) {
       auto currentOp = b.clone(op, mapper);
       // Store the results after cloning the return op
