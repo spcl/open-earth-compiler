@@ -7,10 +7,19 @@
 #include <vector>
 
 #include "cuda.h"
+#include "cuda_runtime.h"
 
 namespace {
 int32_t reportError(CUresult result, const char *where) {
   if (result != CUDA_SUCCESS) {
+    std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
+              << where << "\n";
+  }
+  return result;
+}
+
+int32_t reportError(cudaError_t result, const char *where) {
+  if (result != cudaSuccess) {
     std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
               << where << "\n";
   }
@@ -63,10 +72,15 @@ extern "C" int32_t oecModuleLoad(void **module, void *data) {
 
 extern "C" int32_t oecModuleGetFunction(void **function, void *module,
                                         const char *name) {
-  return reportError(
+  int32_t err;
+  err = reportError(
       cuModuleGetFunction(reinterpret_cast<CUfunction *>(function),
                           reinterpret_cast<CUmodule>(module), name),
       "GetFunction");
+  err = reportError(cudaFuncSetAttribute(*function,
+      cudaFuncAttributePreferredSharedMemoryCarveout,
+      cudaSharedmemCarveoutMaxL1), "SettingCarveout");
+  return err;
 }
 
 extern "C" int32_t oecLaunchKernel(void *function, intptr_t gridX,
