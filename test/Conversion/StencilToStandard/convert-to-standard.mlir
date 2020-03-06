@@ -71,7 +71,7 @@ func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
 
 // CHECK-LABEL: @access_lowering
 func @access_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
-  // CHECK: [[VIEW:%.*]] = std.subview 
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[] [] []
   stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<ijk,f64>
   %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   // CHECK: loop.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
@@ -105,7 +105,7 @@ func @return_lowering(%arg0: f64) attributes {stencil.program} {
 
 // CHECK-LABEL: @load_lowering
 func @load_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
-  // CHECK: %{{.*}} = std.subview %{{.*}}[][][] : memref<11x12x13xf64, #map{{[0-9]+}}> to memref<9x9x9xf64, #map{{[0-9]+}}>
+  // CHECK: %{{.*}} = subview %{{.*}}[] [] [] : memref<11x12x13xf64, #map{{[0-9]+}}> to memref<9x9x9xf64, #map{{[0-9]+}}>
   stencil.assert %arg0 ([0, 0, 0]:[11, 12, 13]) : !stencil.field<ijk,f64>
   %0 = stencil.load %arg0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   return
@@ -115,7 +115,7 @@ func @load_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program}
 
 // CHECK-LABEL: @store_lowering
 func @store_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
-  // CHECK: [[VIEW:%.*]] = std.subview %{{.*}}[][][] : memref<10x10x10xf64, #map{{[0-9]+}}> to memref<7x7x7xf64, #map{{[0-9]+}}>
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[] [] [] : memref<10x10x10xf64, #map{{[0-9]+}}> to memref<7x7x7xf64, #map{{[0-9]+}}>
   stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<ijk,f64>
   %c1 = constant 1.0 : f64
   %1 = stencil.apply %arg1 = %c1 : f64 {

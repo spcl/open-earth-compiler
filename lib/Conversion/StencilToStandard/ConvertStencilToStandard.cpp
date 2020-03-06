@@ -10,6 +10,7 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
+#include "mlir/IR/Region.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
@@ -421,18 +422,15 @@ public:
       }
     }
 
-    // Introduce the parallel loop
+    // Introduce the parallel loop and copy the body of the apply op
     auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
-
-    // Forward the apply operands and copy the body
-    rewriter.setInsertionPointToStart(loop.getBody());
-    BlockAndValueMapping mapper;
     for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
-      mapper.map(applyOp.getBody()->getArgument(i), applyOp.getOperand(i));
+      applyOp.getBody()->getArgument(i).replaceAllUsesWith(applyOp.getOperand(i));
     }
-    for (auto &op : applyOp.getBody()->getOperations()) {
-      rewriter.clone(op, mapper);
-    }
+    loop.getBody()->getOperations().splice(std::begin(loop.getBody()->getOperations()),
+      applyOp.getBody()->getOperations());
+    
+    // Erase the actual apply op
     rewriter.eraseOp(applyOp);
 
     return matchSuccess();
@@ -451,13 +449,13 @@ public:
     auto accessOp = cast<stencil::AccessOp>(operation);
 
     // Check the view is a memref type
-    if (!accessOp.view().getType().isa<MemRefType>())
+    if (!accessOp.view().getType().isa<MemRefType>()) 
       return matchFailure();
-
+    
     // Get the parallel loop
-    if (!isa<loop::ParallelOp>(operation->getParentOp()))
+    auto loop = operation->getParentOfType<loop::ParallelOp>();
+    if (!loop)
       return matchFailure();
-    auto loop = cast<loop::ParallelOp>(operation->getParentOp());
     assert(loop.getNumInductionVars() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
     SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
@@ -543,8 +541,8 @@ public:
                  stencil::StencilDialect::getStencilProgramAttrName()) &&
              !funcOp.getAttr(
                  stencil::StencilDialect::getStencilFunctionAttrName());
-    } else
-      return true;
+    }
+    return true;
   }
 };
 
@@ -571,7 +569,7 @@ void StencilToStandardPass::runOnModule() {
 
   if (failed(applyFullConversion(module, target, patterns))) {
     signalPassFailure();
-  }
+  } 
 }
 
 } // namespace
