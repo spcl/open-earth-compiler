@@ -125,3 +125,30 @@ func @store_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program
   stencil.store %1 to %arg0 ([1, 2, 3]:[8, 9, 10]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
   return
 }
+
+// -----
+
+// CHECK-LABEL: @if_lowering
+func @if_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
+  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<ijk,f64>
+  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
+  %1 = stencil.apply %arg1 = %0  : !stencil.view<ijk,f64> {
+    %2 = constant 1 : i1
+    // CHECK: [[RES:%.*]] = loop.if %{{.*}} -> (f64) {
+    %3 = loop.if %2 -> (f64) {
+      // CHECK: [[IF:%.*]] = load
+      %4 = stencil.access %arg1[0, 1, 2] : (!stencil.view<ijk,f64>) -> f64
+      // CHECK: loop.yield [[IF]] : f64
+      loop.yield %4 : f64
+    // CHECK: } else {
+    } else {
+      // CHECK: [[ELSE:%.*]] = load
+      %5 = stencil.access %arg1[0, 2, 1] : (!stencil.view<ijk,f64>) -> f64
+      // CHECK: loop.yield [[ELSE]] : f64
+      loop.yield %5 : f64
+    }
+    // CHECK: store [[RES]]
+    stencil.return %3 : f64
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>
+  return
+}
