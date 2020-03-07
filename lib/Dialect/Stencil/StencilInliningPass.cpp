@@ -209,9 +209,9 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
         });
 
         // Copy the operations in after the access op
-        newOp.getBody()->getOperations().splice(
-            Block::iterator{accessOp},
-            clonedOp->getRegion(0).front().getOperations());
+        auto &parentOps = accessOp.getParentRegion()->front().getOperations();
+        parentOps.splice(Block::iterator{accessOp},
+                         clonedOp->getRegion(0).front().getOperations());
         clonedOp->erase();
 
         // Replace all uses of the accesOp
