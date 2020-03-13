@@ -122,9 +122,19 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Redirect outputs of the producer
     if (producerOps.size() == 1) {
-      // TODO we may want to ensure that producer has multiple consumers
-      // (however as long as the inlining pattern has a higher benefit this is
-      // not needed)
+      // Collect all consumers
+      SmallVector<Operation *, 10> consumerOps;
+      for (auto result : producerOps[0]->getOpResults()) {
+        consumerOps.append(result.getUsers().begin(), result.getUsers().end());
+      }
+
+      // Verify the producer has multiple consumers
+      if (llvm::all_of(consumerOps, [&](Operation *op) {
+            return op == applyOp.getOperation();
+          }))
+        return matchFailure();
+
+      // Redirect the producer outputs via the consumer
       return redirectStore(cast<stencil::ApplyOp>(producerOps.front()), applyOp,
                            rewriter);
     }
@@ -240,14 +250,19 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Search producer apply op
     for (auto operand : applyOp.operands()) {
       if (isa_and_nonnull<stencil::ApplyOp>(operand.getDefiningOp())) {
-        // Check if multiple consumers
+        // Collect consumer ops of the producer
+        SmallVector<Operation *, 10> consumerOps;
         auto producerResults = operand.getDefiningOp()->getResults();
         for (auto result : producerResults) {
-          if (llvm::any_of(result.getUsers(), [&](Operation *op) {
-                return op != applyOp.getOperation();
-              }))
-            return matchFailure();
+          consumerOps.append(result.getUsers().begin(),
+                             result.getUsers().end());
         }
+
+        // Try the next producer if current has multiple consumers
+        if (llvm::any_of(consumerOps, [&](Operation *op) {
+              return op != applyOp.getOperation();
+            }))
+          continue;
 
         // If there is only a single consumer perform the inlining
         return inlineProducer(cast<stencil::ApplyOp>(operand.getDefiningOp()),
