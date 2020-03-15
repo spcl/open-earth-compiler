@@ -1,9 +1,7 @@
 #ifndef Stencil_BASE
 #define Stencil_BASE
 
-#ifndef OP_BASE
-include "mlir/IR/OpBase.td"
-#endif // OP_BASE
+include "mlir/Interfaces/SideEffects.td"
 
 //===----------------------------------------------------------------------===//
 // Stencil dialect definition

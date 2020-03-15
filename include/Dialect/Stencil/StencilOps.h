@@ -7,6 +7,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/Interfaces/SideEffects.h"
 #include <numeric>
 
 namespace mlir {
