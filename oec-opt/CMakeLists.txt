@@ -3,48 +3,59 @@ set(LLVM_OPTIONAL_SOURCES
 )
 
 set(LIBS
-  MLIRLoopOpsTransforms
-  MLIRLoopAnalysis
-  MLIRAnalysis
   MLIRAffineOps
-  MLIRAffineToStandard
-  MLIRDialect
-  MLIRLoopsToGPU
-  MLIRLinalgToLLVM
-
-  MLIRLoopToStandard
-  MLIREDSC
   MLIRFxpMathOps
   MLIRGPU
+  MLIRLinalgAnalysis
+  MLIRLinalgEDSC
+  MLIRLinalgOps
+  MLIRLinalgTransforms
+  MLIRLinalgUtils
+  MLIRLLVMIRTransforms
+  MLIRLLVMIR
+  MLIRNVVMIR
+  MLIRROCDLIR
+  MLIRLoopOps
+  MLIRLoopOpsTransforms
+  MLIROpenMP
+  MLIRQuantOps
+  MLIRSDBM
+  MLIRShape
+  MLIRSPIRV
+  MLIRSPIRVSerialization
+  MLIRSPIRVTransforms
+  MLIRStandardOps
+  MLIRVector
+
+  MLIRAffineToStandard
   MLIRGPUtoCUDATransforms
   MLIRGPUtoNVVMTransforms
   MLIRGPUtoROCDLTransforms
   MLIRGPUtoSPIRVTransforms
   MLIRGPUtoVulkanTransforms
-  MLIRLinalgOps
-  MLIRLinalgAnalysis
-  MLIRLinalgEDSC
-  MLIRLinalgTransforms
-  MLIRLinalgUtils
-  MLIRLLVMIR
-  MLIRLoopOps
-  MLIRNVVMIR
-  MLIROpenMP
+  MLIRLinalgToLLVM
+  MLIRLinalgToSPIRVTransforms
+  MLIRLoopsToGPU
+  MLIRLoopToStandard
+  MLIRStandardToLLVM
+  MLIRStandardToSPIRVTransforms
+  MLIRVectorToLLVM
+  MLIRVectorToLoops
+
+  MLIRLoopOpsTransforms
+  MLIRLoopAnalysis
+  MLIRAnalysis
+  MLIRDialect
+  MLIREDSC
   MLIROptLib
   MLIRParser
   MLIRPass
   MLIRQuantizerFxpMathConfig
   MLIRQuantizerSupport
   MLIRQuantizerTransforms
-  MLIRQuantOps
-  MLIRROCDLIR
   MLIRSPIRV
-  MLIRLinalgToSPIRVTransforms
-  MLIRStandardToSPIRVTransforms
   MLIRSPIRVTestPasses
   MLIRSPIRVTransforms
-  MLIRStandardOps
-  MLIRStandardToLLVM
   MLIRTransforms
   MLIRTransformUtils
   MLIRTestDialect
@@ -52,9 +63,6 @@ set(LIBS
   MLIRTestPass
   MLIRTestTransforms
   MLIRSupport
-  MLIRVectorOps
-  MLIRVectorToLLVM
-  MLIRVectorToLoops
   MLIRIR
   MLIROptLib
   LLVMSupport

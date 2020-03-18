@@ -33,7 +33,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
       : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
 
   // Helper method inlining the consumer in the producer
-  PatternMatchResult redirectStore(stencil::ApplyOp producerOp,
+  LogicalResult redirectStore(stencil::ApplyOp producerOp,
                                    stencil::ApplyOp consumerOp,
                                    PatternRewriter &rewriter) const {
     // Compute operand and result lists
@@ -106,10 +106,10 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Remove the consumer op
     rewriter.eraseOp(consumerOp);
-    return matchFailure();
+    return failure();
   }
 
-  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                      PatternRewriter &rewriter) const override {
     // Search consumer connected to a single producer
     SmallVector<Operation *, 10> producerOps;
@@ -132,13 +132,13 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
       if (llvm::all_of(consumerOps, [&](Operation *op) {
             return op == applyOp.getOperation();
           }))
-        return matchFailure();
+        return failure();
 
       // Redirect the producer outputs via the consumer
       return redirectStore(cast<stencil::ApplyOp>(producerOps.front()), applyOp,
                            rewriter);
     }
-    return matchFailure();
+    return failure();
   }
 };
 
@@ -166,7 +166,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   }
 
   // Helper method inlining the producer computation
-  PatternMatchResult inlineProducer(stencil::ApplyOp producerOp,
+  LogicalResult inlineProducer(stencil::ApplyOp producerOp,
                                     stencil::ApplyOp consumerOp,
                                     ValueRange producerResults,
                                     PatternRewriter &rewriter) const {
@@ -242,10 +242,10 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Erase the producer and consumer ops
     rewriter.eraseOp(consumerOp);
     rewriter.eraseOp(producerOp);
-    return matchSuccess();
+    return success();
   }
 
-  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                      PatternRewriter &rewriter) const override {
     // Search producer apply op
     for (auto operand : applyOp.operands()) {
@@ -269,7 +269,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                               applyOp, producerResults, rewriter);
       }
     }
-    return matchFailure();
+    return failure();
   }
 };
 

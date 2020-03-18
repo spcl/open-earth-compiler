@@ -552,7 +552,7 @@ namespace {
 struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
-  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                      PatternRewriter &rewriter) const override {
     // Get the terminator and compute the result list
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
@@ -599,9 +599,9 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
 
       // Remove old operations
       rewriter.eraseOp(applyOp);
-      return matchSuccess();
+      return success();
     }
-    return matchFailure();
+    return failure();
   }
 };
 
@@ -610,7 +610,7 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
   // Remove duplicates if needed
-  PatternMatchResult matchAndRewrite(stencil::ApplyOp applyOp,
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                      PatternRewriter &rewriter) const override {
     // Compute operand list and init the argument matcher
     BlockAndValueMapping mapper;
@@ -648,9 +648,9 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
         applyOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
       }
       rewriter.eraseOp(applyOp);
-      return matchSuccess();
+      return success();
     }
-    return matchFailure();
+    return failure();
   }
 };
 } // end anonymous namespace

@@ -64,14 +64,14 @@ struct AddRewrite : public OpRewritePattern<LLVM::AddOp> {
   AddRewrite(MLIRContext *context)
       : OpRewritePattern<LLVM::AddOp>(context, /*benefit=*/1) {}
 
-  PatternMatchResult matchAndRewrite(LLVM::AddOp addOp,
+  LogicalResult matchAndRewrite(LLVM::AddOp addOp,
                                      PatternRewriter &rewriter) const override {
     // Replace the add op if all operands are sign extended
     if (allOperandsAreSignExtended(addOp.getOperands())) {
       replaceArithmeticOperation<LLVM::AddOp>(addOp, rewriter);
-      return matchSuccess();
+      return success();
     }
-    return matchFailure();
+    return failure();
   }
 };
 
@@ -79,14 +79,14 @@ struct MulRewrite : public OpRewritePattern<LLVM::MulOp> {
   MulRewrite(MLIRContext *context)
       : OpRewritePattern<LLVM::MulOp>(context, /*benefit=*/1) {}
 
-  PatternMatchResult matchAndRewrite(LLVM::MulOp mulOp,
+  LogicalResult matchAndRewrite(LLVM::MulOp mulOp,
                                      PatternRewriter &rewriter) const override {
     // Replace the add op if all operands are sign extended
     if (allOperandsAreSignExtended(mulOp.getOperands())) {
       replaceArithmeticOperation<LLVM::MulOp>(mulOp, rewriter);
-      return matchSuccess();
+      return success();
     }
-    return matchFailure();
+    return failure();
   }
 };
 
@@ -94,7 +94,7 @@ struct CmpRewrite : public OpRewritePattern<LLVM::ICmpOp> {
   CmpRewrite(MLIRContext *context)
       : OpRewritePattern<LLVM::ICmpOp>(context, /*benefit=*/1) {}
 
-  PatternMatchResult matchAndRewrite(LLVM::ICmpOp cmpOp,
+  LogicalResult matchAndRewrite(LLVM::ICmpOp cmpOp,
                                      PatternRewriter &rewriter) const override {
     // Replace the add op if all operands are sign extended
     if (allOperandsAreSignExtended(cmpOp.getOperands())) {
@@ -104,9 +104,9 @@ struct CmpRewrite : public OpRewritePattern<LLVM::ICmpOp> {
           cmpOp.getOperand(1).getDefiningOp()->getOperand(0));
       cmpOp.getResult().replaceAllUsesWith(newOp.getResult());
       cmpOp.erase();
-      return matchSuccess();
+      return success();
     }
-    return matchFailure();
+    return failure();
   }
 };
 
@@ -114,7 +114,7 @@ struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
   ConstantRewrite(MLIRContext *context)
       : OpRewritePattern<LLVM::ConstantOp>(context, /*benefit=*/1) {}
 
-  PatternMatchResult matchAndRewrite(LLVM::ConstantOp constOp,
+  LogicalResult matchAndRewrite(LLVM::ConstantOp constOp,
                                      PatternRewriter &rewriter) const override {
     // convert all index types to 32-bit integer constants
     if (constOp.value().getType().isIndex()) {
@@ -132,10 +132,10 @@ struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
             loc, LLVM::LLVMType::getInt64Ty(llvmDialect), newOp.getResult());
         constOp.getResult().replaceAllUsesWith(extOp.getResult());
         constOp.erase();
-        return matchSuccess();
+        return success();
       }
     }
-    return matchFailure();
+    return failure();
   }
 };
 

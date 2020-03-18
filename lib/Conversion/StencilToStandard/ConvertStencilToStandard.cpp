@@ -115,7 +115,7 @@ public:
   explicit FuncOpLowering(MLIRContext *context)
       : ConversionPattern(FuncOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
@@ -128,7 +128,7 @@ public:
       // Verify no view types
       if (argType.isa<stencil::ViewType>()) {
         funcOp.emitOpError("unexpected argument type '") << argType << "'";
-        return matchFailure();
+        return failure();
       }
 
       // Compute the input types of the converted stencil program
@@ -145,7 +145,7 @@ public:
         }
         if (inputType == NoneType()) {
           funcOp.emitOpError("failed to convert argument types");
-          return matchFailure();
+          return failure();
         }
         inputTypes.push_back(inputType);
       } else {
@@ -154,7 +154,7 @@ public:
     }
     if (funcOp.getNumResults() > 0) {
       operation->emitOpError("expected program to return void");
-      return matchFailure();
+      return failure();
     }
 
     // Compute replacement function
@@ -175,7 +175,7 @@ public:
 
     // Erase the original function op
     rewriter.eraseOp(operation);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -184,19 +184,19 @@ public:
   explicit AssertOpLowering(MLIRContext *context)
       : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto assertOp = cast<stencil::AssertOp>(operation);
 
     // Verify the field has been converted
     if (!assertOp.field().getType().isa<MemRefType>())
-      return matchFailure();
+      return failure();
 
     // Verify the assert op has lower bound zero
     if (!isZero(assertOp.getLB())) {
       assertOp.emitOpError("expected zero lower bound");
-      return matchFailure();
+      return failure();
     }
 
     // Check if the field is large enough
@@ -219,24 +219,24 @@ public:
       if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
         if (llvm::is_contained(storeOp.getLB(), stencil::kIgnoreDimension)) {
           storeOp.emitOpError("field expected to have full dimensionality");
-          return matchFailure();
+          return failure();
         }
         if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
           storeOp.emitOpError("field bounds not large enough");
-          return matchFailure();
+          return failure();
         }
       }
       if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
         if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
           if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
             loadOp.emitOpError("field bounds not large enough");
-            return matchFailure();
+            return failure();
           }
       }
     }
 
     rewriter.eraseOp(operation);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -245,7 +245,7 @@ public:
   explicit LoadOpLowering(MLIRContext *context)
       : ConversionPattern(stencil::LoadOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     // Replace the load operation with a subview op
@@ -254,7 +254,7 @@ public:
 
     // Verify the field has been converted
     if (!loadOp.field().getType().isa<MemRefType>())
-      return matchFailure();
+      return failure();
 
     // Compute the replacement types
     auto inputType = loadOp.field().getType().cast<MemRefType>();
@@ -271,7 +271,7 @@ public:
     auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
     operation->getResult(0).replaceAllUsesWith(subViewOp.getResult());
     rewriter.eraseOp(operation);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -280,7 +280,7 @@ public:
   explicit ReturnOpLowering(MLIRContext *context)
       : ConversionPattern(stencil::ReturnOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
@@ -288,7 +288,7 @@ public:
 
     // Get the parallel loop
     if (!isa<loop::ParallelOp>(operation->getParentOp()))
-      return matchFailure();
+      return failure();
     auto loop = cast<loop::ParallelOp>(operation->getParentOp());
     SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
     llvm::transform(loop.getInductionVars(), loopIVs.begin(),
@@ -346,7 +346,7 @@ public:
       }
     }
     rewriter.eraseOp(operation);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -355,7 +355,7 @@ public:
   explicit ApplyOpLowering(MLIRContext *context)
       : ConversionPattern(stencil::ApplyOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
@@ -368,13 +368,13 @@ public:
               return std::get<0>(x).getType().isa<stencil::ViewType>() &&
                      !std::get<1>(x).getType().isa<MemRefType>();
             })) {
-      return matchFailure();
+      return failure();
     }
 
     // Verify the the lower bound is zero
     if (!isZero(applyOp.getLB())) {
       applyOp.emitOpError("expected zero lower bound");
-      return matchFailure();
+      return failure();
     }
 
     // Allocate and deallocate storage for every output
@@ -433,7 +433,7 @@ public:
     // Erase the actual apply op
     rewriter.eraseOp(applyOp);
 
-    return matchSuccess();
+    return success();
   }
 }; // namespace
 
@@ -442,7 +442,7 @@ public:
   explicit AccessOpLowering(MLIRContext *context)
       : ConversionPattern(stencil::AccessOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
@@ -450,12 +450,12 @@ public:
 
     // Check the view is a memref type
     if (!accessOp.view().getType().isa<MemRefType>()) 
-      return matchFailure();
+      return failure();
     
     // Get the parallel loop
     auto loop = operation->getParentOfType<loop::ParallelOp>();
     if (!loop)
-      return matchFailure();
+      return failure();
     assert(loop.getNumInductionVars() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
     SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
@@ -481,7 +481,7 @@ public:
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<LoadOp>(operation, accessOp.view(), loadOffset);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -490,7 +490,7 @@ public:
   explicit StoreOpLowering(MLIRContext *context)
       : ConversionPattern(stencil::StoreOp::getOperationName(), 1, context) {}
 
-  PatternMatchResult
+  LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
@@ -499,7 +499,7 @@ public:
     // Verify the field has been converted
     if (!(storeOp.field().getType().isa<MemRefType>() &&
           storeOp.view().getType().isa<MemRefType>()))
-      return matchFailure();
+      return failure();
 
     // Compute the replacement types
     auto inputType = storeOp.field().getType().cast<MemRefType>();
@@ -522,7 +522,7 @@ public:
         rewriter.eraseOp(deallocOp);
     }
     rewriter.eraseOp(operation);
-    return matchSuccess();
+    return success();
   }
 };
 
