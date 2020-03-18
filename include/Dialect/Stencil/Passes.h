@@ -19,8 +19,6 @@ std::unique_ptr<OpPassBase<FuncOp>> createShapeShiftPass();
 
 std::unique_ptr<OpPassBase<FuncOp>> createShapeInferencePass();
 
-std::unique_ptr<OpPassBase<stencil::ApplyOp>> createStencilShufflePass();
-
 std::unique_ptr<OpPassBase<FuncOp>> createStencilUnrollingPass();
 
 } // namespace stencil
