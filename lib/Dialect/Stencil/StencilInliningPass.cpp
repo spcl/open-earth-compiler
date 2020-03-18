@@ -14,6 +14,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -27,15 +28,61 @@ using namespace mlir;
 
 namespace {
 
+// Pattern introducing a root stencil if two stencils share an input
+struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
+  RootRewrite(MLIRContext *context)
+      : OpRewritePattern<stencil::LoadOp>(context, /*benefit=*/1) {}
+
+  // Helper method introducing common root
+  LogicalResult introduceRoot(stencil::LoadOp loadOp,
+                              PatternRewriter &rewriter) const {
+    // Introduce the root op right after the load op
+    auto loc = loadOp.getLoc();
+    // Clone the the load op and reroute output through root op
+    auto clonedOp = rewriter.clone(*loadOp.getOperation());
+    auto rootOp =
+        rewriter.create<stencil::ApplyOp>(loc, clonedOp->getResults(), clonedOp->getResults());
+    rootOp.region().push_back(new Block());
+    rootOp.region().front().addArgument(clonedOp->getResult(0).getType());
+    rewriter.setInsertionPointToEnd(rootOp.getBody());
+    // Create the body of the root op
+    SmallVector<int64_t, 3> zeroOffset = {0, 0, 0};
+    auto accessOp = rewriter.create<stencil::AccessOp>(
+        loc, rootOp.getBody()->getArgument(0), zeroOffset);
+    rewriter.create<stencil::ReturnOp>(
+        loc, accessOp.getOperation()->getResults(), nullptr);
+    // Replace all uses of the load Op results
+    // (except for the use by rootOp)
+    rewriter.replaceOp(loadOp, rootOp.getResults());
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
+                                PatternRewriter &rewriter) const override {
+    // Count users of the load op
+    unsigned userCount = 0;
+    for (auto user : loadOp.getResult().getUsers()) {
+      if (isa_and_nonnull<stencil::ApplyOp>(user))
+        userCount++;
+    }
+
+    // Introduce a common stencil root for all stencils loading the input
+    if (userCount > 1) {
+      return introduceRoot(loadOp, rewriter);
+    }
+    return failure();
+  }
+};
+
 // Pattern rerouting output edge via consumer
 struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
   RerouteRewrite(MLIRContext *context)
-      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
+      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
 
   // Helper method inlining the consumer in the producer
   LogicalResult redirectStore(stencil::ApplyOp producerOp,
-                                   stencil::ApplyOp consumerOp,
-                                   PatternRewriter &rewriter) const {
+                              stencil::ApplyOp consumerOp,
+                              PatternRewriter &rewriter) const {
     // Compute operand and result lists
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
     SmallVector<Value, 10> newResults = consumerOp.getResults();
@@ -106,11 +153,11 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Remove the consumer op
     rewriter.eraseOp(consumerOp);
-    return failure();
+    return success();
   }
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Search consumer connected to a single producer
     SmallVector<Operation *, 10> producerOps;
     for (auto operand : applyOp.operands()) {
@@ -146,7 +193,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 // (assuming the producer has only a single consumer)
 struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   InliningRewrite(MLIRContext *context)
-      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
+      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/3) {}
 
   // Helper method replacing all uses of temporary by inline computation
   void replaceAccess(stencil::ApplyOp consumerOp, stencil::AccessOp accessOp,
@@ -167,9 +214,9 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
   // Helper method inlining the producer computation
   LogicalResult inlineProducer(stencil::ApplyOp producerOp,
-                                    stencil::ApplyOp consumerOp,
-                                    ValueRange producerResults,
-                                    PatternRewriter &rewriter) const {
+                               stencil::ApplyOp consumerOp,
+                               ValueRange producerResults,
+                               PatternRewriter &rewriter) const {
     // Compute the operand list and an argument mapper befor cloning
     BlockAndValueMapping mapper;
     SmallVector<Value, 10> newOperands;
@@ -246,7 +293,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   }
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Search producer apply op
     for (auto operand : applyOp.operands()) {
       if (isa_and_nonnull<stencil::ApplyOp>(operand.getDefiningOp())) {
@@ -280,7 +327,7 @@ struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
 void StencilInliningPass::runOnFunction() {
   FuncOp funcOp = getFunction();
   OwningRewritePatternList patterns;
-  patterns.insert<InliningRewrite, RerouteRewrite>(&getContext());
+  patterns.insert<InliningRewrite, RerouteRewrite, RootRewrite>(&getContext());
   applyPatternsGreedily(funcOp, patterns);
 }
 
