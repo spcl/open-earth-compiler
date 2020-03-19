@@ -553,7 +553,7 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Get the terminator and compute the result list
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
     unsigned unrollFactor = returnOp.getUnrollFactor();
@@ -591,14 +591,13 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
                                  newOp.region().begin());
 
       // Replace all uses of the applyOp results
+      SmallVector<Value, 10> repResults;
       for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i) {
         auto it = llvm::find(newOperands, oldOperands[i]);
-        applyOp.getResult(i).replaceAllUsesWith(
+        repResults.push_back(
             newOp.getResult(std::distance(newOperands.begin(), it)));
       }
-
-      // Remove old operations
-      rewriter.eraseOp(applyOp);
+      rewriter.replaceOp(applyOp, repResults);
       return success();
     }
     return failure();
@@ -611,7 +610,7 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
 
   // Remove duplicates if needed
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Compute operand list and init the argument matcher
     BlockAndValueMapping mapper;
     SmallVector<Value, 10> newOperands;
@@ -644,10 +643,7 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
                                  newOp.region().begin(), mapper);
 
       // Replace all uses of the applyOp results
-      for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i) {
-        applyOp.getResult(i).replaceAllUsesWith(newOp.getResult(i));
-      }
-      rewriter.eraseOp(applyOp);
+      rewriter.replaceOp(applyOp, newOp.getResults());
       return success();
     }
     return failure();
