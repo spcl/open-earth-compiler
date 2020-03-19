@@ -56,8 +56,7 @@ void replaceArithmeticOperation(T op, PatternRewriter &rewriter) {
                          op.getOperand(1).getDefiningOp()->getOperand(0));
   auto extOp = rewriter.create<LLVM::SExtOp>(
       loc, LLVM::LLVMType::getInt64Ty(llvmDialect), newOp.getResult());
-  op.getResult().replaceAllUsesWith(extOp.getResult());
-  op.erase();
+  rewriter.replaceOp(op, extOp.getResult());
 }
 
 struct AddRewrite : public OpRewritePattern<LLVM::AddOp> {
@@ -102,8 +101,7 @@ struct CmpRewrite : public OpRewritePattern<LLVM::ICmpOp> {
           cmpOp.getLoc(), cmpOp.predicate(),
           cmpOp.getOperand(0).getDefiningOp()->getOperand(0),
           cmpOp.getOperand(1).getDefiningOp()->getOperand(0));
-      cmpOp.getResult().replaceAllUsesWith(newOp.getResult());
-      cmpOp.erase();
+      rewriter.replaceOp(cmpOp, newOp.getResult());
       return success();
     }
     return failure();
@@ -130,8 +128,7 @@ struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
             rewriter.getI32IntegerAttr(value));
         auto extOp = rewriter.create<LLVM::SExtOp>(
             loc, LLVM::LLVMType::getInt64Ty(llvmDialect), newOp.getResult());
-        constOp.getResult().replaceAllUsesWith(extOp.getResult());
-        constOp.erase();
+        rewriter.replaceOp(constOp, extOp.getResult());
         return success();
       }
     }
