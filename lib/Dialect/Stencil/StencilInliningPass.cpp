@@ -6,6 +6,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
@@ -35,11 +36,19 @@ struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
 
   // Helper method introducing common root
   LogicalResult introduceRoot(stencil::LoadOp loadOp,
+                              ArrayRef<Operation*> users,
                               PatternRewriter &rewriter) const {
     // Introduce the root op right after the load op
     auto loc = loadOp.getLoc();
+    // Find the earliest user in block
+    Operation *insertionPoint = users.front();
+    for(auto user: users) {
+      if (user->isBeforeInBlock(insertionPoint))
+        insertionPoint = user;
+    }
     // Clone the the load op and reroute output through root op
     auto clonedOp = rewriter.clone(*loadOp.getOperation());
+    rewriter.setInsertionPoint(insertionPoint);
     auto rootOp = rewriter.create<stencil::ApplyOp>(loc, clonedOp->getResults(),
                                                     clonedOp->getResults());
     rootOp.region().push_back(new Block());
@@ -60,15 +69,15 @@ struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
   LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
                                 PatternRewriter &rewriter) const override {
     // Count users of the load op
-    unsigned userCount = 0;
+    SmallVector<Operation*,10> users;
     for (auto user : loadOp.getResult().getUsers()) {
       if (isa_and_nonnull<stencil::ApplyOp>(user))
-        userCount++;
+        users.push_back(user);
     }
 
     // Introduce a common stencil root for all stencils loading the input
-    if (userCount > 1) {
-      return introduceRoot(loadOp, rewriter);
+    if (users.size() > 1) {
+      return introduceRoot(loadOp, users, rewriter);
     }
     return failure();
   }
@@ -86,19 +95,6 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Clone the producer op
     rewriter.setInsertionPointAfter(producerOp);
     auto clonedOp = rewriter.clone(*producerOp.getOperation());
-
-    // TODO
-    // // Move all load ops in front of the producer and consumer
-    // for (auto operand : consumerOp.getOperands()) {
-    //   if(operand.getDefiningOp() && 
-    //      operand.getDefiningOp() != producerOp) {
-    //     operand.getDefiningOp()->dump();
-    //     assert(isa<stencil::LoadOp>(operand.getDefiningOp()) &&
-    //            "expected only load ops need to move");
-    //     auto clonedOp = rewriter.clone(*operand.getDefiningOp());
-    //     rewriter.replaceOp(operand.getDefiningOp(), clonedOp->getResults());
-    //   }
-    // }
 
     // Compute operand and result lists
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
@@ -202,6 +198,13 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
       SmallVector<Operation *, 10> consumerOps;
       for (auto result : producerOps[0]->getOpResults()) {
         consumerOps.append(result.getUsers().begin(), result.getUsers().end());
+      }
+
+      // Verify the other operands are before the producer
+      for (auto operand : applyOp.getOperands()) {
+        if (operand.getDefiningOp() &&
+            producerOps[0]->isBeforeInBlock(operand.getDefiningOp()))
+          return failure();
       }
 
       // Verify the producer has multiple consumers
@@ -348,8 +351,6 @@ void StencilInliningPass::runOnFunction() {
   OwningRewritePatternList patterns;
   patterns.insert<InliningRewrite, RerouteRewrite, RootRewrite>(&getContext());
   applyPatternsGreedily(funcOp, patterns);
-
-  funcOp.dump();
 }
 
 } // namespace
