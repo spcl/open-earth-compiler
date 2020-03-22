@@ -9,17 +9,6 @@ cmake --build . --target oec-opt
 cmake --build . --target check-oec
 ```
 
-# mlir main repo patches
-
-In DialectSymbolRegistry.def:
-
-```
- DEFINE_SYM_KIND_RANGE(SPIRV) // SPIR-V dialect
- DEFINE_SYM_KIND_RANGE(XLA_HLO) // XLA HLO dialect
- 
-+DEFINE_SYM_KIND_RANGE(STENCIL)
-```
-
 # llvm build instructions
 
 Cmake configuration for llvm
