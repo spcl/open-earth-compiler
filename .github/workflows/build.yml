@@ -1,0 +1,44 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on: [push, pull_request]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+
+
+    # Cache LLVM
+    - name: Cache LLVM
+      id: cache-llvm
+      uses: actions/cache@v1
+      with:
+        path: llvm-project
+        key: ${{ runner.os }}-${{ hashFiles('llvm-hash.txt') }}
+
+    - name: Install LLVM and MLIR
+      if: steps.cache-llvm.outputs.cache-hit != 'true'
+      run: >
+        git clone https://github.com/llvm/llvm-project.git;
+        mkdir llvm-project/build; cd llvm-project/build;
+        cmake ../llvm -DLLVM_INSTALL_UTILS=ON -DLLVM_ENABLE_PROJECTS=mlir -DCMAKE_INSTALL_PREFIX=../install -DLLVM_TARGETS_TO_BUILD="X86;NVPTX";
+        make -j2;
+        make install
+
+    - name: Build dialect
+      run: >
+        mkdir build; cd build;
+        cmake -DLLVM_DIR=llvm-project/install/lib/cmake/llvm -DLLVM_EXTERNAL_LIT=llvm-project/build/bin/llvm-lit
+        make;
+        make check-oec
