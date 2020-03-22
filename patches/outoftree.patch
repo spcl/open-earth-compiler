@@ -1,15 +1,3 @@
-diff --git a/mlir/CMakeLists.txt b/mlir/CMakeLists.txt
-index 4b46939aa88..2132360ea6e 100644
---- a/mlir/CMakeLists.txt
-+++ b/mlir/CMakeLists.txt
-@@ -75,6 +75,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-     PATTERN "*.h"
-     PATTERN "*.inc"
-     PATTERN "*.td"
-+    PATTERN "*.def"
-     PATTERN "LICENSE.TXT"
-     )
- 
 diff --git a/mlir/include/mlir/IR/DialectSymbolRegistry.def b/mlir/include/mlir/IR/DialectSymbolRegistry.def
 index d082e16026b..2ce129be297 100644
 --- a/mlir/include/mlir/IR/DialectSymbolRegistry.def

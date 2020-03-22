@@ -20,17 +20,6 @@ In DialectSymbolRegistry.def:
 +DEFINE_SYM_KIND_RANGE(STENCIL)
 ```
 
-In the main CMakeLists.txt:
-``` 
-     FILES_MATCHING
-     PATTERN "*.h"
-     PATTERN "*.inc"
-+    PATTERN "*.td"
-+    PATTERN "*.def"
-     PATTERN "LICENSE.TXT"
-     )
-```
-
 # llvm build instructions
 
 Cmake configuration for llvm
