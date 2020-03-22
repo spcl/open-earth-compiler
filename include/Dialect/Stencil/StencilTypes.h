@@ -13,9 +13,9 @@ namespace stencil {
 
 namespace StencilTypes {
 enum Kind {
-  Field = Type::FIRST_STENCIL_TYPE,
+  Field = Type::FIRST_PRIVATE_EXPERIMENTAL_0_TYPE,
   View,
-  LAST_USED_STENCIL_TYPE = View
+  LAST_USED_PRIVATE_EXPERIMENTAL_0_TYPE = View
 };
 }
 
