@@ -36,13 +36,13 @@ struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
 
   // Helper method introducing common root
   LogicalResult introduceRoot(stencil::LoadOp loadOp,
-                              ArrayRef<Operation*> users,
+                              ArrayRef<Operation *> users,
                               PatternRewriter &rewriter) const {
     // Introduce the root op right after the load op
     auto loc = loadOp.getLoc();
     // Find the earliest user in block
     Operation *insertionPoint = users.front();
-    for(auto user: users) {
+    for (auto user : users) {
       if (user->isBeforeInBlock(insertionPoint))
         insertionPoint = user;
     }
@@ -69,7 +69,7 @@ struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
   LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
                                 PatternRewriter &rewriter) const override {
     // Count users of the load op
-    SmallVector<Operation*,10> users;
+    SmallVector<Operation *, 10> users;
     for (auto user : loadOp.getResult().getUsers()) {
       if (isa_and_nonnull<stencil::ApplyOp>(user))
         users.push_back(user);
@@ -100,22 +100,20 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
     SmallVector<Value, 10> newResults = consumerOp.getResults();
     for (unsigned i = 0, e = producerOp.getNumResults(); i != e; ++i) {
-      // Count the result uses
-      auto uses = producerOp.getResult(i).getUses();
-      size_t count = std::distance(uses.begin(), uses.end());
       // Result of cloned operation
       auto result = clonedOp->getResult(i);
-      // Replace the producer of result in the operands
-      auto it = llvm::find(newOperands, producerOp.getResult(i));
-      // Add the result if multiple uses and replace by cloned result
-      if (it != std::end(newOperands) && count > 1) {
-        *it = result;
+      // Add the result to the consumer results
+      if (llvm::any_of(producerOp.getResult(i).getUsers(), [&](Operation *op) {
+            return op != consumerOp.getOperation();
+          })) {
         newResults.push_back(result);
       }
-      // Add parameter and result if not consumed but has uses
-      if (it == std::end(newOperands) && count > 0) {
+      // Replace the producer of result in the operands
+      auto it = llvm::find(newOperands, producerOp.getResult(i));
+      if (it != std::end(newOperands)) {
+        *it = result;
+      } else {
         newOperands.push_back(result);
-        newResults.push_back(result);
       }
     }
 
@@ -311,6 +309,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Update the all uses and copy the loop bounds
     rewriter.replaceOp(consumerOp, newOp.getResults());
+    rewriter.eraseOp(producerOp);
     return success();
   }
 
