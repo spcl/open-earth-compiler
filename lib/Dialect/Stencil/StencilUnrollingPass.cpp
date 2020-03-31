@@ -57,7 +57,8 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
       SmallVector<int64_t, 3> current = accessOp.getOffset();
-      current[unrollIndex]++;
+      if(current[unrollIndex] != stencil::kIgnoreDimension)
+        current[unrollIndex]++;
       ArrayAttr sum = b.getI64ArrayAttr(current);
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
     });
@@ -81,9 +82,11 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
       newResults.push_back(resultBuffer[j][i]);
     }
   }
-  b.create<stencil::ReturnOp>(returnOp.getLoc(), newResults,
-                              stencil::convertSmallVectorToArrayAttr(
-                                  {1, unrollFactor, 1}, b.getContext()));
+  SmallVector<int64_t, 3> unrollVector = {1, 1, 1};
+  unrollVector[unrollIndex] = unrollFactor;
+  b.create<stencil::ReturnOp>(
+      returnOp.getLoc(), newResults,
+      stencil::convertSmallVectorToArrayAttr(unrollVector, b.getContext()));
 
   // Erase the original return op
   returnOp.erase();
