@@ -35,6 +35,7 @@ func @hdiffsmag(
   %crlato = stencil.load %crlato_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %crlatu = stencil.load %crlatu_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %acrlat0 = stencil.load %acrlat0_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
+
   // T_sqr_s
   %T_sqr_s = stencil.apply %arg1 = %uin, %arg2 = %vin, %arg3 = %acrlat0, %arg4 = %eddlat, %arg5 = %eddlon, %arg6 = %earth_radius :
   !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<j,f64>, f64, f64, f64 {
@@ -87,7 +88,6 @@ func @hdiffsmag(
 
 	} : !stencil.view<ijk,f64>
 
-
   // lapu
   %lapu = stencil.apply %arg1 = %uin, %arg2 = %crlato, %arg3 = %crlatu: !stencil.view<ijk,f64>, !stencil.view<j,f64>, !stencil.view<j,f64> {
       %0 = stencil.access %arg1[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -110,7 +110,6 @@ func @hdiffsmag(
       stencil.return %15 : f64
 	} : !stencil.view<ijk,f64>
 
-
   // lapv
   %lapv = stencil.apply %arg1 = %vin, %arg2 = %crlavo, %arg3 = %crlavu: !stencil.view<ijk,f64>, !stencil.view<j,f64>, !stencil.view<j,f64> {
       %0 = stencil.access %arg1[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -132,17 +131,6 @@ func @hdiffsmag(
       %15 = addf %14, %13 : f64
       stencil.return %15 : f64
 	} : !stencil.view<ijk,f64>
-
-
-
-
-
-
-
-
-
-
-
 
   // u_out
   %u_out = stencil.apply %arg1 = %uin, %arg2 = %T_sqr_s, %arg3 = %S_sqr_uv, %arg4 = %lapu, %arg5 = %mask, %arg6 = %weight_smag, %arg7 = %tau_smag :
@@ -180,7 +168,6 @@ func @hdiffsmag(
 
       stencil.return %u_out : f64
 	} : !stencil.view<ijk,f64>
-
 
   // v_out
   %v_out = stencil.apply %arg1 = %vin, %arg2 = %T_sqr_s, %arg3 = %S_sqr_uv, %arg4 = %lapv, %arg5 = %mask, %arg6 = %weight_smag, %arg7 = %tau_smag :
