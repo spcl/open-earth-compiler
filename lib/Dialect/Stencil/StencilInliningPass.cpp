@@ -21,6 +21,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <iterator>
@@ -29,93 +30,33 @@ using namespace mlir;
 
 namespace {
 
-// Pattern introducing a root stencil if two stencils share an input
-struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
-  RootRewrite(MLIRContext *context)
-      : OpRewritePattern<stencil::LoadOp>(context, /*benefit=*/1) {}
-
-  // Helper method introducing common root
-  LogicalResult introduceRoot(stencil::LoadOp loadOp,
-                              ArrayRef<Operation *> users,
-                              PatternRewriter &rewriter) const {
-    // Introduce the root op right after the load op
-    auto loc = loadOp.getLoc();
-    // Find the earliest user in block
-    Operation *insertionPoint = users.front();
-    for (auto user : users) {
-      if (user->isBeforeInBlock(insertionPoint))
-        insertionPoint = user;
-    }
-    // Clone the the load op and reroute output through root op
-    auto clonedOp = rewriter.clone(*loadOp.getOperation());
-    rewriter.setInsertionPoint(insertionPoint);
-    auto rootOp = rewriter.create<stencil::ApplyOp>(loc, clonedOp->getResults(),
-                                                    clonedOp->getResults());
-    rootOp.region().push_back(new Block());
-    rootOp.region().front().addArgument(clonedOp->getResult(0).getType());
-    rewriter.setInsertionPointToEnd(rootOp.getBody());
-    // Create the body of the root op
-    SmallVector<int64_t, 3> zeroOffset = {0, 0, 0};
-    auto accessOp = rewriter.create<stencil::AccessOp>(
-        loc, rootOp.getBody()->getArgument(0), zeroOffset);
-    rewriter.create<stencil::ReturnOp>(
-        loc, accessOp.getOperation()->getResults(), nullptr);
-    // Replace all uses of the load Op results
-    // (except for the use by rootOp)
-    rewriter.replaceOp(loadOp, rootOp.getResults());
-    return success();
-  }
-
-  LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
-                                PatternRewriter &rewriter) const override {
-    // Only consider fields with full dimensionality
-    if (loadOp.getResultViewType().getDimensions().size() !=
-        stencil::kNumOfDimensions) {
-      return failure();
-    }
-
-    // Count users of the load op
-    SmallVector<Operation *, 10> users;
-    for (auto user : loadOp.getResult().getUsers()) {
-      if (isa_and_nonnull<stencil::ApplyOp>(user))
-        users.push_back(user);
-    }
-
-    // Introduce a common stencil root for all stencils loading the input
-    if (users.size() > 1) {
-      return introduceRoot(loadOp, users, rewriter);
-    }
-    return failure();
-  }
-};
-
 // Pattern rerouting output edge via consumer
 struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
   RerouteRewrite(MLIRContext *context)
       : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
 
   // Helper method inlining the consumer in the producer
-  LogicalResult redirectStore(stencil::ApplyOp producerOp,
+  LogicalResult redirectStore(Operation* producerOp,
                               stencil::ApplyOp consumerOp,
                               PatternRewriter &rewriter) const {
     // Clone the producer op
-    rewriter.setInsertionPointAfter(producerOp);
-    auto clonedOp = rewriter.clone(*producerOp.getOperation());
+    rewriter.setInsertionPoint(producerOp);
+    auto clonedOp = rewriter.clone(*producerOp);
 
     // Compute operand and result lists
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
     SmallVector<Value, 10> newResults = consumerOp.getResults();
-    for (unsigned i = 0, e = producerOp.getNumResults(); i != e; ++i) {
+    for (unsigned i = 0, e = producerOp->getNumResults(); i != e; ++i) {
       // Result of cloned operation
       auto result = clonedOp->getResult(i);
       // Add the result to the consumer results
-      if (llvm::any_of(producerOp.getResult(i).getUsers(), [&](Operation *op) {
+      if (llvm::any_of(producerOp->getResult(i).getUsers(), [&](Operation *op) {
             return op != consumerOp.getOperation();
           })) {
         newResults.push_back(result);
       }
       // Replace the producer of result in the operands
-      auto it = llvm::find(newOperands, producerOp.getResult(i));
+      auto it = llvm::find(newOperands, producerOp->getResult(i));
       if (it != std::end(newOperands)) {
         *it = result;
       } else {
@@ -125,6 +66,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Create new consumer op right after the producer op
     auto loc = consumerOp.getLoc();
+    rewriter.setInsertionPoint(consumerOp);
     auto newOp =
         rewriter.create<stencil::ApplyOp>(loc, newOperands, newResults);
     newOp.region().push_back(new Block());
@@ -171,7 +113,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     for (unsigned i = 0, e = consumerOp.getNumResults(); i != e; ++i) {
       newConsumerRes.push_back(newOp.getResult(i));
     }
-    for (unsigned i = 0, e = producerOp.getNumResults(); i != e; ++i) {
+    for (unsigned i = 0, e = producerOp->getNumResults(); i != e; ++i) {
       auto it = llvm::find(newResults, clonedOp->getResult(i));
       if (it != newResults.end()) {
         newProducerRes.push_back(
@@ -187,39 +129,27 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Search consumer connected to a single producer
-    SmallVector<Operation *, 10> producerOps;
+    // Search closest producer
+    Operation *producerOp = nullptr;
     for (auto operand : applyOp.operands()) {
-      if (isa_and_nonnull<stencil::ApplyOp>(operand.getDefiningOp())) {
-        if (!llvm::is_contained(producerOps, operand.getDefiningOp()))
-          producerOps.push_back(operand.getDefiningOp());
+      if (operand.getDefiningOp() && !operand.getDefiningOp()->hasOneUse()) {
+        if (producerOp == nullptr ||
+            producerOp->isBeforeInBlock(operand.getDefiningOp()))
+          producerOp = operand.getDefiningOp();
       }
     }
 
-    // Redirect outputs of the producer
-    if (producerOps.size() == 1) {
-      // Collect all consumers
-      SmallVector<Operation *, 10> consumerOps;
-      for (auto result : producerOps[0]->getOpResults()) {
-        consumerOps.append(result.getUsers().begin(), result.getUsers().end());
-      }
-
-      // Verify the other operands are before the producer
-      for (auto operand : applyOp.getOperands()) {
-        if (operand.getDefiningOp() &&
-            producerOps[0]->isBeforeInBlock(operand.getDefiningOp()))
+    // Continue if there is producer
+    if (producerOp) {
+      // Check the op is before all other consumers
+      for (auto user : producerOp->getUsers()) {
+        if (user != applyOp.getOperation() &&
+            user->isBeforeInBlock(applyOp.getOperation()))
           return failure();
       }
 
-      // Verify the producer has multiple consumers
-      if (llvm::all_of(consumerOps, [&](Operation *op) {
-            return op == applyOp.getOperation();
-          }))
-        return failure();
-
       // Redirect the producer outputs via the consumer
-      return redirectStore(cast<stencil::ApplyOp>(producerOps.front()), applyOp,
-                           rewriter);
+      return redirectStore(producerOp, applyOp, rewriter);
     }
     return failure();
   }
@@ -354,7 +284,8 @@ struct StencilInliningPass : public FunctionPass<StencilInliningPass> {
 void StencilInliningPass::runOnFunction() {
   FuncOp funcOp = getFunction();
   OwningRewritePatternList patterns;
-  patterns.insert<InliningRewrite, RerouteRewrite, RootRewrite>(&getContext());
+  patterns.insert<InliningRewrite, RerouteRewrite>(
+      &getContext());
   applyPatternsGreedily(funcOp, patterns);
 }
 
