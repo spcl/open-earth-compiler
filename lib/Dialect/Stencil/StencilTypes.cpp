@@ -1,4 +1,5 @@
 #include "Dialect/Stencil/StencilTypes.h"
+#include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -49,15 +50,15 @@ FieldType FieldType::get(mlir::MLIRContext *context, mlir::Type elementType,
                          llvm::ArrayRef<int> dimensions) {
   assert((elementType.isF32() || elementType.isF64()) &&
          "supporting only f32 and f64 elements");
-  assert(dimensions.size() > 0 && dimensions.size() <= 3 &&
-         "expected up to three dimensions");
+  assert(dimensions.size() > 0 && dimensions.size() <= kNumOfDimensions &&
+         "expected valid number of dimensions");
   // Sort the dimensions
   std::vector<int> temp = dimensions.vec();
   std::sort(temp.begin(), temp.end());
   auto last = std::unique(temp.begin(), temp.end());
   assert(temp.end() == last &&
          "expected list of unique dimensions identifiers");
-  assert(temp.front() >= 0 && temp.back() < 3 &&
+  assert(temp.front() >= 0 && temp.back() < kNumOfDimensions &&
          "dimension identifiers are out of range");
   return Base::get(context, StencilTypes::Field, temp, elementType);
 }
@@ -104,15 +105,15 @@ ViewType ViewType::get(mlir::MLIRContext *context, mlir::Type elementType,
                        llvm::ArrayRef<int> dimensions) {
   assert((elementType.isF32() || elementType.isF64()) &&
          "supporting only f32 and f64 elements");
-  assert(dimensions.size() > 0 && dimensions.size() <= 3 &&
-         "expected up to three dimensions");
+  assert(dimensions.size() > 0 && dimensions.size() <= kNumOfDimensions &&
+         "expected valid number of dimensions");
   // Sort the dimensions
   std::vector<int> temp = dimensions.vec();
   std::sort(temp.begin(), temp.end());
   auto last = std::unique(temp.begin(), temp.end());
   assert(temp.end() == last &&
          "expected list of unique dimensions identifiers");
-  assert(temp.front() >= 0 && temp.back() < 3 &&
+  assert(temp.front() >= 0 && temp.back() < kNumOfDimensions &&
          "dimension identifiers are out of range");
   return Base::get(context, StencilTypes::View, temp, elementType);
 }

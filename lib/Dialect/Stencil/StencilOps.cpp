@@ -38,7 +38,9 @@ void stencil::AssertOp::build(Builder *builder, OperationState &state,
                               Value field, ArrayRef<int64_t> lb,
                               ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
-  assert(lb.size() == 3 && ub.size() == 3 && "expected bounds with 3 elements");
+  assert(lb.size() == stencil::kNumOfDimensions &&
+         ub.size() == stencil::kNumOfDimensions &&
+         "expected bounds to have an element for every dimension");
 
   // Add an SSA arguments
   state.addOperands({field});
@@ -64,9 +66,10 @@ static ParseResult parseAssertOp(OpAsmParser &parser, OperationState &state) {
     return failure();
 
   // Make sure bounds have the right number of dimensions
-  if (lbAttr.size() != 3 || ubAttr.size() != 3) {
+  if (lbAttr.size() != stencil::kNumOfDimensions ||
+      ubAttr.size() != stencil::kNumOfDimensions) {
     parser.emitError(parser.getCurrentLocation(),
-                     "expected bounds to have three components");
+                     "expected bounds to have a component for every dimension");
     return failure();
   }
 
@@ -127,7 +130,8 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
 void stencil::AccessOp::build(Builder *builder, OperationState &state,
                               Value view, ArrayRef<int64_t> offset) {
   // Make sure that the offset has the right size
-  assert(offset.size() == 3 && "expected offset with 3 elements");
+  assert(offset.size() == stencil::kNumOfDimensions &&
+         "expected offset to have an element for every dimension");
 
   // Extract the element type of the view.
   Type elementType = view.getType().cast<stencil::ViewType>().getElementType();
@@ -151,9 +155,9 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
                             state.attributes))
     return failure();
   // Make sure it has the right number of dimensions
-  if (offset.size() != 3) {
+  if (offset.size() != stencil::kNumOfDimensions) {
     parser.emitError(parser.getCurrentLocation(),
-                     "expected offset to have three components");
+                     "expected offset to have a component for every dimension");
     return failure();
   }
 
@@ -232,9 +236,11 @@ static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
       return failure();
 
     // Make sure bounds have the right number of dimensions
-    if (lbAttr.size() != 3 || ubAttr.size() != 3) {
-      parser.emitError(parser.getCurrentLocation(),
-                       "expected bounds to have three components");
+    if (lbAttr.size() != stencil::kNumOfDimensions ||
+        ubAttr.size() != stencil::kNumOfDimensions) {
+      parser.emitError(
+          parser.getCurrentLocation(),
+          "expected bounds to have a component for every dimension");
       return failure();
     }
   }
@@ -309,7 +315,9 @@ void stencil::StoreOp::build(Builder *builder, OperationState &state,
                              Value view, Value field, ArrayRef<int64_t> lb,
                              ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
-  assert(lb.size() == 3 && ub.size() == 3 && "expected bounds with 3 elements");
+  assert(lb.size() == stencil::kNumOfDimensions &&
+         ub.size() == stencil::kNumOfDimensions &&
+         "expected bounds to have an element for every dimension");
 
   // Add an SSA arguments
   state.addOperands({view, field});
@@ -336,9 +344,10 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
     return failure();
 
   // Make sure bounds have the right number of dimensions
-  if (lbAttr.size() != 3 || ubAttr.size() != 3) {
+  if (lbAttr.size() != stencil::kNumOfDimensions ||
+      ubAttr.size() != stencil::kNumOfDimensions) {
     parser.emitError(parser.getCurrentLocation(),
-                     "expected bounds to have three components");
+                     "expected bounds to have a component for every dimension");
     return failure();
   }
 
@@ -474,9 +483,11 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
       return failure();
 
     // Make sure bounds have the right number of dimensions
-    if (lbAttr.size() != 3 || ubAttr.size() != 3) {
-      parser.emitError(parser.getCurrentLocation(),
-                       "expected bounds to have three components");
+    if (lbAttr.size() != stencil::kNumOfDimensions ||
+        ubAttr.size() != stencil::kNumOfDimensions) {
+      parser.emitError(
+          parser.getCurrentLocation(),
+          "expected bounds to have a component for every dimension");
       return failure();
     }
   }
@@ -663,7 +674,8 @@ void stencil::ApplyOp::getCanonicalizationPatterns(
 void stencil::CallOp::build(Builder *builder, OperationState &result,
                             FuncOp callee, stencil::ViewType viewType,
                             ArrayRef<int64_t> offset, ValueRange operands) {
-  assert(offset.size() == 3 && "expected offset with 3 elements");
+  assert(offset.size() == stencil::kNumOfDimensions &&
+         "expected offset to have an element for every dimension");
   assert(
       callee.getAttr(stencil::StencilDialect::getStencilFunctionAttrName()) &&
       "only stencil functions can be used in an apply operation");
@@ -770,9 +782,10 @@ static ParseResult parseReturnOp(OpAsmParser &parser, OperationState &result) {
       return failure();
 
     // Make sure unroll parameters have right number of dimensions
-    if (unrollAttr.size() != 3) {
-      parser.emitError(parser.getCurrentLocation(),
-                       "expected unroll attribute to have three components");
+    if (unrollAttr.size() != stencil::kNumOfDimensions) {
+      parser.emitError(
+          parser.getCurrentLocation(),
+          "expected unroll attribute to have a component for every dimension");
       return failure();
     }
   }

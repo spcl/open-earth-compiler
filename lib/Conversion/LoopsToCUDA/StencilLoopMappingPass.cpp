@@ -1,4 +1,5 @@
 #include "Conversion/LoopsToCUDA/Passes.h"
+#include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/GPU/ParallelLoopMapper.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
@@ -67,8 +68,8 @@ void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
 // Method tiling and mapping a parallel loop for the GPU execution
 void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
                             ArrayRef<int64_t> blockSizes) {
-  assert(parallelOp.getNumInductionVars() == 3 &&
-         "expected three-dimensional parallel loops");
+  assert(parallelOp.getNumInductionVars() == stencil::kNumOfDimensions &&
+         "expected parallel loop to have full dimensionality");
   assert(llvm::all_of(parallelOp.lowerBound(),
                       [](Value val) {
                         return verifyIsConstant(val) &&

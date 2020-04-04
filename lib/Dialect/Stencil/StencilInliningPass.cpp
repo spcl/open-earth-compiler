@@ -68,6 +68,12 @@ struct RootRewrite : public OpRewritePattern<stencil::LoadOp> {
 
   LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
                                 PatternRewriter &rewriter) const override {
+    // Only consider fields with full dimensionality
+    if (loadOp.getResultViewType().getDimensions().size() !=
+        stencil::kNumOfDimensions) {
+      return failure();
+    }
+
     // Count users of the load op
     SmallVector<Operation *, 10> users;
     for (auto user : loadOp.getResult().getUsers()) {
