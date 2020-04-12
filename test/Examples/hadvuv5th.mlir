@@ -9,8 +9,7 @@ func @hadvuv5th(
   %tgrlatda0_fd : !stencil.field<j,f64>,
   %tgrlatda1_fd : !stencil.field<j,f64>,
   %eddlat : f64,
-  %eddlon : f64,
-  %earth_radi_recip : f64)
+  %eddlon : f64)
   attributes { stencil.program } {
   // asserts
   stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
@@ -28,6 +27,7 @@ func @hadvuv5th(
   %acrlat1 = stencil.load %acrlat1_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %tgrlatda0 = stencil.load %tgrlatda0_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %tgrlatda1 = stencil.load %tgrlatda1_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
+
   // uatupos
   %uatupos = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {
       %one = constant 1.0 : f64
@@ -62,9 +62,13 @@ func @hadvuv5th(
       stencil.return %2 : f64
   } : !stencil.view<ijk,f64>
   // vavgu
-  %vavgu = stencil.apply %arg5 = %vatupos, %arg6 = %earth_radi_recip : !stencil.view<ijk,f64>, f64 {
+  %vavgu = stencil.apply %arg5 = %vatupos : !stencil.view<ijk,f64> {
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
+
       %0 = stencil.access %arg5[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = mulf %0, %arg6 : f64
+      %1 = mulf %0, %earth_radius_recip : f64
       stencil.return %1 : f64
   } : !stencil.view<ijk,f64>
   // udelta
@@ -84,9 +88,9 @@ func @hadvuv5th(
       %-by2 = divf %minus_one, %two : f64
       %by20 = divf %one, %twenty : f64
       %uavg = stencil.access %arg8[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
+      %u_center = stencil.access %arg7[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iminus2 = stencil.access %arg7[-2, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iminus1 = stencil.access %arg7[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %u_center = stencil.access %arg7[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iplus1 = stencil.access %arg7[1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iplus2 = stencil.access %arg7[2, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %uavg_g0 = cmpf "ogt", %uavg, %zero : f64
@@ -94,10 +98,10 @@ func @hadvuv5th(
       %idir_res = loop.if %uavg_g0 -> (f64) {
           %u_iminus3 = stencil.access %arg7[-3, 0, 0] : (!stencil.view<ijk,f64>) -> f64
           %prod_-2 = mulf %-by4, %u_iminus2 : f64
+          %sum_0-1 = addf %prod_0, %u_iminus1 : f64
           %prod_1 = mulf %-by2, %u_iplus1 : f64
           %prod_2 = mulf %by20, %u_iplus2 : f64
           %prod_-3 = mulf %by30, %u_iminus3 : f64
-          %sum_0-1 = addf %prod_0, %u_iminus1 : f64
           %sum_-21 = addf %prod_-2, %prod_1 : f64
           %sum_2-3 = addf %prod_2, %prod_-3 : f64
           %sum_-2-101 = addf %sum_0-1, %sum_-21 : f64
@@ -108,9 +112,9 @@ func @hadvuv5th(
           %u_iplus3 = stencil.access %arg7[3, 0, 0] : (!stencil.view<ijk,f64>) -> f64
           %prod_-2 = mulf %by20, %u_iminus2 : f64
           %prod_-1 = mulf %-by2, %u_iminus1 : f64
+          %sum_01 = addf %prod_0, %u_iplus1 : f64
           %prod_2 = mulf %-by4, %u_iplus2 : f64
           %prod_3 = mulf %by30, %u_iplus3 : f64
-          %sum_01 = addf %prod_0, %u_iplus1 : f64
           %sum_-2-1 = addf %prod_-2, %prod_-1 : f64
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
@@ -128,10 +132,10 @@ func @hadvuv5th(
       %jdir_res = loop.if %vavg_g0 -> (f64) {
           %u_jminus3 = stencil.access %arg7[0, -3, 0] : (!stencil.view<ijk,f64>) -> f64
           %prod_-2 = mulf %-by4, %u_jminus2 : f64
+          %sum_0-1 = addf %prod_0, %u_jminus1 : f64
           %prod_1 = mulf %-by2, %u_jplus1 : f64
           %prod_2 = mulf %by20, %u_jplus2 : f64
           %prod_-3 = mulf %by30, %u_jminus3 : f64
-          %sum_0-1 = addf %prod_0, %u_jminus1 : f64
           %sum_-21 = addf %prod_-2, %prod_1 : f64
           %sum_2-3 = addf %prod_2, %prod_-3 : f64
           %sum_-2-101 = addf %sum_0-1, %sum_-21 : f64
@@ -142,9 +146,9 @@ func @hadvuv5th(
           %u_jplus3 = stencil.access %arg7[0, 3, 0] : (!stencil.view<ijk,f64>) -> f64
           %prod_-2 = mulf %by20, %u_jminus2 : f64
           %prod_-1 = mulf %-by2, %u_jminus1 : f64
+          %sum_01 = addf %prod_0, %u_jplus1 : f64
           %prod_2 = mulf %-by4, %u_jplus2 : f64
           %prod_3 = mulf %by30, %u_jplus3 : f64
-          %sum_01 = addf %prod_0, %u_jplus1 : f64
           %sum_-2-1 = addf %prod_-2, %prod_-1 : f64
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
@@ -204,9 +208,13 @@ func @hadvuv5th(
       stencil.return %2 : f64
   } : !stencil.view<ijk,f64>
   // vavgv
-  %vavgv = stencil.apply %arg20 = %vatvpos, %arg21 = %earth_radi_recip : !stencil.view<ijk,f64>, f64 {
+  %vavgv = stencil.apply %arg20 = %vatvpos : !stencil.view<ijk,f64> {
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
+
       %0 = stencil.access %arg20[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = mulf %0, %arg21 : f64
+      %1 = mulf %0, %earth_radius_recip : f64
       stencil.return %1 : f64
   } : !stencil.view<ijk,f64>
   // vdelta
@@ -226,9 +234,9 @@ func @hadvuv5th(
       %-by2 = divf %minus_one, %two : f64
       %by20 = divf %one, %twenty : f64
       %uavg = stencil.access %arg23[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
+      %u_center = stencil.access %arg22[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iminus2 = stencil.access %arg22[-2, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iminus1 = stencil.access %arg22[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %u_center = stencil.access %arg22[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iplus1 = stencil.access %arg22[1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %u_iplus2 = stencil.access %arg22[2, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %uavg_g0 = cmpf "ogt", %uavg, %zero : f64
@@ -236,10 +244,10 @@ func @hadvuv5th(
       %idir_res = loop.if %uavg_g0 -> (f64) {
           %u_iminus3 = stencil.access %arg22[-3, 0, 0] : (!stencil.view<ijk,f64>) -> f64
           %prod_-2 = mulf %-by4, %u_iminus2 : f64
+          %sum_0-1 = addf %prod_0, %u_iminus1 : f64
           %prod_1 = mulf %-by2, %u_iplus1 : f64
           %prod_2 = mulf %by20, %u_iplus2 : f64
           %prod_-3 = mulf %by30, %u_iminus3 : f64
-          %sum_0-1 = addf %prod_0, %u_iminus1 : f64
           %sum_-21 = addf %prod_-2, %prod_1 : f64
           %sum_2-3 = addf %prod_2, %prod_-3 : f64
           %sum_-2-101 = addf %sum_0-1, %sum_-21 : f64
@@ -250,9 +258,9 @@ func @hadvuv5th(
           %u_iplus3 = stencil.access %arg22[3, 0, 0] : (!stencil.view<ijk,f64>) -> f64
           %prod_-2 = mulf %by20, %u_iminus2 : f64
           %prod_-1 = mulf %-by2, %u_iminus1 : f64
+          %sum_01 = addf %prod_0, %u_iplus1 : f64
           %prod_2 = mulf %-by4, %u_iplus2 : f64
           %prod_3 = mulf %by30, %u_iplus3 : f64
-          %sum_01 = addf %prod_0, %u_iplus1 : f64
           %sum_-2-1 = addf %prod_-2, %prod_-1 : f64
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
@@ -269,11 +277,11 @@ func @hadvuv5th(
       %vavg_g0 = cmpf "ogt", %vavg, %zero : f64
       %jdir_res = loop.if %vavg_g0 -> (f64) {
           %u_jminus3 = stencil.access %arg22[0, -3, 0] : (!stencil.view<ijk,f64>) -> f64
+          %sum_0-1 = addf %prod_0, %u_jminus1 : f64
           %prod_-2 = mulf %-by4, %u_jminus2 : f64
           %prod_1 = mulf %-by2, %u_jplus1 : f64
           %prod_2 = mulf %by20, %u_jplus2 : f64
           %prod_-3 = mulf %by30, %u_jminus3 : f64
-          %sum_0-1 = addf %prod_0, %u_jminus1 : f64
           %sum_-21 = addf %prod_-2, %prod_1 : f64
           %sum_2-3 = addf %prod_2, %prod_-3 : f64
           %sum_-2-101 = addf %sum_0-1, %sum_-21 : f64
@@ -282,11 +290,11 @@ func @hadvuv5th(
           loop.yield %jpos_res : f64
       } else {
           %u_jplus3 = stencil.access %arg22[0, 3, 0] : (!stencil.view<ijk,f64>) -> f64
+          %sum_01 = addf %prod_0, %u_jplus1 : f64
           %prod_-2 = mulf %by20, %u_jminus2 : f64
           %prod_-1 = mulf %-by2, %u_jminus1 : f64
           %prod_2 = mulf %-by4, %u_jplus2 : f64
           %prod_3 = mulf %by30, %u_jplus3 : f64
-          %sum_01 = addf %prod_0, %u_jplus1 : f64
           %sum_-2-1 = addf %prod_-2, %prod_-1 : f64
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64

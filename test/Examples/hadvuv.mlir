@@ -9,8 +9,7 @@ func @hadvuv(
   %tgrlatda0_fd : !stencil.field<j,f64>,
   %tgrlatda1_fd : !stencil.field<j,f64>,
   %eddlat : f64,
-  %eddlon : f64,
-  %earth_radi_recip : f64)
+  %eddlon : f64)
   attributes { stencil.program } {
   // asserts
   stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
@@ -28,6 +27,7 @@ func @hadvuv(
   %acrlat1 = stencil.load %acrlat1_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %tgrlatda0 = stencil.load %tgrlatda0_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %tgrlatda1 = stencil.load %tgrlatda1_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
+
   // uatupos
   %uatupos = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {
       %one = constant 1.0 : f64
@@ -62,9 +62,13 @@ func @hadvuv(
       stencil.return %2 : f64
   } : !stencil.view<ijk,f64>
   // vavgu
-  %vavgu = stencil.apply %arg5 = %vatupos, %arg6 = %earth_radi_recip : !stencil.view<ijk,f64>, f64 {
+  %vavgu = stencil.apply %arg5 = %vatupos : !stencil.view<ijk,f64> {
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
+
       %0 = stencil.access %arg5[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = mulf %0, %arg6 : f64
+      %1 = mulf %0, %earth_radius_recip : f64
       stencil.return %1 : f64
   } : !stencil.view<ijk,f64>
   // udelta
@@ -178,9 +182,13 @@ func @hadvuv(
       stencil.return %2 : f64
   } : !stencil.view<ijk,f64>
   // vavgv
-  %vavgv = stencil.apply %arg20 = %vatvpos, %arg21 = %earth_radi_recip : !stencil.view<ijk,f64>, f64 {
+  %vavgv = stencil.apply %arg20 = %vatvpos : !stencil.view<ijk,f64> {
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
+
       %0 = stencil.access %arg20[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = mulf %0, %arg21 : f64
+      %1 = mulf %0, %earth_radius_recip : f64
       stencil.return %1 : f64
   } : !stencil.view<ijk,f64>
   // vdelta

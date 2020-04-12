@@ -12,8 +12,7 @@ func @hdiffsmag(
   %eddlat : f64,
   %eddlon : f64,
   %tau_smag : f64,
-  %weight_smag : f64,
-  %earth_radius : f64)
+  %weight_smag : f64)
   attributes { stencil.program } {
   // asserts
   stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
@@ -37,13 +36,17 @@ func @hdiffsmag(
   %acrlat0 = stencil.load %acrlat0_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
 
   // T_sqr_s
-  %T_sqr_s = stencil.apply %arg1 = %uin, %arg2 = %vin, %arg3 = %acrlat0, %arg4 = %eddlat, %arg5 = %eddlon, %arg6 = %earth_radius :
-  !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<j,f64>, f64, f64, f64 {
+  %T_sqr_s = stencil.apply %arg1 = %uin, %arg2 = %vin, %arg3 = %acrlat0, %arg4 = %eddlat, %arg5 = %eddlon :
+  !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<j,f64>, f64, f64 {
+
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
 
       %acrlat = stencil.access %arg3[0, 0, 0] : (!stencil.view<j,f64>) -> f64
 
       %frac_1_dx = mulf %acrlat, %arg5 : f64
-      %frac_1_dy = divf %arg4, %arg6: f64
+      %frac_1_dy = mulf %arg4, %earth_radius_recip: f64
 
       %v_jminus1 = stencil.access %arg2[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
       %v_center = stencil.access %arg2[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -63,13 +66,17 @@ func @hdiffsmag(
 	} : !stencil.view<ijk,f64>
 
   // S_sqr_uv
-  %S_sqr_uv = stencil.apply %arg1 = %uin, %arg2 = %vin, %arg3 = %acrlat0, %arg4 = %eddlat, %arg5 = %eddlon, %arg6 = %earth_radius :
-  !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<j,f64>, f64, f64, f64 {
+  %S_sqr_uv = stencil.apply %arg1 = %uin, %arg2 = %vin, %arg3 = %acrlat0, %arg4 = %eddlat, %arg5 = %eddlon :
+  !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<j,f64>, f64, f64 {
+
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
 
       %acrlat = stencil.access %arg3[0, 0, 0] : (!stencil.view<j,f64>) -> f64
 
       %frac_1_dx = mulf %acrlat, %arg5 : f64
-      %frac_1_dy = divf %arg4, %arg6 : f64
+      %frac_1_dy = mulf %arg4, %earth_radius_recip : f64
 
       %v_iplus1 = stencil.access %arg2[1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %v_center = stencil.access %arg2[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
