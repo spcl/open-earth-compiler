@@ -6,7 +6,6 @@ func @nh_p_grad(
   %rdy_fd : !stencil.field<ijk,f64>,
   %gz_fd : !stencil.field<ijk,f64>,
   %pp_fd : !stencil.field<ijk,f64>,
-  %pk_fd : !stencil.field<ijk,f64>,
   %pk3_fd : !stencil.field<ijk,f64>,
   %wk1_fd : !stencil.field<ijk,f64>,
   %uout_fd : !stencil.field<ijk,f64>,
@@ -19,7 +18,6 @@ func @nh_p_grad(
   stencil.assert %rdy_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   stencil.assert %gz_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   stencil.assert %pp_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
-  stencil.assert %pk_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   stencil.assert %pk3_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   stencil.assert %wk1_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
   stencil.assert %uout_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
@@ -30,15 +28,14 @@ func @nh_p_grad(
   %rdy = stencil.load %rdy_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %gz = stencil.load %gz_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %pp = stencil.load %pp_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
-  %pk = stencil.load %pk_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %pk3 = stencil.load %pk3_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   %wk1 = stencil.load %wk1_fd : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
   // wk
-  %wk = stencil.apply %arg1 = %pk : !stencil.view<ijk,f64> {
-      %pk_kp1 = stencil.access %arg1[0, 0, 1] : (!stencil.view<ijk,f64>) -> f64
-      %pk_center = stencil.access %arg1[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %pk_kp1mcenter = subf %pk_kp1, %pk_center : f64
-      stencil.return %pk_kp1mcenter : f64
+  %wk = stencil.apply %arg1 = %pk3 : !stencil.view<ijk,f64> {
+      %pk3_kp1 = stencil.access %arg1[0, 0, 1] : (!stencil.view<ijk,f64>) -> f64
+      %pk3_center = stencil.access %arg1[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
+      %pk3_kp1mcenter = subf %pk3_kp1, %pk3_center : f64
+      stencil.return %pk3_kp1mcenter : f64
 	} : !stencil.view<ijk,f64>
   // du
   %du = stencil.apply %arg1 = %wk, %arg2 = %gz, %arg3 = %pk3, %arg4 = %dt :
