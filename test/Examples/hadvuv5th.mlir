@@ -28,8 +28,8 @@ func @hadvuv5th(
   %tgrlatda0 = stencil.load %tgrlatda0_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
   %tgrlatda1 = stencil.load %tgrlatda1_fd : (!stencil.field<j,f64>) -> !stencil.view<j,f64>
 
-  // uatupos
-  %uatupos = stencil.apply %arg1 = %uin : !stencil.view<ijk,f64> {
+  // uatupos, uavgu
+  %uatupos, %uavgu = stencil.apply %arg1 = %uin, %arg4 = %acrlat0 : !stencil.view<ijk,f64>, !stencil.view<j,f64> {
       %one = constant 1.0 : f64
       %three = constant 3.0 : f64
       %cst = divf %one, %three : f64
@@ -39,10 +39,16 @@ func @hadvuv5th(
       %3 = addf %0, %1 : f64
       %4 = addf %3, %2 : f64
       %5 = mulf %4, %cst : f64
-      stencil.return %5 : f64
-  } : !stencil.view<ijk,f64>
-  // vatupos
-  %vatupos = stencil.apply %arg2 = %vin : !stencil.view<ijk,f64> {
+      %6 = stencil.access %arg4[0, 0, 0] : (!stencil.view<j,f64>) -> f64
+      %7 = mulf %5, %6 : f64
+      stencil.return %5, %7 : f64, f64
+  } : !stencil.view<ijk,f64>, !stencil.view<ijk,f64>
+  // vatupos, vavgu
+  %vatupos, %vavgu = stencil.apply %arg2 = %vin : !stencil.view<ijk,f64> {
+      %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
+
       %cst = constant 0.25 : f64
       %0 = stencil.access %arg2[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
       %1 = stencil.access %arg2[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -52,25 +58,9 @@ func @hadvuv5th(
       %5 = addf %2, %3 : f64
       %6 = addf %4, %5 : f64
       %7 = mulf %6, %cst : f64
-      stencil.return %7 : f64
-  } : !stencil.view<ijk,f64>
-  // uavgu
-  %uavgu = stencil.apply %arg3 = %uatupos, %arg4 = %acrlat0 : !stencil.view<ijk,f64>, !stencil.view<j,f64> {
-      %0 = stencil.access %arg3[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = stencil.access %arg4[0, 0, 0] : (!stencil.view<j,f64>) -> f64
-      %2 = mulf %0, %1 : f64
-      stencil.return %2 : f64
-  } : !stencil.view<ijk,f64>
-  // vavgu
-  %vavgu = stencil.apply %arg5 = %vatupos : !stencil.view<ijk,f64> {
-      %one = constant 1.0 : f64
-      %earth_radius = constant 6371.229e3 : f64
-      %earth_radius_recip = divf %one, %earth_radius : f64
-
-      %0 = stencil.access %arg5[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = mulf %0, %earth_radius_recip : f64
-      stencil.return %1 : f64
-  } : !stencil.view<ijk,f64>
+      %8 = mulf %7, %earth_radius_recip: f64
+      stencil.return %7, %8 : f64, f64
+  } : !stencil.view<ijk,f64>, !stencil.view<ijk,f64>
   // udelta
   %udelta = stencil.apply %arg7 = %uin, %arg8 = %uavgu, %arg9 = %vavgu, %arg10 = %eddlat, %arg11 = %eddlon :
   !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, f64, f64 {
@@ -119,7 +109,7 @@ func @hadvuv5th(
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
           %sum_full = addf %sum_23, %sum_-2-101 : f64
-          %-uavg = mulf %minus_one, %uavg : f64
+          %-uavg = negf %uavg : f64
           %ineg_res = mulf %-uavg, %sum_full : f64
           loop.yield %ineg_res : f64
       }
@@ -153,7 +143,7 @@ func @hadvuv5th(
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
           %sum_full = addf %sum_23, %sum_-2-101 : f64
-          %-vavg = mulf %minus_one, %vavg : f64
+          %-vavg = negf %vavg : f64
           %jneg_res = mulf %-vavg, %sum_full : f64
           loop.yield %jneg_res : f64
       }
@@ -174,8 +164,8 @@ func @hadvuv5th(
       %6 = addf %5, %3 : f64
       stencil.return %6 : f64
   } : !stencil.view<ijk,f64>
-  // uatvpos
-  %uatvpos = stencil.apply %arg16 = %uin : !stencil.view<ijk,f64> {
+  // uatvpos, uavgv
+  %uatvpos, %uavgv = stencil.apply %arg16 = %uin, %arg19 = %acrlat1 : !stencil.view<ijk,f64>, !stencil.view<j,f64> {
       %cst = constant 0.25 : f64
       %0 = stencil.access %arg16[-1, 0, 0] : (!stencil.view<ijk,f64>) -> f64
       %1 = stencil.access %arg16[-1, 1, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -185,11 +175,15 @@ func @hadvuv5th(
       %5 = addf %2, %3 : f64
       %6 = addf %4, %5 : f64
       %7 = mulf %6, %cst : f64
-      stencil.return %7 : f64
-  } : !stencil.view<ijk,f64>
-  // vatvpos
-  %vatvpos = stencil.apply %arg17 = %vin : !stencil.view<ijk,f64> {
+      %8 = stencil.access %arg19[0, 0, 0] : (!stencil.view<j,f64>) -> f64
+      %9 = mulf %7, %8 : f64
+      stencil.return %7, %9 : f64, f64
+  } : !stencil.view<ijk,f64>, !stencil.view<ijk,f64>
+  // vatvpos, vavgv
+  %vatvpos, %vavgv = stencil.apply %arg17 = %vin : !stencil.view<ijk,f64> {
       %one = constant 1.0 : f64
+      %earth_radius = constant 6371.229e3 : f64
+      %earth_radius_recip = divf %one, %earth_radius : f64
       %three = constant 3.0 : f64
       %cst = divf %one, %three : f64
       %0 = stencil.access %arg17[0, -1, 0] : (!stencil.view<ijk,f64>) -> f64
@@ -198,25 +192,9 @@ func @hadvuv5th(
       %3 = addf %0, %1 : f64
       %4 = addf %3, %2 : f64
       %5 = mulf %4, %cst : f64
-      stencil.return %5 : f64
-  } : !stencil.view<ijk,f64>
-  // uavgv
-  %uavgv = stencil.apply %arg18 = %uatvpos, %arg19 = %acrlat1 : !stencil.view<ijk,f64>, !stencil.view<j,f64> {
-      %0 = stencil.access %arg18[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = stencil.access %arg19[0, 0, 0] : (!stencil.view<j,f64>) -> f64
-      %2 = mulf %0, %1 : f64
-      stencil.return %2 : f64
-  } : !stencil.view<ijk,f64>
-  // vavgv
-  %vavgv = stencil.apply %arg20 = %vatvpos : !stencil.view<ijk,f64> {
-      %one = constant 1.0 : f64
-      %earth_radius = constant 6371.229e3 : f64
-      %earth_radius_recip = divf %one, %earth_radius : f64
-
-      %0 = stencil.access %arg20[0, 0, 0] : (!stencil.view<ijk,f64>) -> f64
-      %1 = mulf %0, %earth_radius_recip : f64
-      stencil.return %1 : f64
-  } : !stencil.view<ijk,f64>
+      %6 = mulf %5, %earth_radius_recip : f64
+      stencil.return %5, %6 : f64, f64
+  } : !stencil.view<ijk,f64>, !stencil.view<ijk,f64>
   // vdelta
   %vdelta = stencil.apply %arg22 = %vin, %arg23 = %uavgv, %arg24 = %vavgv, %arg25 = %eddlat, %arg26 = %eddlon :
   !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, !stencil.view<ijk,f64>, f64, f64 {
@@ -265,7 +243,7 @@ func @hadvuv5th(
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
           %sum_full = addf %sum_23, %sum_-2-101 : f64
-          %-uavg = mulf %minus_one, %uavg : f64
+          %-uavg = negf %uavg : f64
           %ineg_res = mulf %-uavg, %sum_full : f64
           loop.yield %ineg_res : f64
       }
@@ -299,7 +277,7 @@ func @hadvuv5th(
           %sum_23 = addf %prod_2, %prod_3 : f64
           %sum_-2-101 = addf %sum_01, %sum_-2-1 : f64
           %sum_full = addf %sum_23, %sum_-2-101 : f64
-          %-vavg = mulf %minus_one, %vavg : f64
+          %-vavg = negf %vavg : f64
           %jneg_res = mulf %-vavg, %sum_full : f64
           loop.yield %jneg_res : f64
       }
