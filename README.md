@@ -1,15 +1,23 @@
-# stencil-dialect
+# The Stencil Dialect
 
-Development repository for the open earth compiler. The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit 974d649f8eaf3026ccb9d1b77bdec55da25366e5. Before building mlir register your custom dialects in include/mlir/IR/DialectSymbolRegistry.def and change the main cmake file to install the td and def files. Once the llvm and mlir are built setup configure the project using the following commands.
+Development repository for the open earth compiler. The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit 302e11cd974. 
 
-```
+
+## Build Instructions
+
+This setup assumes that you have built LLVM and MLIR in `$BUILD_DIR` and installed them to `$PREFIX`. To build and launch the tests, run
+```sh
 mkdir build && cd build
-cmake -G Ninja .. -DCMAKE_LINKER=<path_to_lld> -DLLVM_DIR=<install_root>/lib/cmake/llvm/ -DLLVM_EXTERNAL_LIT=<build_root>/bin/llvm-lit
-cmake --build . --target oec-opt
-cmake --build . --target check-oec
+cmake -G Ninja .. -DMLIR_DIR=$PREFIX/lib/cmake/mlir -DLLVM_EXTERNAL_LIT=$BUILD_DIR/bin/llvm-lit
+cmake --build . --target check-oec-opt
 ```
+To build the documentation from the TableGen description of the dialect operations, run
+```sh
+cmake --build . --target mlir-doc
+```
+**Note**: Make sure to pass `-DLLVM_INSTALL_UTILS=ON` when building LLVM with CMake in order to install `FileCheck` to the chosen installation prefix.
 
-# llvm build instructions
+# LLVM Build Instructions
 
 Cmake configuration for llvm
 

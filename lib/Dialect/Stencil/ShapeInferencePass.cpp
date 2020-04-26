@@ -2,6 +2,7 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "PassDetail.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
@@ -85,7 +86,7 @@ private:
   llvm::DenseMap<Operation *, llvm::DenseMap<Value, Extent>> extents;
 };
 
-struct ShapeInferencePass : public FunctionPass<ShapeInferencePass> {
+struct ShapeInferencePass : public ShapeInferencePassBase<ShapeInferencePass> {
   void runOnFunction() override;
 };
 
@@ -285,10 +286,6 @@ void ShapeInferencePass::runOnFunction() {
   }
 }
 
-std::unique_ptr<OpPassBase<FuncOp>> mlir::stencil::createShapeInferencePass() {
+std::unique_ptr<OperationPass<FuncOp>> mlir::createShapeInferencePass() {
   return std::make_unique<ShapeInferencePass>();
 }
-
-static PassRegistration<ShapeInferencePass>
-    pass("stencil-shape-inference",
-         "Infer the shapes of stencil loads and stencil applies.");

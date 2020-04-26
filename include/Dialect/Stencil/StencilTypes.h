@@ -1,5 +1,5 @@
-#ifndef MLIR_DIALECT_STENCIL_STENCILTYPES_H
-#define MLIR_DIALECT_STENCIL_STENCILTYPES_H
+#ifndef DIALECT_STENCIL_STENCILTYPES_H
+#define DIALECT_STENCIL_STENCILTYPES_H
 
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
@@ -64,4 +64,4 @@ public:
 } // namespace stencil
 } // namespace mlir
 
-#endif // MLIR_DIALECT_STENCIL_STENCILTYPES_H
+#endif // DIALECT_STENCIL_STENCILTYPES_H

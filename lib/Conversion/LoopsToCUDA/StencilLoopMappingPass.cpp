@@ -1,5 +1,6 @@
 #include "Conversion/LoopsToCUDA/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
+#include "PassDetail.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/GPU/ParallelLoopMapper.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
@@ -24,7 +25,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
-
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <iterator>
@@ -48,27 +48,28 @@ int64_t getConstantValue(Value val) {
 // Helper method setting the loop mapping attributes for a parallel loop
 void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
                                 int64_t mappingOffset) {
-  SmallVector<Attribute, 3> attrs;
-  attrs.reserve(parallelOp.getNumInductionVars());
-  for (int i = 0, e = parallelOp.getNumInductionVars(); i < e; ++i) {
-    // Map the last loop next to threads
-    SmallVector<NamedAttribute, 3> entries;
-    entries.emplace_back(b.getNamedAttr(
-        gpu::kProcessorEntryName, b.getI64IntegerAttr(i + mappingOffset)));
-    entries.emplace_back(b.getNamedAttr(
-        gpu::kIndexMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
-    entries.emplace_back(b.getNamedAttr(
-        gpu::kBoundMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
-    attrs.push_back(DictionaryAttr::get(entries, b.getContext()));
-  }
-  parallelOp.setAttr(gpu::kMappingAttributeName,
-                     ArrayAttr::get(attrs, b.getContext()));
+  // TODO fix this
+  // SmallVector<Attribute, 3> attrs;
+  // attrs.reserve(parallelOp.getNumLoops());
+  // for (int i = 0, e = parallelOp.getNumLoops(); i < e; ++i) {
+  //   // Map the last loop next to threads
+  //   SmallVector<NamedAttribute, 3> entries;
+  //   entries.emplace_back(b.getNamedAttr(
+  //       gpu::kProcessorEntryName, b.getI64IntegerAttr(i + mappingOffset)));
+  //   entries.emplace_back(b.getNamedAttr(
+  //       gpu::kIndexMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
+  //   entries.emplace_back(b.getNamedAttr(
+  //       gpu::kBoundMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
+  //   attrs.push_back(DictionaryAttr::get(entries, b.getContext()));
+  // }
+  // parallelOp.setAttr("mapping",
+  //                    ArrayAttr::get(attrs, b.getContext()));
 }
 
 // Method tiling and mapping a parallel loop for the GPU execution
 void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
                             ArrayRef<int64_t> blockSizes) {
-  assert(parallelOp.getNumInductionVars() == stencil::kNumOfDimensions &&
+  assert(parallelOp.getNumLoops() == stencil::kNumOfDimensions &&
          "expected parallel loop to have full dimensionality");
   assert(llvm::all_of(parallelOp.lowerBound(),
                       [](Value val) {
@@ -172,7 +173,7 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
 
   // Clone the loop body and map the new arguments
   BlockAndValueMapping mapper;
-  for (size_t i = 0, e = parallelOp.getNumInductionVars(); i < e; ++i) {
+  for (size_t i = 0, e = parallelOp.getNumLoops(); i < e; ++i) {
     mapper.map(parallelOp.getBody()->getArgument(i), loopIVs[i]);
   }
   for (auto &currentOp : parallelOp.getBody()->getOperations()) {
@@ -188,15 +189,9 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
   parallelOp.erase();
 }
 
-struct StencilLoopMappingPass : public FunctionPass<StencilLoopMappingPass> {
-  StencilLoopMappingPass() = default;
-  StencilLoopMappingPass(const StencilLoopMappingPass &) {}
-
+struct StencilLoopMappingPass
+    : public StencilLoopMappingPassBase<StencilLoopMappingPass> {
   void runOnFunction() override;
-
-  ListOption<int64_t> blockSizes{
-      *this, "block-sizes", llvm::cl::desc("block sizes used for the mapping"),
-      llvm::cl::ZeroOrMore, llvm::cl::MiscFlags::CommaSeparated};
 };
 
 void StencilLoopMappingPass::runOnFunction() {
@@ -208,9 +203,6 @@ void StencilLoopMappingPass::runOnFunction() {
 
 } // namespace
 
-std::unique_ptr<OpPassBase<FuncOp>> stencil::createStencilLoopMappingPass() {
+std::unique_ptr<OperationPass<FuncOp>> mlir::createStencilLoopMappingPass() {
   return std::make_unique<StencilLoopMappingPass>();
 }
-
-static PassRegistration<StencilLoopMappingPass>
-    pass("stencil-loop-mapping", "Map parallel loops to blocks and threads");

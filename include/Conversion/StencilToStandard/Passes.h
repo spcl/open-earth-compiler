@@ -1,17 +1,14 @@
-#ifndef MLIR_CONVERSION_STENCILTOSTANDARD_PASSES_H
-#define MLIR_CONVERSION_STENCILTOSTANDARD_PASSES_H
+#ifndef CONVERSION_STENCILTOSTANDARD_PASSES_H
+#define CONVERSION_STENCILTOSTANDARD_PASSES_H
 
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/IR/Module.h"
-
-#include "mlir/Pass/Pass.h"
+#include <memory>
 
 namespace mlir {
-namespace stencil {
 
-std::unique_ptr<OpPassBase<ModuleOp>> createConvertStencilToStandardPass();
+class Pass;
 
-} // namespace stencil
+std::unique_ptr<Pass> createConvertStencilToStandardPass();
+
 } // namespace mlir
 
-#endif // MLIR_CONVERSION_STENCILTOSTANDARD_PASSES_H
+#endif // CONVERSION_STENCILTOSTANDARD_PASSES_H

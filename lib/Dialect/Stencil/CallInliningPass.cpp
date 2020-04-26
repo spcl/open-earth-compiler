@@ -1,6 +1,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "PassDetail.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
@@ -11,7 +12,6 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/StandardTypes.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -65,12 +65,12 @@ void inlineCalls(stencil::CallOp callOp) {
   callOp.erase();
 }
 
-struct CallInliningPass : public ModulePass<CallInliningPass> {
-  void runOnModule() override;
+struct CallInliningPass : public CallInliningPassBase<CallInliningPass> {
+  void runOnOperation() override;
 };
 
-void CallInliningPass::runOnModule() {
-  ModuleOp moduleOp = getModule();
+void CallInliningPass::runOnOperation() {
+  ModuleOp moduleOp = getOperation();
 
   // Walk the body of all stencil functions and apply ops and inline the calls
   moduleOp.walk([](Operation *op) {
@@ -90,9 +90,6 @@ void CallInliningPass::runOnModule() {
 
 } // namespace
 
-std::unique_ptr<OpPassBase<ModuleOp>> mlir::stencil::createCallInliningPass() {
+std::unique_ptr<Pass> mlir::createCallInliningPass() {
   return std::make_unique<CallInliningPass>();
 }
-
-static PassRegistration<CallInliningPass> pass("stencil-call-inlining",
-                                               "Inline stencil function calls");

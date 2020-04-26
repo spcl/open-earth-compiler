@@ -17,7 +17,6 @@
 #include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Support/STLExtras.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator_range.h"
@@ -509,14 +508,14 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   ValueRange operands = applyOp.getOperands();
   if (!applyOp.region().empty() && !operands.empty()) {
     Block *body = applyOp.getBody();
-    interleaveComma(llvm::seq<int>(0, operands.size()), printer, [&](int i) {
+    llvm::interleaveComma(llvm::seq<int>(0, operands.size()), printer, [&](int i) {
       printer << body->getArgument(i) << " = " << operands[i];
     });
   }
 
   // Print the operand types
   printer << " : ";
-  interleaveComma(applyOp.getOperandTypes(), printer);
+  llvm::interleaveComma(applyOp.getOperandTypes(), printer);
 
   // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),
@@ -532,7 +531,7 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
       applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
                                            stencil::ApplyOp::getUBAttrName()});
   printer << " : ";
-  interleaveComma(applyOp.res().getTypes(), printer);
+  llvm::interleaveComma(applyOp.res().getTypes(), printer);
 }
 
 static LogicalResult verify(stencil::ApplyOp applyOp) {

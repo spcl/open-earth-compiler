@@ -1,0 +1,2 @@
+add_subdirectory(LoopsToCUDA)
+add_subdirectory(StencilToStandard)

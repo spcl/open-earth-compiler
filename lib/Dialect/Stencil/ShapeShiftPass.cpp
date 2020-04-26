@@ -1,3 +1,4 @@
+#include "PassDetail.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
@@ -34,7 +35,7 @@ SmallVector<int64_t, 3> shiftOffset(ArrayRef<int64_t> bound,
   return result;
 }
 
-struct ShapeShiftPass : public FunctionPass<ShapeShiftPass> {
+struct ShapeShiftPass : public ShapeShiftPassBase<ShapeShiftPass> {
   void runOnFunction() override;
 };
 
@@ -166,10 +167,6 @@ void ShapeShiftPass::runOnFunction() {
   });
 }
 
-std::unique_ptr<OpPassBase<FuncOp>> mlir::stencil::createShapeShiftPass() {
+std::unique_ptr<OperationPass<FuncOp>> mlir::createShapeShiftPass() {
   return std::make_unique<ShapeShiftPass>();
-}
-
-static PassRegistration<ShapeShiftPass>
-    pass("stencil-shape-shift",
-         "Shift the bounds to start at zero and mark unused dimensions");
+} 

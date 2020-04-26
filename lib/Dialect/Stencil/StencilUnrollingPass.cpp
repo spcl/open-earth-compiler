@@ -1,6 +1,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "PassDetail.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
@@ -57,7 +58,7 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
       SmallVector<int64_t, 3> current = accessOp.getOffset();
-      if(current[unrollIndex] != stencil::kIgnoreDimension)
+      if (current[unrollIndex] != stencil::kIgnoreDimension)
         current[unrollIndex]++;
       ArrayAttr sum = b.getI64ArrayAttr(current);
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
@@ -92,21 +93,10 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   returnOp.erase();
 }
 
-struct StencilUnrollingPass : public FunctionPass<StencilUnrollingPass> {
-  StencilUnrollingPass() {
-    unrollFactor = 2;
-    unrollIndex = 1;
-  }
-  StencilUnrollingPass(const StencilUnrollingPass &) {}
+struct StencilUnrollingPass
+    : public StencilUnrollingPassBase<StencilUnrollingPass> {
 
   void runOnFunction() override;
-
-  Option<unsigned> unrollFactor{
-      *this, "unroll-factor",
-      llvm::cl::desc("number of unrolled loop iterations")};
-  Option<unsigned> unrollIndex{
-      *this, "unroll-index",
-      llvm::cl::desc("unroll index specifying the unrolling dimension")};
 };
 
 void StencilUnrollingPass::runOnFunction() {
@@ -153,10 +143,7 @@ void StencilUnrollingPass::runOnFunction() {
 }
 
 } // namespace
-std::unique_ptr<OpPassBase<FuncOp>>
-mlir::stencil::createStencilUnrollingPass() {
+
+std::unique_ptr<OperationPass<FuncOp>> mlir::createStencilUnrollingPass() {
   return std::make_unique<StencilUnrollingPass>();
 }
-
-static PassRegistration<StencilUnrollingPass> pass("stencil-unrolling",
-                                                   "Unroll stencil apply ops");

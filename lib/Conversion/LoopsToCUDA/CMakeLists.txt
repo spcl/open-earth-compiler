@@ -1,20 +1,14 @@
-
-set(LIBS
-  MLIRGPU
-  MLIRLLVMIR
-  MLIRNVVMIR
-  MLIRPass
-  MLIRTargetNVVMIR
-
-  )
-
-add_llvm_library(OECGPUtoCUDATransforms
+add_mlir_dialect_library(GPUtoCUDATransforms
   ConvertLaunchFuncToCUDACalls.cpp
   ConvertKernelFuncToCubin.cpp
   StencilIndexOptimizationPass.cpp
   StencilLoopMappingPass.cpp
+
+  ADDITIONAL_HEADER_DIRS
+  ${PROJECT_SOURCE_DIR}/include/Conversion/LoopsToCUDA
+
+  DEPENDS
+  MLIRLoopsToCUDAPassIncGen
 )
 
-target_link_libraries(OECGPUtoCUDATransforms ${LIBS})
-target_include_directories(OECGPUtoCUDATransforms PUBLIC "${PROJECT_SOURCE_DIR}/include")
-target_include_directories(OECGPUtoCUDATransforms PUBLIC "${PROJECT_BINARY_DIR}/include")
+target_link_libraries(GPUtoCUDATransforms PUBLIC MLIRIR)

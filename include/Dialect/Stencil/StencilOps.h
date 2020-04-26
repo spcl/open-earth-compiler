@@ -1,5 +1,5 @@
-#ifndef MLIR_DIALECT_STENCIL_STENCILOPS_H
-#define MLIR_DIALECT_STENCIL_STENCILOPS_H
+#ifndef DIALECT_STENCIL_STENCILOPS_H
+#define DIALECT_STENCIL_STENCILOPS_H
 
 #include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/IR/Attributes.h"
@@ -41,4 +41,4 @@ SmallVector<int64_t, 3> convertArrayAttrToSmallVector(const ArrayAttr &array,
 } // namespace stencil
 } // namespace mlir
 
-#endif // MLIR_DIALECT_STENCIL_STENCILOPS_H
+#endif // DIALECT_STENCIL_STENCILOPS_H

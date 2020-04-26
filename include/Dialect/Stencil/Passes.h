@@ -1,27 +1,23 @@
-#ifndef MLIR_DIALECT_STENCIL_PASSES_H
-#define MLIR_DIALECT_STENCIL_PASSES_H
+#ifndef DIALECT_STENCIL_PASSES_H
+#define DIALECT_STENCIL_PASSES_H
 
-#include "Dialect/Stencil/StencilOps.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/IR/Function.h"
-#include "mlir/IR/Module.h"
 
 #include "mlir/Pass/Pass.h"
+#include "mlir/IR/Function.h"
+#include <memory>
 
 namespace mlir {
-namespace stencil {
 
-std::unique_ptr<OpPassBase<ModuleOp>> createCallInliningPass();
+std::unique_ptr<Pass> createCallInliningPass();
 
-std::unique_ptr<OpPassBase<FuncOp>> createStencilInliningPass();
+std::unique_ptr<OperationPass<FuncOp>> createStencilInliningPass();
 
-std::unique_ptr<OpPassBase<FuncOp>> createShapeShiftPass();
+std::unique_ptr<OperationPass<FuncOp>> createStencilUnrollingPass();
 
-std::unique_ptr<OpPassBase<FuncOp>> createShapeInferencePass();
+std::unique_ptr<OperationPass<FuncOp>> createShapeInferencePass();
 
-std::unique_ptr<OpPassBase<FuncOp>> createStencilUnrollingPass();
+std::unique_ptr<OperationPass<FuncOp>> createShapeShiftPass();
 
-} // namespace stencil
 } // namespace mlir
 
-#endif // MLIR_DIALECT_STENCIL_PASSES_H
+#endif // DIALECT_STENCIL_PASSES_H

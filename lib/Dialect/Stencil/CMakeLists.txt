@@ -1,13 +1,4 @@
-set(LIBS
-  
-  MLIREDSC
-  MLIRIR
-  MLIRStandardOps
-  MLIRSupport
-  MLIRTransformUtils
-  LLVMSupport)
-
-add_llvm_library(MLIRStencil
+add_mlir_dialect_library(Stencil
   StencilDialect.cpp
   StencilOps.cpp
   StencilTypes.cpp
@@ -19,15 +10,10 @@ add_llvm_library(MLIRStencil
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/Dialect/Stencil
+
+  DEPENDS
+  MLIRStencilOpsIncGen
+  MLIRStencilPassIncGen
 )
 
-# Make sure that the TableGen generated files are up-to-date
-add_dependencies(MLIRStencil
-  MLIRStencilOpsIncGen
-  ${LIBS})
-target_link_libraries(MLIRStencil ${LIBS})
-
-# specify header directories
-target_include_directories(MLIRStencil PUBLIC "${PROJECT_SOURCE_DIR}/include")
-target_include_directories(MLIRStencil PUBLIC "${PROJECT_BINARY_DIR}/include")
-
+target_link_libraries(Stencil PUBLIC MLIRIR)

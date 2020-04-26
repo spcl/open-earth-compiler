@@ -1,18 +1,21 @@
-cmake_minimum_required(VERSION 3.12.4)
+cmake_minimum_required(VERSION 3.10)
 
-project(oec-opt LANGUAGES CXX)
-
-find_package(LLVM REQUIRED CONFIG)
-
-if(LLVM_FOUND)
-  message(STATUS "LLVM found")
+if(POLICY CMP0068)
+  cmake_policy(SET CMP0068 NEW)
+  set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 endif()
 
-if(LLVM_ENABLE_ZLIB)
-  find_package(ZLIB)
+if(POLICY CMP0075)
+  cmake_policy(SET CMP0075 NEW)
 endif()
 
+if(POLICY CMP0077)
+  cmake_policy(SET CMP0077 NEW)
+endif()
+
+project(oec-opt LANGUAGES CXX C)
 include(CheckLanguage)
+
 check_language(CUDA)
 if (CMAKE_CUDA_COMPILER)
   enable_language(CUDA)
@@ -22,51 +25,30 @@ else()
 endif()
 find_library(CUDA_RUNTIME_LIBRARY cuda)
 
-# MLIR project.
-set(MLIR_MAIN_SRC_DIR ${LLVM_INCLUDE_DIR}) # --src-root
-set(MLIR_INCLUDE_DIR ${LLVM_INCLUDE_DIR}) # --includedir
-set(MLIR_TABLEGEN_EXE mlir-tblgen)
+find_package(MLIR REQUIRED CONFIG)
 
-# setup llvm lit
-set(LLVM_LIT_ARGS "-sv" CACHE STRING "lit default options")
+message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-# set the output directories
-set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin )
-set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib )
+set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
+set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
+set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
 
-# import llvm functionality
+list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(TableGen)
 include(AddLLVM)
+include(AddMLIR)
+include(HandleLLVMOptions)
 
-add_definitions(${LLVM_DEFINITIONS})
 include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(${MLIR_INCLUDE_DIRS})
+include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_BINARY_DIR}/include)
+link_directories(${LLVM_BUILD_LIBRARY_DIR})
+add_definitions(${LLVM_DEFINITIONS})
 
-function(mlir_tablegen ofn)
-  tablegen(MLIR ${ARGV} "-I${MLIR_MAIN_SRC_DIR}" "-I${MLIR_INCLUDE_DIR}" "-I${PROJECT_SOURCE_DIR}/include")
-  set(TABLEGEN_OUTPUT ${TABLEGEN_OUTPUT} ${CMAKE_CURRENT_BINARY_DIR}/${ofn}
-      PARENT_SCOPE)
-endfunction()
-
-function(add_mlir_dialect dialect dialect_doc_filename)
-  set(LLVM_TARGET_DEFINITIONS ${dialect}.td)
-  mlir_tablegen(${dialect}.h.inc -gen-op-decls)
-  mlir_tablegen(${dialect}.cpp.inc -gen-op-defs)
-  add_public_tablegen_target(MLIR${dialect}IncGen)
-endfunction()
-
-#function(whole_archive_link target)
-#  # currently not working for our passes (instead we added them to target link libraries)
-#  #add_dependencies(${target} ${ARGN})
-#  set(link_flags "-L${LLVM_LIBRARY_DIR} -L${CMAKE_BINARY_DIR}/lib -Wl,--whole-archive,")
-#  FOREACH(LIB ${ARGN})
-#    string(CONCAT link_flags ${link_flags} "-l${LIB},")
-#  ENDFOREACH(LIB)
-#  string(CONCAT link_flags ${link_flags} "--no-whole-archive")
-#  set_target_properties(${target} PROPERTIES LINK_FLAGS ${link_flags})
-#endfunction(whole_archive_link)
-
-add_subdirectory(include/)
-add_subdirectory(lib/)
-add_subdirectory(test/)
-add_subdirectory(oec-opt/)
+add_subdirectory(include)
+add_subdirectory(lib)
+add_subdirectory(test)
+add_subdirectory(oec-opt)

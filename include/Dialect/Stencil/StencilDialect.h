@@ -1,5 +1,5 @@
-#ifndef MLIR_DIALECT_STENCIL_STENCILDIALECT_H
-#define MLIR_DIALECT_STENCIL_STENCILDIALECT_H
+#ifndef DIALECT_STENCIL_STENCILDIALECT_H
+#define DIALECT_STENCIL_STENCILDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Function.h"
@@ -49,4 +49,4 @@ public:
 } // namespace stencil
 } // namespace mlir
 
-#endif // MLIR_DIALECT_STENCIL_STENCILDIALECT_H
+#endif // DIALECT_STENCIL_STENCILDIALECT_H

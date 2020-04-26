@@ -3,6 +3,7 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "PassDetail.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -10,13 +11,13 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
-#include "mlir/IR/Region.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Region.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
@@ -290,9 +291,9 @@ public:
     if (!isa<loop::ParallelOp>(operation->getParentOp()))
       return failure();
     auto loop = cast<loop::ParallelOp>(operation->getParentOp());
-    SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
+    SmallVector<Value, 3> loopIVs(loop.getNumLoops());
     llvm::transform(loop.getInductionVars(), loopIVs.begin(),
-                    [](BlockArgument blockArg) { return blockArg; });
+                    [](Value blockArg) { return blockArg; });
 
     // Get temporary buffers
     SmallVector<Operation *, 10> allocOps;
@@ -425,11 +426,13 @@ public:
     // Introduce the parallel loop and copy the body of the apply op
     auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
     for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
-      applyOp.getBody()->getArgument(i).replaceAllUsesWith(applyOp.getOperand(i));
+      applyOp.getBody()->getArgument(i).replaceAllUsesWith(
+          applyOp.getOperand(i));
     }
-    loop.getBody()->getOperations().splice(std::begin(loop.getBody()->getOperations()),
-      applyOp.getBody()->getOperations());
-    
+    loop.getBody()->getOperations().splice(
+        std::begin(loop.getBody()->getOperations()),
+        applyOp.getBody()->getOperations());
+
     // Erase the actual apply op
     rewriter.eraseOp(applyOp);
 
@@ -449,18 +452,18 @@ public:
     auto accessOp = cast<stencil::AccessOp>(operation);
 
     // Check the view is a memref type
-    if (!accessOp.view().getType().isa<MemRefType>()) 
+    if (!accessOp.view().getType().isa<MemRefType>())
       return failure();
-    
+
     // Get the parallel loop
     auto loop = operation->getParentOfType<loop::ParallelOp>();
     if (!loop)
       return failure();
-    assert(loop.getNumInductionVars() == accessOp.getOffset().size() &&
+    assert(loop.getNumLoops() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
-    SmallVector<Value, 3> loopIVs(loop.getNumInductionVars());
+    SmallVector<Value, 3> loopIVs(loop.getNumLoops());
     llvm::transform(loop.getInductionVars(), loopIVs.begin(),
-                    [](BlockArgument arg) { return arg; });
+                    [](Value arg) { return arg; });
 
     // Compute the access offsets
     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
@@ -550,13 +553,14 @@ public:
 // Rewriting Pass
 //===----------------------------------------------------------------------===//
 
-struct StencilToStandardPass : public ModulePass<StencilToStandardPass> {
-  void runOnModule() override;
+struct StencilToStandardPass
+    : public StencilToStandardPassBase<StencilToStandardPass> {
+  void runOnOperation() override;
 };
 
-void StencilToStandardPass::runOnModule() {
+void StencilToStandardPass::runOnOperation() {
   OwningRewritePatternList patterns;
-  auto module = getModule();
+  auto module = getOperation();
 
   populateStencilToStandardConversionPatterns(patterns, module.getContext());
 
@@ -569,7 +573,7 @@ void StencilToStandardPass::runOnModule() {
 
   if (failed(applyFullConversion(module, target, patterns))) {
     signalPassFailure();
-  } 
+  }
 }
 
 } // namespace
@@ -581,11 +585,6 @@ void mlir::populateStencilToStandardConversionPatterns(
               AccessOpLowering, StoreOpLowering, ReturnOpLowering>(ctx);
 }
 
-std::unique_ptr<OpPassBase<ModuleOp>>
-mlir::stencil::createConvertStencilToStandardPass() {
+std::unique_ptr<Pass> mlir::createConvertStencilToStandardPass() {
   return std::make_unique<StencilToStandardPass>();
 }
-
-static PassRegistration<StencilToStandardPass>
-    pass("convert-stencil-to-standard",
-         "Convert stencil dialect to standard operations");

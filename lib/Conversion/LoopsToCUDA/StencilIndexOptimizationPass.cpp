@@ -1,4 +1,5 @@
 #include "Conversion/LoopsToCUDA/Passes.h"
+#include "PassDetail.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -64,7 +65,7 @@ struct AddRewrite : public OpRewritePattern<LLVM::AddOp> {
       : OpRewritePattern<LLVM::AddOp>(context, /*benefit=*/1) {}
 
   LogicalResult matchAndRewrite(LLVM::AddOp addOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Replace the add op if all operands are sign extended
     if (allOperandsAreSignExtended(addOp.getOperands())) {
       replaceArithmeticOperation<LLVM::AddOp>(addOp, rewriter);
@@ -79,7 +80,7 @@ struct MulRewrite : public OpRewritePattern<LLVM::MulOp> {
       : OpRewritePattern<LLVM::MulOp>(context, /*benefit=*/1) {}
 
   LogicalResult matchAndRewrite(LLVM::MulOp mulOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Replace the add op if all operands are sign extended
     if (allOperandsAreSignExtended(mulOp.getOperands())) {
       replaceArithmeticOperation<LLVM::MulOp>(mulOp, rewriter);
@@ -94,7 +95,7 @@ struct CmpRewrite : public OpRewritePattern<LLVM::ICmpOp> {
       : OpRewritePattern<LLVM::ICmpOp>(context, /*benefit=*/1) {}
 
   LogicalResult matchAndRewrite(LLVM::ICmpOp cmpOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // Replace the add op if all operands are sign extended
     if (allOperandsAreSignExtended(cmpOp.getOperands())) {
       auto newOp = rewriter.create<LLVM::ICmpOp>(
@@ -113,7 +114,7 @@ struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
       : OpRewritePattern<LLVM::ConstantOp>(context, /*benefit=*/1) {}
 
   LogicalResult matchAndRewrite(LLVM::ConstantOp constOp,
-                                     PatternRewriter &rewriter) const override {
+                                PatternRewriter &rewriter) const override {
     // convert all index types to 32-bit integer constants
     if (constOp.value().getType().isIndex()) {
       int64_t value = constOp.value().cast<IntegerAttr>().getInt();
@@ -137,7 +138,7 @@ struct ConstantRewrite : public OpRewritePattern<LLVM::ConstantOp> {
 };
 
 struct StencilIndexOptimizationPass
-    : public OperationPass<StencilIndexOptimizationPass, LLVM::LLVMFuncOp> {
+    : public StencilIndexOptimizationPassBase<StencilIndexOptimizationPass> {
   void runOnOperation() override;
 };
 
@@ -148,17 +149,12 @@ void StencilIndexOptimizationPass::runOnOperation() {
     OwningRewritePatternList patterns;
     patterns.insert<AddRewrite, MulRewrite, CmpRewrite, ConstantRewrite>(
         &getContext());
-    applyPatternsGreedily(funcOp, patterns);
+    applyPatternsAndFoldGreedily(funcOp, patterns);
   }
 }
 
 } // namespace
 
-std::unique_ptr<OpPassBase<LLVM::LLVMFuncOp>>
-stencil::createStencilIndexOptimizationPass() {
+std::unique_ptr<Pass> mlir::createStencilIndexOptimizationPass() {
   return std::make_unique<StencilIndexOptimizationPass>();
 }
-
-static PassRegistration<StencilIndexOptimizationPass>
-    pass("stencil-index-optimization",
-         "Convert 64-bit index computations to 32-bit index computations");

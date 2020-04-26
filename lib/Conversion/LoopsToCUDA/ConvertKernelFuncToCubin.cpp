@@ -35,7 +35,7 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
     }                                                                          \
   }
 
-OwnedCubin stencil::compilePtxToCubin(const std::string &ptx, Location loc,
+OwnedCubin mlir::compilePtxToCubin(const std::string &ptx, Location loc,
                                       StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
