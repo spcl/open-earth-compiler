@@ -34,6 +34,42 @@ using namespace mlir;
 
 namespace {
 
+enum MappingLevel { MapGrid = 0, MapBlock = 1, Sequential = 2 };
+
+// Helper method to get the hardware id for the mapping
+gpu::Processor getHardwareId(MappingLevel level, int dimension) {
+  static constexpr int kNumHardwareIds = 3;
+  if (dimension >= kNumHardwareIds || level == Sequential)
+    return gpu::Processor::Sequential;
+  switch (level) {
+  case MapGrid:
+    switch (dimension) {
+    case 0:
+      return gpu::Processor::BlockX;
+    case 1:
+      return gpu::Processor::BlockY;
+    case 2:
+      return gpu::Processor::BlockZ;
+    default:
+      return gpu::Processor::Sequential;
+    }
+    break;
+  case MapBlock:
+    switch (dimension) {
+    case 0:
+      return gpu::Processor::ThreadX;
+    case 1:
+      return gpu::Processor::ThreadY;
+    case 2:
+      return gpu::Processor::ThreadZ;
+    default:
+      return gpu::Processor::Sequential;
+    }
+  default:;
+  }
+  return gpu::Processor::Sequential;
+}
+
 // Helper method verifying the lower bounds are zero
 bool verifyIsConstant(Value val) {
   return llvm::isa_and_nonnull<ConstantIndexOp>(val.getDefiningOp());
@@ -47,23 +83,15 @@ int64_t getConstantValue(Value val) {
 
 // Helper method setting the loop mapping attributes for a parallel loop
 void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
-                                int64_t mappingOffset) {
+                                MappingLevel level) {
   // TODO fix this
-  // SmallVector<Attribute, 3> attrs;
-  // attrs.reserve(parallelOp.getNumLoops());
-  // for (int i = 0, e = parallelOp.getNumLoops(); i < e; ++i) {
-  //   // Map the last loop next to threads
-  //   SmallVector<NamedAttribute, 3> entries;
-  //   entries.emplace_back(b.getNamedAttr(
-  //       gpu::kProcessorEntryName, b.getI64IntegerAttr(i + mappingOffset)));
-  //   entries.emplace_back(b.getNamedAttr(
-  //       gpu::kIndexMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
-  //   entries.emplace_back(b.getNamedAttr(
-  //       gpu::kBoundMapEntryName, AffineMapAttr::get(b.getDimIdentityMap())));
-  //   attrs.push_back(DictionaryAttr::get(entries, b.getContext()));
-  // }
-  // parallelOp.setAttr("mapping",
-  //                    ArrayAttr::get(attrs, b.getContext()));
+  SmallVector<gpu::ParallelLoopDimMapping, 3> attrs;
+  attrs.reserve(parallelOp.getNumLoops());
+  for (int i = 0, e = parallelOp.getNumLoops(); i < e; ++i) {
+    attrs.push_back(gpu::getParallelLoopDimMappingAttr(
+        getHardwareId(level, i), b.getDimIdentityMap(), b.getDimIdentityMap()));
+  }
+  gpu::setMappingAttr(parallelOp, attrs);
 }
 
 // Method tiling and mapping a parallel loop for the GPU execution
@@ -182,8 +210,8 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
   }
 
   // Set the loop mapping for the different loop nests
-  setTheGPUMappingAttributes(b, outerLoop, 0);
-  setTheGPUMappingAttributes(b, innerLoop, outerLoop.lowerBound().size());
+  setTheGPUMappingAttributes(b, outerLoop, MapGrid);
+  setTheGPUMappingAttributes(b, innerLoop, MapBlock);
 
   // Erase the original loop
   parallelOp.erase();

@@ -5,7 +5,7 @@ include "mlir/Pass/PassBase.td"
 
 def CallInliningPass : Pass<"stencil-call-inlining", "ModuleOp"> {
   let summary = "Inline stencil functions";
-  let constructor = "mlir::createParallelLoopFusionPass()";
+  let constructor = "mlir::createCallInliningPass()";
 }
 
 def StencilInliningPass : FunctionPass<"stencil-inlining"> {
