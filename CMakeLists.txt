@@ -25,6 +25,9 @@ else()
 endif()
 find_library(CUDA_RUNTIME_LIBRARY cuda)
 
+# setup llvm lit
+set(LLVM_LIT_ARGS "-sv" CACHE STRING "lit default options")
+
 find_package(MLIR REQUIRED CONFIG)
 
 message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
