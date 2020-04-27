@@ -36,7 +36,6 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 
-//using namespace llvm;
 using namespace mlir;
 
 static llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
@@ -75,46 +74,43 @@ static llvm::cl::opt<bool>
                  llvm::cl::init(false));
 
 int main(int argc, char **argv) {
-  mlir::registerAllDialects();
-  mlir::registerAllPasses();
-
-// TODO check if this is necessary
-//   // Register the stencil passes
-// #define GEN_PASS_REGISTRATION
-// #include "Conversion/LoopsToCUDA/Passes.h.inc"
-
-// #define GEN_PASS_REGISTRATION
-// #include "Conversion/StencilToStandard/Passes.h.inc"
-
-// #define GEN_PASS_REGISTRATION
-// #include "Dialect/Stencil/Passes.h.inc"
-
-  mlir::registerDialect<mlir::stencil::StencilDialect>();
+  registerAllDialects();
+  registerAllPasses();
 
   // Register the stencil passes
-  mlir::createCallInliningPass();
-  mlir::createShapeInferencePass();
-  mlir::createShapeShiftPass();
-  mlir::createStencilInliningPass();
-  mlir::createStencilUnrollingPass();
-  mlir::createConvertStencilToStandardPass();
-  mlir::createStencilLoopMappingPass();
-  mlir::createLaunchFuncToCUDACallsPass();
+#define GEN_PASS_REGISTRATION
+#include "Conversion/LoopsToCUDA/Passes.h.inc"
+#define GEN_PASS_REGISTRATION
+#include "Conversion/StencilToStandard/Passes.h.inc"
+#define GEN_PASS_REGISTRATION
+#include "Dialect/Stencil/Passes.h.inc"
+
+  registerDialect<stencil::StencilDialect>();
+
+  // Register the stencil passes
+  createCallInliningPass();
+  createShapeInferencePass();
+  createShapeShiftPass();
+  createStencilInliningPass();
+  createStencilUnrollingPass();
+  createConvertStencilToStandardPass();
+  createStencilLoopMappingPass();
+  createLaunchFuncToCUDACallsPass();
 
   llvm::InitLLVM y(argc, argv);
 
   // Register any pass manager command line options.
-  mlir::registerPassManagerCLOptions();
-  mlir::PassPipelineCLParser passPipeline("", "Compiler passes to run");
+  registerPassManagerCLOptions();
+  PassPipelineCLParser passPipeline("", "Compiler passes to run");
 
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "MLIR modular optimizer driver\n");
 
-  mlir::MLIRContext context;
+  MLIRContext context;
   if (showDialects) {
     llvm::outs() << "Registered Dialects:\n";
-    for (mlir::Dialect *dialect : context.getRegisteredDialects()) {
+    for (Dialect *dialect : context.getRegisteredDialects()) {
       llvm::outs() << dialect->getNamespace() << "\n";
     }
     return 0;
@@ -122,13 +118,13 @@ int main(int argc, char **argv) {
 
   // Set up the input file.
   std::string errorMessage;
-  auto file = mlir::openInputFile(inputFilename, &errorMessage);
+  auto file = openInputFile(inputFilename, &errorMessage);
   if (!file) {
     llvm::errs() << errorMessage << "\n";
     return 1;
   }
 
-  auto output = mlir::openOutputFile(outputFilename, &errorMessage);
+  auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {
     llvm::errs() << errorMessage << "\n";
     exit(1);
