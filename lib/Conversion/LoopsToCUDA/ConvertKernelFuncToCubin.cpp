@@ -96,10 +96,11 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createStencilIndexOptimizationPass());
         kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
         // TODO set appropriate bitwidth
-        LowerToLLVMOptions llvmOptions = {
-            /*useBarePtrCallConv =*/false,
-            /*emitCWrappers = */ false,
-            /*indexBitwidth =*/kDeriveIndexBitwidthFromDataLayout};
+        LowerToLLVMOptions llvmOptions;
+        llvmOptions.emitCWrappers = true;
+        llvmOptions.useAlignedAlloc = false;
+        llvmOptions.useBarePtrCallConv = false;
+        llvmOptions.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
         pm.addPass(createLowerToLLVMPass(llvmOptions));
       });
 }

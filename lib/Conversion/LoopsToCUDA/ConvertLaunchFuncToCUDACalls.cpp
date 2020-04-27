@@ -359,7 +359,7 @@ int32_t LaunchFuncToCUDACallsPass::getNumberOfArgs(gpu::LaunchFuncOp launchOp) {
       launchOp.getKernelModuleName());
   if (!gpuModule)
     return -1;
-  auto gpuFunc = gpuModule.lookupSymbol<LLVM::LLVMFuncOp>(launchOp.kernel());
+  auto gpuFunc = gpuModule.lookupSymbol<LLVM::LLVMFuncOp>(launchOp.getKernelName());
   if (!gpuFunc)
     return -1;
 
