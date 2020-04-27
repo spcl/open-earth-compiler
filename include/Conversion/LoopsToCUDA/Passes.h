@@ -21,6 +21,8 @@ std::unique_ptr<OperationPass<FuncOp>> createStencilLoopMappingPass();
 OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
                              StringRef name);
 
+void registerGPUToCUBINPipeline();
+
 } // namespace mlir
 
 #endif // CONVERSION_LOOPSTOCUDA_PASSES_H

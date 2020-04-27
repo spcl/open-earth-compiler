@@ -87,6 +87,9 @@ int main(int argc, char **argv) {
 
   registerDialect<stencil::StencilDialect>();
 
+  // Register the stencil pipelines
+  registerGPUToCUBINPipeline();
+
   // Register the stencil passes
   createCallInliningPass();
   createShapeInferencePass();
@@ -139,26 +142,3 @@ int main(int argc, char **argv) {
   output->keep();
   return 0;
 }
-
-namespace {
-// Declare all pipelines
-void createGPUToCubinPipeline(OpPassManager &pm) {
-  pm.addPass(createGpuKernelOutliningPass());
-  auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
-  kernelPm.addPass(createStripDebugInfoPass());
-  kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-  kernelPm.addPass(createStencilIndexOptimizationPass());
-  kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
-  // TODO set appropriate bitwidth
-  LowerToLLVMOptions llvmOptions = {
-      /*useBarePtrCallConv =*/false,
-      /*emitCWrappers = */ false,
-      /*indexBitwidth =*/kDeriveIndexBitwidthFromDataLayout}; 
-  pm.addPass(createLowerToLLVMPass(llvmOptions));
-}
-} // namespace
-
-// TODO register pipeline
-// static PassPipelineRegistration<>
-//     pipeline("stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
-//              createGPUToCubinPipeline);

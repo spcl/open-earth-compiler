@@ -36,7 +36,7 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
   }
 
 OwnedCubin mlir::compilePtxToCubin(const std::string &ptx, Location loc,
-                                      StringRef name) {
+                                   StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
   RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
@@ -83,3 +83,24 @@ OwnedCubin mlir::compilePtxToCubin(const std::string &ptx, Location loc,
 
   return result;
 }
+
+namespace mlir {
+void registerGPUToCUBINPipeline() {
+  PassPipelineRegistration<>(
+      "stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
+      [](OpPassManager &pm) {
+        pm.addPass(createGpuKernelOutliningPass());
+        auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
+        kernelPm.addPass(createStripDebugInfoPass());
+        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
+        kernelPm.addPass(createStencilIndexOptimizationPass());
+        kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
+        // TODO set appropriate bitwidth
+        LowerToLLVMOptions llvmOptions = {
+            /*useBarePtrCallConv =*/false,
+            /*emitCWrappers = */ false,
+            /*indexBitwidth =*/kDeriveIndexBitwidthFromDataLayout};
+        pm.addPass(createLowerToLLVMPass(llvmOptions));
+      });
+}
+} // namespace mlir
