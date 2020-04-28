@@ -23,7 +23,6 @@
 #include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
-#include "mlir/Analysis/Passes.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"

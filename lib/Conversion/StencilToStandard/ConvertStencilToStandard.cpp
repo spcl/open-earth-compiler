@@ -4,7 +4,7 @@
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
 #include "PassDetail.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
@@ -21,7 +21,6 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -565,7 +564,7 @@ void StencilToStandardPass::runOnOperation() {
   populateStencilToStandardConversionPatterns(patterns, module.getContext());
 
   StencilToStandardTarget target(*(module.getContext()));
-  target.addLegalDialect<AffineOpsDialect>();
+  target.addLegalDialect<AffineDialect>();
   target.addLegalDialect<StandardOpsDialect>();
   target.addLegalDialect<loop::LoopOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();

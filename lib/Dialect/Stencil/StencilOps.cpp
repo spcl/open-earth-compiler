@@ -14,7 +14,6 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Support/Functional.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -33,7 +32,7 @@ using namespace mlir;
 // stencil.assert
 //===----------------------------------------------------------------------===//
 
-void stencil::AssertOp::build(Builder *builder, OperationState &state,
+void stencil::AssertOp::build(OpBuilder &builder, OperationState &state,
                               Value field, ArrayRef<int64_t> lb,
                               ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
@@ -44,8 +43,8 @@ void stencil::AssertOp::build(Builder *builder, OperationState &state,
   // Add an SSA arguments
   state.addOperands({field});
   // Add the bounds attributes
-  state.addAttribute(getLBAttrName(), builder->getI64ArrayAttr(lb));
-  state.addAttribute(getUBAttrName(), builder->getI64ArrayAttr(ub));
+  state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
+  state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
 }
 
 static ParseResult parseAssertOp(OpAsmParser &parser, OperationState &state) {
@@ -126,7 +125,7 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
 // stencil.access
 //===----------------------------------------------------------------------===//
 
-void stencil::AccessOp::build(Builder *builder, OperationState &state,
+void stencil::AccessOp::build(OpBuilder &builder, OperationState &state,
                               Value view, ArrayRef<int64_t> offset) {
   // Make sure that the offset has the right size
   assert(offset.size() == stencil::kNumOfDimensions &&
@@ -138,7 +137,7 @@ void stencil::AccessOp::build(Builder *builder, OperationState &state,
   // Add an SSA argument
   state.addOperands(view);
   // Add the offset attribute
-  state.addAttribute(getOffsetAttrName(), builder->getI64ArrayAttr(offset));
+  state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
   // Set the return type
   state.addTypes(elementType);
 }
@@ -205,7 +204,7 @@ static LogicalResult verify(stencil::AccessOp accessOp) {
 // stencil.load
 //===----------------------------------------------------------------------===//
 
-void stencil::LoadOp::build(Builder *builder, OperationState &state,
+void stencil::LoadOp::build(OpBuilder &builder, OperationState &state,
                             Value field) {
   Type elementType =
       field.getType().cast<stencil::FieldType>().getElementType();
@@ -214,7 +213,7 @@ void stencil::LoadOp::build(Builder *builder, OperationState &state,
 
   state.addOperands(field);
   state.addTypes(
-      stencil::ViewType::get(builder->getContext(), elementType, dimensions));
+      stencil::ViewType::get(builder.getContext(), elementType, dimensions));
 }
 
 static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
@@ -310,7 +309,7 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 // stencil.store
 //===----------------------------------------------------------------------===//
 
-void stencil::StoreOp::build(Builder *builder, OperationState &state,
+void stencil::StoreOp::build(OpBuilder &builder, OperationState &state,
                              Value view, Value field, ArrayRef<int64_t> lb,
                              ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
@@ -321,8 +320,8 @@ void stencil::StoreOp::build(Builder *builder, OperationState &state,
   // Add an SSA arguments
   state.addOperands({view, field});
   // Add the bounds attributes
-  state.addAttribute(getLBAttrName(), builder->getI64ArrayAttr(lb));
-  state.addAttribute(getUBAttrName(), builder->getI64ArrayAttr(ub));
+  state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
+  state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
 }
 
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
@@ -415,7 +414,7 @@ static LogicalResult verify(stencil::StoreOp storeOp) {
 // stencil.apply
 //===----------------------------------------------------------------------===//
 
-void stencil::ApplyOp::build(Builder *builder, OperationState &result,
+void stencil::ApplyOp::build(OpBuilder &builder, OperationState &result,
                              ValueRange operands, ValueRange results) {
   result.addOperands(operands);
 
@@ -670,7 +669,7 @@ void stencil::ApplyOp::getCanonicalizationPatterns(
 // stencil.call
 //===----------------------------------------------------------------------===//
 
-void stencil::CallOp::build(Builder *builder, OperationState &result,
+void stencil::CallOp::build(OpBuilder &builder, OperationState &result,
                             FuncOp callee, stencil::ViewType viewType,
                             ArrayRef<int64_t> offset, ValueRange operands) {
   assert(offset.size() == stencil::kNumOfDimensions &&
@@ -685,8 +684,8 @@ void stencil::CallOp::build(Builder *builder, OperationState &result,
          "and view type");
   ValueRange test;
   result.addOperands(operands);
-  result.addAttribute(getCalleeAttrName(), builder->getSymbolRefAttr(callee));
-  result.addAttribute(getOffsetAttrName(), builder->getI64ArrayAttr(offset));
+  result.addAttribute(getCalleeAttrName(), builder.getSymbolRefAttr(callee));
+  result.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
   result.addTypes(viewType);
 }
 

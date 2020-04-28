@@ -23,13 +23,16 @@ func @simple_tiling(%arg0: memref<64x64x64xf64>, %arg1: memref<64x64x64xf64>) {
 // -----
 
 // CHECK-LABEL: @simple_mapping
-func @simple_mapping() {
+func @simple_mapping(%arg0: memref<64x64x64xf64>) {
   %c0 = constant 0 : index
   %c1 = constant 1 : index
   %c64 = constant 64 : index
   // CHECK: loop.parallel ({{%.*}}, {{%.*}}, {{%.*}}) = ({{%.*}}, {{%.*}}, {{%.*}}) to ({{%.*}}, {{%.*}}, {{%.*}}) step ({{%.*}}, {{%.*}}, {{%.*}}) {
   // CHECK-NEXT: loop.parallel ({{%.*}}, {{%.*}}, {{%.*}}) = ({{%.*}}, {{%.*}}, {{%.*}}) to ({{%.*}}, {{%.*}}, {{%.*}}) step ({{%.*}}, {{%.*}}, {{%.*}}) {
   loop.parallel (%arg2, %arg3, %arg4) = (%c0, %c0, %c0) to (%c64, %c64, %c64) step (%c1, %c1, %c1) {
+    %0 = constant 0.0 : f64
+    store %0, %arg0[%arg2, %arg3, %arg4] : memref<64x64x64xf64>
+    loop.yield
   }
   // CHECK-COUNT-1: {bound = affine_map<(d0) -> (d0)>, map = affine_map<(d0) -> (d0)>, processor = 3 : i64}
   // CHECK-COUNT-1: {bound = affine_map<(d0) -> (d0)>, map = affine_map<(d0) -> (d0)>, processor = 4 : i64}

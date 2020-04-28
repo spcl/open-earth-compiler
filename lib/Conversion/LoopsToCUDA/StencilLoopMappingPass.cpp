@@ -1,7 +1,7 @@
 #include "Conversion/LoopsToCUDA/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "PassDetail.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/ParallelLoopMapper.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
