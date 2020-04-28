@@ -268,7 +268,7 @@ public:
         computeMemRefType(inputType.getElementType(), shape, strides,
                           filterIgnoredDimensions(loadOp.getLB()), rewriter);
 
-    // Replace the load op
+    // Replace the load
     auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
     operation->getResult(0).replaceAllUsesWith(subViewOp.getResult());
     rewriter.eraseOp(operation);
@@ -456,13 +456,13 @@ public:
       return failure();
 
     // Get the parallel loop
-    auto loop = operation->getParentOfType<loop::ParallelOp>();
-    if (!loop)
+    auto loopOp = operation->getParentOfType<loop::ParallelOp>();
+    if (!loopOp)
       return failure();
-    assert(loop.getNumLoops() == accessOp.getOffset().size() &&
+    assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
-    SmallVector<Value, 3> loopIVs(loop.getNumLoops());
-    llvm::transform(loop.getInductionVars(), loopIVs.begin(),
+    SmallVector<Value, 3> loopIVs(loopOp.getNumLoops());
+    llvm::transform(loopOp.getInductionVars(), loopIVs.begin(),
                     [](Value arg) { return arg; });
 
     // Compute the access offsets

@@ -11,11 +11,11 @@ set(OEC_OPT_TEST_DEPENDS
         oec-opt
         )
 
-add_lit_testsuite(check-oec-opt "Running the oec-opt regression tests"
+add_lit_testsuite(check-oec "Running the oec-opt regression tests"
         ${CMAKE_CURRENT_BINARY_DIR}
         DEPENDS ${OEC_OPT_TEST_DEPENDS}
         )
-set_target_properties(check-oec-opt PROPERTIES FOLDER "Tests")
+set_target_properties(check-oec PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(OEC_OPT ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${STANDALONE_OPT_TEST_DEPENDS})
 

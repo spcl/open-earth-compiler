@@ -3,7 +3,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def StencilToStandardPass : Pass<"convert-stencil-to-standard", "ModuleOp"> {
+def StencilToStandardPass : Pass<"convert-stencil-to-std", "ModuleOp"> {
   let summary = "Convert stencil dialect to standard operations";
   let constructor = "mlir::createConvertStencilToStandardPass()";
 }

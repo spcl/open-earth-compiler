@@ -1,4 +1,4 @@
-// RUN: oec-opt %s -split-input-file --convert-stencil-to-standard | FileCheck %s
+// RUN: oec-opt %s -split-input-file --convert-stencil-to-std | FileCheck %s
 
 // CHECK-LABEL: @func_lowering
 // CHECK: (%{{.*}}: memref<7x77x777xf64, #map{{[0-9]+}}>) {
