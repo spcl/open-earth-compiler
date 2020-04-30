@@ -30,7 +30,7 @@ public:
   static StringRef getStencilProgramAttrName() { return "stencil.program"; }
 
   static StringRef getFieldTypeName() { return "field"; }
-  static StringRef getViewTypeName() { return "view"; }
+  static StringRef getViewTypeName() { return "temp"; }
 
   static bool isStencilFunction(FuncOp funcOp) {
     return !!funcOp.getAttr(getStencilFunctionAttrName());
