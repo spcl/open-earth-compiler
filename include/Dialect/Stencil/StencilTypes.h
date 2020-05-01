@@ -14,8 +14,8 @@ namespace stencil {
 namespace StencilTypes {
 enum Kind {
   Field = Type::FIRST_PRIVATE_EXPERIMENTAL_0_TYPE,
-  View,
-  LAST_USED_PRIVATE_EXPERIMENTAL_0_TYPE = View
+  Temp,
+  LAST_USED_PRIVATE_EXPERIMENTAL_0_TYPE = Temp
 };
 }
 
@@ -41,23 +41,23 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// ViewType
+// TempType
 //===----------------------------------------------------------------------===//
 
-struct ViewTypeStorage;
-class ViewType : public Type::TypeBase<ViewType, Type, ViewTypeStorage> {
+struct TempTypeStorage;
+class TempType : public Type::TypeBase<TempType, Type, TempTypeStorage> {
 public:
   using Base::Base;
 
-  static ViewType get(MLIRContext *context, Type elementType,
+  static TempType get(MLIRContext *context, Type elementType,
                       ArrayRef<int> dimensions);
 
   /// Used to implement LLVM-style casts.
-  static bool kindof(unsigned kind) { return kind == StencilTypes::View; }
+  static bool kindof(unsigned kind) { return kind == StencilTypes::Temp; }
 
-  /// Return the type of the view elements.
+  /// Return the type of the temp elements.
   Type getElementType();
-  /// Return the allocated dimensions of the view.
+  /// Return the allocated dimensions of the temp.
   ArrayRef<int> getDimensions();
 };
 

@@ -125,16 +125,16 @@ static LogicalResult verify(stencil::AssertOp assertOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::AccessOp::build(OpBuilder &builder, OperationState &state,
-                              Value view, ArrayRef<int64_t> offset) {
+                              Value temp, ArrayRef<int64_t> offset) {
   // Make sure that the offset has the right size
   assert(offset.size() == stencil::kNumOfDimensions &&
          "expected offset to have an element for every dimension");
 
-  // Extract the element type of the view.
-  Type elementType = view.getType().cast<stencil::ViewType>().getElementType();
+  // Extract the element type of the temp.
+  Type elementType = temp.getType().cast<stencil::TempType>().getElementType();
 
   // Add an SSA argument
-  state.addOperands(view);
+  state.addOperands(temp);
   // Add the offset attribute
   state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
   // Set the return type
@@ -146,7 +146,7 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
   ArrayAttr offset;
   SmallVector<OpAsmParser::OperandType, 1> operands;
 
-  // Parse the view
+  // Parse the temp
   if (parser.parseOperandList(operands) ||
       parser.parseAttribute(offset, stencil::AccessOp::getOffsetAttrName(),
                             state.attributes))
@@ -158,7 +158,7 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
     return failure();
   }
 
-  // Parse optional attributes as well as the view type
+  // Parse optional attributes as well as the temp type
   if (parser.parseOptionalAttrDict(state.attributes) ||
       parser.parseColonType<FunctionType>(funcType) ||
       parser.resolveOperands(operands, funcType.getInputs(),
@@ -173,23 +173,23 @@ static ParseResult parseAccessOp(OpAsmParser &parser, OperationState &state) {
 }
 
 static void print(stencil::AccessOp accessOp, OpAsmPrinter &printer) {
-  Value view = accessOp.view();
+  Value temp = accessOp.temp();
   ArrayAttr offset = accessOp.offset();
 
-  printer << stencil::AccessOp::getOperationName() << ' ' << view;
+  printer << stencil::AccessOp::getOperationName() << ' ' << temp;
   printer.printAttribute(offset);
   printer.printOptionalAttrDict(accessOp.getAttrs(), /*elidedAttrs=*/{
                                     stencil::AccessOp::getOffsetAttrName()});
   printer << " : (";
-  printer.printType(view.getType());
+  printer.printType(temp.getType());
   printer << ") -> ";
   printer.printType(accessOp.getResult().getType());
 }
 
 static LogicalResult verify(stencil::AccessOp accessOp) {
-  stencil::ViewType viewType =
-      accessOp.view().getType().cast<stencil::ViewType>();
-  Type elementType = viewType.getElementType();
+  stencil::TempType tempType =
+      accessOp.temp().getType().cast<stencil::TempType>();
+  Type elementType = tempType.getElementType();
   Type resultType = accessOp.getResult().getType();
 
   if (resultType != elementType)
@@ -212,7 +212,7 @@ void stencil::LoadOp::build(OpBuilder &builder, OperationState &state,
 
   state.addOperands(field);
   state.addTypes(
-      stencil::ViewType::get(builder.getContext(), elementType, dimensions));
+      stencil::TempType::get(builder.getContext(), elementType, dimensions));
 }
 
 static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
@@ -255,7 +255,7 @@ static ParseResult parseLoadOp(OpAsmParser &parser, OperationState &state) {
 static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   Value field = loadOp.field();
   Type fieldType = field.getType();
-  Type viewType = loadOp.res().getType();
+  Type tempType = loadOp.res().getType();
 
   printer << stencil::LoadOp::getOperationName() << ' ' << field;
   if (loadOp.lb().hasValue() && loadOp.ub().hasValue()) {
@@ -271,25 +271,25 @@ static void print(stencil::LoadOp loadOp, OpAsmPrinter &printer) {
   printer << " : (";
   printer.printType(fieldType);
   printer << ") -> ";
-  printer.printType(viewType);
+  printer.printType(tempType);
 }
 
 static LogicalResult verify(stencil::LoadOp loadOp) {
-  // Check the field and view types match
+  // Check the field and temp types match
   stencil::FieldType fieldType =
       loadOp.field().getType().cast<stencil::FieldType>();
-  stencil::ViewType viewType = loadOp.res().getType().cast<stencil::ViewType>();
+  stencil::TempType tempType = loadOp.res().getType().cast<stencil::TempType>();
 
   Type fieldElementType = fieldType.getElementType();
-  Type viewElementType = viewType.getElementType();
-  if (fieldElementType != viewElementType)
+  Type tempElementType = tempType.getElementType();
+  if (fieldElementType != tempElementType)
     return loadOp.emitOpError("inconsistent field element type '")
-           << fieldElementType << "' and view element type '" << viewElementType
+           << fieldElementType << "' and temp element type '" << tempElementType
            << "'";
 
   auto fieldDimensions = fieldType.getDimensions();
-  auto viewDimensions = viewType.getDimensions();
-  if (fieldDimensions != viewDimensions)
+  auto tempDimensions = tempType.getDimensions();
+  if (fieldDimensions != tempDimensions)
     return loadOp.emitOpError("storage dimensions are inconsistent");
 
   // Check if field assert exists
@@ -309,7 +309,7 @@ static LogicalResult verify(stencil::LoadOp loadOp) {
 //===----------------------------------------------------------------------===//
 
 void stencil::StoreOp::build(OpBuilder &builder, OperationState &state,
-                             Value view, Value field, ArrayRef<int64_t> lb,
+                             Value temp, Value field, ArrayRef<int64_t> lb,
                              ArrayRef<int64_t> ub) {
   // Make sure that the offset has the right size
   assert(lb.size() == stencil::kNumOfDimensions &&
@@ -317,18 +317,18 @@ void stencil::StoreOp::build(OpBuilder &builder, OperationState &state,
          "expected bounds to have an element for every dimension");
 
   // Add an SSA arguments
-  state.addOperands({view, field});
+  state.addOperands({temp, field});
   // Add the bounds attributes
   state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
   state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
 }
 
 static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
-  OpAsmParser::OperandType view, field;
+  OpAsmParser::OperandType temp, field;
   ArrayAttr lbAttr, ubAttr;
-  Type fieldType, viewType;
+  Type fieldType, tempType;
   // Parse the store op
-  if (parser.parseOperand(view) || parser.parseKeyword("to") ||
+  if (parser.parseOperand(temp) || parser.parseKeyword("to") ||
       parser.parseOperand(field) || parser.parseLParen() ||
       parser.parseAttribute(lbAttr, stencil::StoreOp::getLBAttrName(),
                             state.attributes) ||
@@ -336,7 +336,7 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
       parser.parseAttribute(ubAttr, stencil::StoreOp::getUBAttrName(),
                             state.attributes) ||
       parser.parseRParen() || parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColon() || parser.parseType(viewType) ||
+      parser.parseColon() || parser.parseType(tempType) ||
       parser.parseKeyword("to") || parser.parseType(fieldType))
     return failure();
 
@@ -348,7 +348,7 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
     return failure();
   }
 
-  if (parser.resolveOperand(view, viewType, state.operands) ||
+  if (parser.resolveOperand(temp, tempType, state.operands) ||
       parser.resolveOperand(field, fieldType, state.operands))
     return failure();
 
@@ -357,11 +357,11 @@ static ParseResult parseStoreOp(OpAsmParser &parser, OperationState &state) {
 
 static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
   Value field = storeOp.field();
-  Value view = storeOp.view();
+  Value temp = storeOp.temp();
   ArrayAttr lb = storeOp.lb();
   ArrayAttr ub = storeOp.ub();
 
-  printer << stencil::StoreOp::getOperationName() << " " << view;
+  printer << stencil::StoreOp::getOperationName() << " " << temp;
   printer << " to " << field << " (";
   printer.printAttribute(lb);
   printer << ":";
@@ -371,31 +371,31 @@ static void print(stencil::StoreOp storeOp, OpAsmPrinter &printer) {
       storeOp.getAttrs(), /*elidedAttrs=*/{stencil::StoreOp::getLBAttrName(),
                                            stencil::StoreOp::getUBAttrName()});
   printer << " : ";
-  printer.printType(view.getType());
+  printer.printType(temp.getType());
   printer << " to ";
   printer.printType(field.getType());
 }
 
 static LogicalResult verify(stencil::StoreOp storeOp) {
-  // Check the field and view types match
+  // Check the field and temp types match
   stencil::FieldType fieldType = storeOp.getFieldType();
-  stencil::ViewType viewType = storeOp.getViewType();
+  stencil::TempType tempType = storeOp.getTempType();
 
   Type fieldElementType = fieldType.getElementType();
-  Type viewElementType = viewType.getElementType();
-  if (fieldElementType != viewElementType)
+  Type tempElementType = tempType.getElementType();
+  if (fieldElementType != tempElementType)
     return storeOp.emitOpError("inconsistent field element type '")
-           << fieldElementType << "' and view element type '" << viewElementType
+           << fieldElementType << "' and temp element type '" << tempElementType
            << "'";
 
   auto fieldDimensions = fieldType.getDimensions();
-  auto viewDimensions = viewType.getDimensions();
-  if (fieldDimensions != viewDimensions)
+  auto tempDimensions = tempType.getDimensions();
+  if (fieldDimensions != tempDimensions)
     return storeOp.emitOpError("storage dimensions are inconsistent");
 
-  // Check view computed by apply
-  if (!dyn_cast<stencil::ApplyOp>(storeOp.view().getDefiningOp()))
-    return storeOp.emitError("output view not result of an apply");
+  // Check temp computed by apply
+  if (!dyn_cast<stencil::ApplyOp>(storeOp.temp().getDefiningOp()))
+    return storeOp.emitError("output temp not result of an apply");
 
   // Check if field assert exists
   int asserts = 0;
@@ -669,7 +669,7 @@ void stencil::ApplyOp::getCanonicalizationPatterns(
 //===----------------------------------------------------------------------===//
 
 void stencil::CallOp::build(OpBuilder &builder, OperationState &result,
-                            FuncOp callee, stencil::ViewType viewType,
+                            FuncOp callee, stencil::TempType tempType,
                             ArrayRef<int64_t> offset, ValueRange operands) {
   assert(offset.size() == stencil::kNumOfDimensions &&
          "expected offset to have an element for every dimension");
@@ -678,14 +678,14 @@ void stencil::CallOp::build(OpBuilder &builder, OperationState &result,
       "only stencil functions can be used in an apply operation");
   assert(callee.getType().getNumResults() == 1 &&
          "expected stencil function to return only one result");
-  assert(callee.getType().getResult(0) == viewType.getElementType() &&
+  assert(callee.getType().getResult(0) == tempType.getElementType() &&
          "incompatible stencil function return type "
-         "and view type");
+         "and temp type");
   ValueRange test;
   result.addOperands(operands);
   result.addAttribute(getCalleeAttrName(), builder.getSymbolRefAttr(callee));
   result.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
-  result.addTypes(viewType);
+  result.addTypes(tempType);
 }
 
 FunctionType stencil::CallOp::getCalleeType() {
@@ -816,16 +816,16 @@ static LogicalResult verify(stencil::ReturnOp returnOp) {
            << " operands, but enclosing function returns "
            << unrollFactor * results.size();
 
-  // The return types must match the element types of the returned views
+  // The return types must match the element types of the returned temps
   for (unsigned i = 0, e = results.size(); i != e; ++i) {
     for (unsigned j = 0; j < unrollFactor; j++)
       if (returnOp.getOperand(i * unrollFactor + j).getType() !=
-          applyOp.getResultViewType(i).getElementType())
+          applyOp.getResultTempType(i).getElementType())
         return returnOp.emitError()
                << "type of return operand " << i * unrollFactor + j << " ("
                << returnOp.getOperand(i * unrollFactor + j).getType()
                << ") doesn't match function result type ("
-               << applyOp.getResultViewType(i).getElementType() << ")";
+               << applyOp.getResultTempType(i).getElementType() << ")";
   }
 
   return success();

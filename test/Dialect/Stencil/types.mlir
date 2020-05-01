@@ -11,12 +11,12 @@ func @foo1(%arg0: !stencil.field<ij,f64>) {
 // CHECK-LABEL: func @foo1(%{{.*}}: !stencil.field<ij,f64>) {
 
 
-func @bar0(%arg0: !stencil.view<ijk,f32>) {
+func @bar0(%arg0: !stencil.temp<ijk,f32>) {
 	return
 }
-// CHECK-LABEL: func @bar0(%{{.*}}: !stencil.view<ijk,f32>) {
+// CHECK-LABEL: func @bar0(%{{.*}}: !stencil.temp<ijk,f32>) {
 
-func @bar1(%arg0: !stencil.view<k,f64>) {
+func @bar1(%arg0: !stencil.temp<k,f64>) {
 	return
 }
-// CHECK-LABEL: func @bar1(%{{.*}}: !stencil.view<k,f64>) {
+// CHECK-LABEL: func @bar1(%{{.*}}: !stencil.temp<k,f64>) {

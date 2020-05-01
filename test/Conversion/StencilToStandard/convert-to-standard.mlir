@@ -20,7 +20,7 @@ func @parallel_loop(%arg0 : f64) attributes {stencil.program} {
   %1 = stencil.apply %arg1 = %arg0  : f64 {
     // CHECK: store %{{.*}}, %{{.*}}{{\[}}[[ARG0]], [[ARG1]], [[ARG2]]] 
     stencil.return %arg1 : f64
-  } to ([0, 0, 0]:[7, 77, 777]) : !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 77, 777]) : !stencil.temp<ijk,f64>
   return
 }
 
@@ -43,7 +43,7 @@ func @parallel_loop_unroll(%arg0 : f64) attributes {stencil.program} {
     // CHECK-NEXT: [[IDX:%.*]] = affine.apply [[MAP0]]([[ARG1]], [[OFF]]) 
     // CHECK-NEXT: store %{{.*}}, %{{.*}}{{\[}}[[ARG0]], [[IDX]], [[ARG2]]] 
     stencil.return unroll [1, 2, 1] %arg1, %arg1 : f64, f64
-  } to ([0, 0, 0]:[7, 88, 777]) : !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 88, 777]) : !stencil.temp<ijk,f64>
   return
 }
 
@@ -55,12 +55,12 @@ func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
   %1 = stencil.apply %arg1 = %arg0 : f64 {
     // CHECK: store %{{.*}}, [[TEMP]]  
     stencil.return %arg1 : f64
-  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>
-  %3 = stencil.apply %arg2 = %1 : !stencil.view<ijk,f64> {
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.temp<ijk,f64>
+  %3 = stencil.apply %arg2 = %1 : !stencil.temp<ijk,f64> {
     // CHECK: load [[TEMP]]  
-    %4 = stencil.access %arg2[0,0,0] : (!stencil.view<ijk,f64>) -> f64
+    %4 = stencil.access %arg2[0,0,0] : (!stencil.temp<ijk,f64>) -> f64
     stencil.return %4 : f64
-  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.temp<ijk,f64>
   // CHECK: dealloc [[TEMP]] : memref<7x7x7xf64, #map{{[0-9]+}}>
   return
 }
@@ -73,9 +73,9 @@ func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
 func @access_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
   // CHECK: [[VIEW:%.*]] = subview %{{.*}}[] [] []
   stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<ijk,f64>
-  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
+  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
   // CHECK: loop.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
-  %1 = stencil.apply %arg1 = %0  : !stencil.view<ijk,f64> {
+  %1 = stencil.apply %arg1 = %0  : !stencil.temp<ijk,f64> {
     // CHECK-DAG: [[C0:%.*]] = constant 0 : index
     // CHECK-DAG: [[O0:%.*]] = affine.apply [[MAP0]]([[ARG0]], [[C0]])
     // CHECK-DAG: [[C1:%.*]] = constant 1 : index
@@ -83,9 +83,9 @@ func @access_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.progra
     // CHECK-DAG: [[C2:%.*]] = constant 2 : index
     // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP0]]([[ARG2]], [[C2]])
     // CHECK-NEXT: %{{.*}} = load [[VIEW:%.*]]{{\[}}[[O0]], [[O1]], [[O2]]{{[]]}}
-    %2 = stencil.access %arg1[0, 1, 2] : (!stencil.view<ijk,f64>) -> f64
+    %2 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<ijk,f64>) -> f64
     stencil.return %2 : f64
-  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.temp<ijk,f64>
   return
 }
 
@@ -97,7 +97,7 @@ func @return_lowering(%arg0: f64) attributes {stencil.program} {
   %1,%2 = stencil.apply %arg1 = %arg0 : f64 {
     // CHECK-COUNT-2: store %{{.*}}, %{{.*}}{{\[}}[[ARG0]], [[ARG1]], [[ARG2]]] : memref<7x7x7xf64, #map{{[0-9]+}}> 
     stencil.return %arg1, %arg1 : f64, f64
-  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>, !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64>
   return
 }
 
@@ -107,7 +107,7 @@ func @return_lowering(%arg0: f64) attributes {stencil.program} {
 func @load_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
   // CHECK: %{{.*}} = subview %{{.*}}[] [] [] : memref<11x12x13xf64, #map{{[0-9]+}}> to memref<9x9x9xf64, #map{{[0-9]+}}>
   stencil.assert %arg0 ([0, 0, 0]:[11, 12, 13]) : !stencil.field<ijk,f64>
-  %0 = stencil.load %arg0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
+  %0 = stencil.load %arg0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
   return
 }
 
@@ -121,8 +121,8 @@ func @store_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program
   %1 = stencil.apply %arg1 = %c1 : f64 {
     // CHECK: store %{{.*}} [[VIEW]]
     stencil.return %arg1 : f64
-  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>
-  stencil.store %1 to %arg0 ([1, 2, 3]:[8, 9, 10]) : !stencil.view<ijk,f64> to !stencil.field<ijk,f64>
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.temp<ijk,f64>
+  stencil.store %1 to %arg0 ([1, 2, 3]:[8, 9, 10]) : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
   return
 }
 
@@ -131,24 +131,24 @@ func @store_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program
 // CHECK-LABEL: @if_lowering
 func @if_lowering(%arg0: !stencil.field<ijk,f64>) attributes {stencil.program} {
   stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<ijk,f64>
-  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<ijk,f64>) -> !stencil.view<ijk,f64>
-  %1 = stencil.apply %arg1 = %0  : !stencil.view<ijk,f64> {
+  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
+  %1 = stencil.apply %arg1 = %0  : !stencil.temp<ijk,f64> {
     %2 = constant 1 : i1
     // CHECK: [[RES:%.*]] = loop.if %{{.*}} -> (f64) {
     %3 = loop.if %2 -> (f64) {
       // CHECK: [[IF:%.*]] = load
-      %4 = stencil.access %arg1[0, 1, 2] : (!stencil.view<ijk,f64>) -> f64
+      %4 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<ijk,f64>) -> f64
       // CHECK: loop.yield [[IF]] : f64
       loop.yield %4 : f64
     // CHECK: } else {
     } else {
       // CHECK: [[ELSE:%.*]] = load
-      %5 = stencil.access %arg1[0, 2, 1] : (!stencil.view<ijk,f64>) -> f64
+      %5 = stencil.access %arg1[0, 2, 1] : (!stencil.temp<ijk,f64>) -> f64
       // CHECK: loop.yield [[ELSE]] : f64
       loop.yield %5 : f64
     }
     // CHECK: store [[RES]]
     stencil.return %3 : f64
-  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.view<ijk,f64>
+  } to ([0, 0, 0]:[7, 7, 7]) : !stencil.temp<ijk,f64>
   return
 }

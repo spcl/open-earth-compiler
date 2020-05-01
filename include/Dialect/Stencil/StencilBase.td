@@ -21,10 +21,10 @@ def Stencil_Dialect : Dialect {
 // Stencil type definitions
 //===----------------------------------------------------------------------===//
 
-def Stencil_IsViewType : CPred<"$_self.isa<::mlir::stencil::ViewType>()">;
+def Stencil_IsTempType : CPred<"$_self.isa<::mlir::stencil::TempType>()">;
 def Stencil_IsFieldType : CPred<"$_self.isa<::mlir::stencil::FieldType>()">;
 
-def Stencil_View : Type<Stencil_IsViewType, "a view on a field">;
+def Stencil_Temp : Type<Stencil_IsTempType, "a temp on a field">;
 def Stencil_Field : Type<Stencil_IsFieldType, "a field">;
 def Stencil_ElementType : AnyTypeOf<[F32, F64]>;
 
