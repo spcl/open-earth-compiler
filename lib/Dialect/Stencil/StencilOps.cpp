@@ -24,7 +24,6 @@
 #include <cstddef>
 #include <functional>
 #include <iterator>
-#include <llvm-9/llvm/ADT/STLExtras.h>
 
 using namespace mlir;
 

@@ -330,12 +330,13 @@ public:
         // Add the unrolling offset to the loop ivs
         SmallVector<Value, 3> storeOffset = loopIVs;
         if (j > 0) {
-          assert(llvm::count(returnOp.getUnroll(), 1) ==
-                     returnOp.getUnroll().size() - 1 &&
+          auto unroll = returnOp.getUnroll();
+          assert(llvm::count(unroll, 1) == unroll.size() - 1 &&
                  "expected a single non-zero entry");
-          auto it = llvm::find_if(returnOp.getUnroll(),
-                                  [](int64_t x) { return x != 1; });
-          auto unrollDim = std::distance(returnOp.getUnroll().begin(), it);
+          auto it = llvm::find_if(unroll, [&](int64_t x) {
+            return x == returnOp.getUnrollFactor();
+          });
+          auto unrollDim = std::distance(std::begin(unroll), it);
           auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
           ValueRange params = {loopIVs[unrollDim], constantOp.getResult()};
           auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
