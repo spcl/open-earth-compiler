@@ -1,6 +1,6 @@
 # The Stencil Dialect
 
-Development repository for the open earth compiler. The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit 302e11cd974. 
+Development repository for the open earth compiler. The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit e82f0a598f8. 
 
 
 ## Build Instructions
@@ -9,7 +9,7 @@ This setup assumes that you have built LLVM and MLIR in `$BUILD_DIR` and install
 ```sh
 mkdir build && cd build
 cmake -G Ninja .. -DMLIR_DIR=$PREFIX/lib/cmake/mlir -DLLVM_EXTERNAL_LIT=$BUILD_DIR/bin/llvm-lit
-cmake --build . --target check-oec-opt
+cmake --build . --target check-oec
 ```
 To build the documentation from the TableGen description of the dialect operations, run
 ```sh
