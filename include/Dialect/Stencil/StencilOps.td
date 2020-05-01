@@ -6,7 +6,7 @@ include "Dialect/Stencil/StencilBase.td"
 #endif // STENCIL_BASE
 
 def Stencil_AssertOp : Stencil_Op<"assert", []> {
-  let summary = "view access operation";
+  let summary = "temp access operation";
   let description = [{
     This operation asserts the size of input fields.
 
@@ -42,19 +42,19 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
 }
 
 def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
-  let summary = "view access operation";
+  let summary = "temp access operation";
   let description = [{
-    This operation takes a view as an input as well as an offset
-    attribute and return the corresponding element from the view's
+    This operation takes a temp as an input as well as an offset
+    attribute and return the corresponding element from the temp's
     underlying field. The offset is specified relatively to the
     current position.
 
     Example:
 
-      %0 = stencil.access %view[-1, 0, 0] : !stencil.temp<ijk,f64> -> f64
+      %0 = stencil.access %temp[-1, 0, 0] : !stencil.temp<ijk,f64> -> f64
   }];
 
-  let arguments = (ins Stencil_View:$view, I64ArrayAttr:$offset);
+  let arguments = (ins Stencil_Temp:$temp, I64ArrayAttr:$offset);
   let results = (outs Stencil_ElementType:$res);
 
   let builders = [OpBuilder<"OpBuilder &, OperationState &, Value,"
@@ -68,8 +68,8 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
     void setOffset(ArrayRef<int64_t> bound) {
       setAttr(stencil::AccessOp::getOffsetAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
-    stencil::ViewType getViewType() {
-      return view().getType().cast<stencil::ViewType>();
+    stencil::TempType getTempType() {
+      return temp().getType().cast<stencil::TempType>();
     }
   }];
 }
@@ -77,7 +77,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
 def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   let summary = "load operation";
   let description = [{
-    This operation takes a field and returns a view.
+    This operation takes a field and returns a temp.
 
     Example:
 
@@ -87,7 +87,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   let arguments = (ins Stencil_Field:$field,
                         OptionalAttr<I64ArrayAttr>:$lb, 
                         OptionalAttr<I64ArrayAttr>:$ub);
-  let results = (outs Stencil_View:$res);
+  let results = (outs Stencil_Temp:$res);
 
   let builders = [OpBuilder<"OpBuilder &, OperationState &, Value">];
 
@@ -108,8 +108,8 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
     void setUB(ArrayRef<int64_t> bound) {
       setAttr(stencil::LoadOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
-    stencil::ViewType getResultViewType() {
-      return res().getType().cast<stencil::ViewType>();
+    stencil::TempType getResultTempType() {
+      return res().getType().cast<stencil::TempType>();
     }
   }];
 }
@@ -117,14 +117,14 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
 def Stencil_StoreOp : Stencil_Op<"store"> {
   let summary = "store operation";
   let description = [{
-    This operation takes a view and writes a field on a user defined range.
+    This operation takes a temp and writes a field on a user defined range.
 
     Example:
 
-      stencil.store %view to %field[0,0,0][64,64,60] : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
+      stencil.store %temp to %field[0,0,0][64,64,60] : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
   }];
 
-  let arguments = (ins Stencil_View:$view, Stencil_Field:$field, 
+  let arguments = (ins Stencil_Temp:$temp, Stencil_Field:$field, 
                         I64ArrayAttr:$lb, I64ArrayAttr:$ub);
   let results = (outs);
 
@@ -149,8 +149,8 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
     stencil::FieldType getFieldType() {
       return field().getType().cast<stencil::FieldType>();
     }
-    stencil::ViewType getViewType() {
-      return view().getType().cast<stencil::ViewType>();
+    stencil::TempType getTempType() {
+      return temp().getType().cast<stencil::TempType>();
     }
   }];
 }
@@ -162,7 +162,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   let summary = "apply operation";
   let description = [{
     This operation takes a stencil function plus parameters and applies 
-    the stencil function to the output view.
+    the stencil function to the output temp.
 
     Example:
 
@@ -174,7 +174,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   let arguments = (ins Variadic<AnyType>:$operands, 
                         OptionalAttr<I64ArrayAttr>:$lb, 
                         OptionalAttr<I64ArrayAttr>:$ub);
-  let results = (outs Variadic<Stencil_View>:$res);
+  let results = (outs Variadic<Stencil_Temp>:$res);
   let regions = (region SizedRegion<1>:$region);
 
   let builders = [
@@ -199,8 +199,8 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
     void setUB(ArrayRef<int64_t> bound) {
       setAttr(stencil::ApplyOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
     }
-    stencil::ViewType getResultViewType(unsigned i) {
-      return res()[i].getType().cast<stencil::ViewType>();
+    stencil::TempType getResultTempType(unsigned i) {
+      return res()[i].getType().cast<stencil::TempType>();
     }
     /// Get the body of the apply op
     Block *getBody() { return &region().front(); }
@@ -224,12 +224,12 @@ def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
 
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &result, FuncOp callee,"
-              "stencil::ViewType viewType, ArrayRef<int64_t> offset,"
+              "stencil::TempType tempType, ArrayRef<int64_t> offset,"
               "ValueRange operands">];
 
   let extraClassDeclaration = [{
-    stencil::ViewType getResultViewType() {
-      return res().getType().cast<stencil::ViewType>();
+    stencil::TempType getResultTempType() {
+      return res().getType().cast<stencil::TempType>();
     }
 
     static StringRef getCalleeAttrName() { return "callee"; }
@@ -257,7 +257,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
   let description = [{
     This operation represents the return operation of a stencil apply.
     The operation takes a variable number of operands that must match
-    the element types of the returned views.
+    the element types of the returned temps.
 
     The optional unroll attribute should never be used when writing stencils by
     hand. Instead it is used during the automatic optimization.

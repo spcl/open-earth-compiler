@@ -68,21 +68,21 @@ Type FieldType::getElementType() { return getImpl()->getElementType(); }
 ArrayRef<int> FieldType::getDimensions() { return getImpl()->getDimensions(); }
 
 //===----------------------------------------------------------------------===//
-// ViewType
+// TempType
 //===----------------------------------------------------------------------===//
 
-struct mlir::stencil::ViewTypeStorage : public TypeStorage {
+struct mlir::stencil::TempTypeStorage : public TypeStorage {
   using Key = std::pair<ArrayRef<int>, Type>;
   using KeyTy = Key;
 
-  static ViewTypeStorage *construct(TypeStorageAllocator &allocator,
+  static TempTypeStorage *construct(TypeStorageAllocator &allocator,
                                     const KeyTy &key) {
     // Copy the allocation into the bump pointer.
     ArrayRef<int> dimensions = allocator.copyInto(key.first);
 
     // Initialize the memory using placement new.
-    return new (allocator.allocate<ViewTypeStorage>())
-        ViewTypeStorage(dimensions.size(), dimensions.data(), key.second);
+    return new (allocator.allocate<TempTypeStorage>())
+        TempTypeStorage(dimensions.size(), dimensions.data(), key.second);
   }
 
   bool operator==(const KeyTy &key) const {
@@ -93,7 +93,7 @@ struct mlir::stencil::ViewTypeStorage : public TypeStorage {
   ArrayRef<int> getDimensions() const { return {dimensions, size}; }
 
 private:
-  ViewTypeStorage(size_t size, const int *dimensions, Type elementType)
+  TempTypeStorage(size_t size, const int *dimensions, Type elementType)
       : size(size), dimensions(dimensions), elementType(elementType) {}
 
   const size_t size;
@@ -101,7 +101,7 @@ private:
   Type elementType;
 };
 
-ViewType ViewType::get(mlir::MLIRContext *context, mlir::Type elementType,
+TempType TempType::get(mlir::MLIRContext *context, mlir::Type elementType,
                        llvm::ArrayRef<int> dimensions) {
   assert((elementType.isF32() || elementType.isF64()) &&
          "supporting only f32 and f64 elements");
@@ -115,9 +115,9 @@ ViewType ViewType::get(mlir::MLIRContext *context, mlir::Type elementType,
          "expected list of unique dimensions identifiers");
   assert(temp.front() >= 0 && temp.back() < kNumOfDimensions &&
          "dimension identifiers are out of range");
-  return Base::get(context, StencilTypes::View, temp, elementType);
+  return Base::get(context, StencilTypes::Temp, temp, elementType);
 }
 
-Type ViewType::getElementType() { return getImpl()->getElementType(); }
+Type TempType::getElementType() { return getImpl()->getElementType(); }
 
-ArrayRef<int> ViewType::getDimensions() { return getImpl()->getDimensions(); }
+ArrayRef<int> TempType::getDimensions() { return getImpl()->getDimensions(); }

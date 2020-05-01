@@ -24,7 +24,7 @@ using namespace mlir::stencil;
 
 StencilDialect::StencilDialect(mlir::MLIRContext *context)
     : Dialect(getDialectNamespace(), context) {
-  addTypes<FieldType, ViewType>();
+  addTypes<FieldType, TempType>();
 
   addOperations<
 #define GET_OP_LIST
@@ -91,8 +91,8 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
     return FieldType::get(getContext(), elementType, dimensions.getValue());
   }
 
-  // Parse a view type
-  else if (prefix == getViewTypeName()) {
+  // Parse a temp type
+  else if (prefix == getTempTypeName()) {
     StringRef identifiers;
     Type elementType;
     if (parser.parseLess() || parser.parseKeyword(&identifiers) ||
@@ -103,7 +103,7 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
     auto dimensions = parseDimensions(identifiers);
     if (!dimensions.hasValue())
       return Type();
-    return ViewType::get(getContext(), elementType, dimensions.getValue());
+    return TempType::get(getContext(), elementType, dimensions.getValue());
   }
 
   parser.emitError(parser.getNameLoc(), "unknown stencil type: ")
@@ -144,13 +144,13 @@ void print(FieldType fieldType, DialectAsmPrinter &printer) {
   printer << fieldType.getElementType() << ">";
 }
 
-void print(ViewType viewType, DialectAsmPrinter &printer) {
-  printer << StencilDialect::getViewTypeName() << "<";
-  ArrayRef<int> dimensions = viewType.getDimensions();
+void print(TempType tempType, DialectAsmPrinter &printer) {
+  printer << StencilDialect::getTempTypeName() << "<";
+  ArrayRef<int> dimensions = tempType.getDimensions();
   for (auto dimension : dimensions)
     printer << dimensionToString(dimension);
   printer << ",";
-  printer << viewType.getElementType() << ">";
+  printer << tempType.getElementType() << ">";
 }
 
 } // namespace
@@ -160,8 +160,8 @@ void StencilDialect::printType(Type type, DialectAsmPrinter &printer) const {
   case StencilTypes::Field:
     print(type.cast<FieldType>(), printer);
     break;
-  case StencilTypes::View:
-    print(type.cast<ViewType>(), printer);
+  case StencilTypes::Temp:
+    print(type.cast<TempType>(), printer);
     break;
   default:
     llvm_unreachable("unhandled stencil type");

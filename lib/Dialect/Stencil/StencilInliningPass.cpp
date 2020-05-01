@@ -167,7 +167,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
                      ValueRange producerResults, stencil::ReturnOp returnOp,
                      PatternRewriter &rewriter) const {
     for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
-      if (consumerOp.getBody()->getArgument(i) == accessOp.view()) {
+      if (consumerOp.getBody()->getArgument(i) == accessOp.temp()) {
         size_t index = std::distance(
             producerResults.begin(),
             llvm::find(producerResults, consumerOp.getOperand(i)));
@@ -219,7 +219,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Walk accesses of producer results and replace them by computation
     newOp.walk([&](stencil::AccessOp accessOp) {
-      if (llvm::count(newOp.getBody()->getArguments(), accessOp.view()) == 0) {
+      if (llvm::count(newOp.getBody()->getArguments(), accessOp.temp()) == 0) {
         SmallVector<int64_t, 3> offset = accessOp.getOffset();
         // Copy the operations in after the access op
         rewriter.setInsertionPoint(accessOp);

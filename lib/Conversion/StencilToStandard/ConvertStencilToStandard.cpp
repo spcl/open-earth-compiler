@@ -125,8 +125,8 @@ public:
     SmallVector<Type, 10> inputTypes;
     for (auto argument : funcOp.getArguments()) {
       Type argType = argument.getType();
-      // Verify no view types
-      if (argType.isa<stencil::ViewType>()) {
+      // Verify no temp types
+      if (argType.isa<stencil::TempType>()) {
         funcOp.emitOpError("unexpected argument type '") << argType << "'";
         return failure();
       }
@@ -248,7 +248,7 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    // Replace the load operation with a subview op
+    // Replace the load operation with a subtemp op
     auto loc = operation->getLoc();
     auto loadOp = cast<stencil::LoadOp>(operation);
 
@@ -302,7 +302,7 @@ public:
       currentOp = currentOp->getPrevNode();
       assert(currentOp && "failed to find allocation for results");
     }
-    // Compute the number of result views
+    // Compute the number of result temps
     unsigned numResults =
         returnOp.getNumOperands() / returnOp.getUnrollFactor();
     assert(returnOp.getNumOperands() % returnOp.getUnrollFactor() == 0 &&
@@ -366,7 +366,7 @@ public:
     if (llvm::any_of(
             llvm::zip(applyOp.getBody()->getArguments(), applyOp.getOperands()),
             [](std::tuple<Value, Value> x) {
-              return std::get<0>(x).getType().isa<stencil::ViewType>() &&
+              return std::get<0>(x).getType().isa<stencil::TempType>() &&
                      !std::get<1>(x).getType().isa<MemRefType>();
             })) {
       return failure();
@@ -380,7 +380,7 @@ public:
 
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      Type elementType = applyOp.getResultViewType(i).getElementType();
+      Type elementType = applyOp.getResultTempType(i).getElementType();
       auto strides = computeStrides(applyOp.getUB());
       auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
                                          {}, rewriter);
@@ -451,8 +451,8 @@ public:
     auto loc = operation->getLoc();
     auto accessOp = cast<stencil::AccessOp>(operation);
 
-    // Check the view is a memref type
-    if (!accessOp.view().getType().isa<MemRefType>())
+    // Check the temp is a memref type
+    if (!accessOp.temp().getType().isa<MemRefType>())
       return failure();
 
     // Get the parallel loop
@@ -479,11 +479,11 @@ public:
       }
     }
     assert(loadOffset.size() ==
-               accessOp.view().getType().cast<MemRefType>().getRank() &&
+               accessOp.temp().getType().cast<MemRefType>().getRank() &&
            "expected load offset size to match memref rank");
 
     // Replace the access op by a load op
-    rewriter.replaceOpWithNewOp<LoadOp>(operation, accessOp.view(), loadOffset);
+    rewriter.replaceOpWithNewOp<LoadOp>(operation, accessOp.temp(), loadOffset);
     return success();
   }
 };
@@ -501,7 +501,7 @@ public:
 
     // Verify the field has been converted
     if (!(storeOp.field().getType().isa<MemRefType>() &&
-          storeOp.view().getType().isa<MemRefType>()))
+          storeOp.temp().getType().isa<MemRefType>()))
       return failure();
 
     // Compute the replacement types
@@ -513,14 +513,14 @@ public:
     auto outputType = computeMemRefType(inputType.getElementType(), shape,
                                         strides, storeOp.getLB(), rewriter);
 
-    // Remove allocation and deallocation and insert subview op
-    auto allocOp = storeOp.view().getDefiningOp();
+    // Remove allocation and deallocation and insert subtemp op
+    auto allocOp = storeOp.temp().getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
     auto subViewOp =
         rewriter.create<SubViewOp>(loc, outputType, storeOp.field());
     allocOp->getResult(0).replaceAllUsesWith(subViewOp.getResult());
     rewriter.eraseOp(allocOp);
-    for (auto &use : storeOp.view().getUses()) {
+    for (auto &use : storeOp.temp().getUses()) {
       if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
         rewriter.eraseOp(deallocOp);
     }
