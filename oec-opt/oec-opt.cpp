@@ -90,7 +90,6 @@ int main(int argc, char **argv) {
   registerGPUToCUBINPipeline();
 
   // Register the stencil passes
-  createCallInliningPass();
   createShapeInferencePass();
   createShapeShiftPass();
   createStencilInliningPass();

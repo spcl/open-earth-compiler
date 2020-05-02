@@ -207,50 +207,6 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   }];
 }
 
-def Stencil_CallOp : Stencil_Op<"call", [NoSideEffect]> {
-  let summary = "call operation";
-  let description = [{
-    This operation takes a stencil function plus parameters and evaluates 
-    the function at the given offset.
-
-    Example:
-
-      %0 = stencil.call @func(%0) : (!stencil.temp<ijk,f64>) -> !stencil.temp<ijk,f64>
-  }];
-
-  let arguments = (ins SymbolRefAttr:$callee, 
-                        I64ArrayAttr:$offset, Variadic<AnyType>:$operands);
-  let results = (outs Stencil_ElementType:$res);
-
-  let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &result, FuncOp callee,"
-              "stencil::TempType tempType, ArrayRef<int64_t> offset,"
-              "ValueRange operands">];
-
-  let extraClassDeclaration = [{
-    stencil::TempType getResultTempType() {
-      return res().getType().cast<stencil::TempType>();
-    }
-
-    static StringRef getCalleeAttrName() { return "callee"; }
-    FunctionType getCalleeType();
-    FuncOp getCallee() {
-      return getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(callee().getLeafReference());
-    }
-    static StringRef getOffsetAttrName() { return "offset"; }
-    SmallVector<int64_t, 3> getOffset() {
-      return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), getContext());
-    }
-
-    /// Get the argument operands to the called function.
-    // operand_range getArgOperands() {
-    //   return {arg_operand_begin(), arg_operand_end()};
-    // }
-    // operand_iterator arg_operand_begin() { return operand_begin(); }
-    // operand_iterator arg_operand_end() { return operand_end(); }
-  }];
-}
-
 def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
                                              HasParent<"ApplyOp">]> {
   let summary = "return operation";
@@ -275,10 +231,6 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
     SmallVector<int64_t, 3> getUnroll() {
       assert(unroll().hasValue() && "expected unroll to have value");
       return convertArrayAttrToSmallVector(unroll().getValue(), getContext());
-    }
-    void setUnroll(ArrayRef<int64_t> unroll_input) {
-      setAttr(stencil::ReturnOp::getUnrollAttrName(),
-              convertSmallVectorToArrayAttr(unroll_input, getContext()));
     }
     unsigned getUnrollFactor() {
       unsigned factor = 1;

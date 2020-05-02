@@ -2,7 +2,6 @@ add_mlir_dialect_library(Stencil
   StencilDialect.cpp
   StencilOps.cpp
   StencilTypes.cpp
-  CallInliningPass.cpp
   StencilInliningPass.cpp
   ShapeInferencePass.cpp
   ShapeShiftPass.cpp

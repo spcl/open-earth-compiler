@@ -3,11 +3,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def CallInliningPass : Pass<"stencil-call-inlining", "ModuleOp"> {
-  let summary = "Inline stencil functions";
-  let constructor = "mlir::createCallInliningPass()";
-}
-
 def StencilInliningPass : FunctionPass<"stencil-inlining"> {
   let summary = "Inline stencil apply ops";
   let constructor = "mlir::createStencilInliningPass()";
