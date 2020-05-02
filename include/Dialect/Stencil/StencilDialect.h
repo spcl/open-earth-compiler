@@ -17,7 +17,7 @@ constexpr static int kJDimension = 1;
 constexpr static int kKDimension = 2;
 
 // Stencil dimensionality
-constexpr static int64_t kNumOfDimensions = 3;
+constexpr static int64_t kNumOfDimensions = 3; // TODO accessible inside tablegen?
 
 class StencilDialect : public Dialect {
 public:
