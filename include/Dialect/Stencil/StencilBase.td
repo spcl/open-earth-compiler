@@ -11,7 +11,7 @@ def Stencil_Dialect : Dialect {
     let name = "stencil";
 
     let description = [{
-        A simple stencil dialect in MLIR.
+        A stencil dialect for weather and climate.
     }];
 
     let cppNamespace = "stencil";
@@ -24,8 +24,8 @@ def Stencil_Dialect : Dialect {
 def Stencil_IsTempType : CPred<"$_self.isa<::mlir::stencil::TempType>()">;
 def Stencil_IsFieldType : CPred<"$_self.isa<::mlir::stencil::FieldType>()">;
 
-def Stencil_Temp : Type<Stencil_IsTempType, "a temp on a field">;
-def Stencil_Field : Type<Stencil_IsFieldType, "a field">;
+def Stencil_Temp : Type<Stencil_IsTempType, "a temporary value">;
+def Stencil_Field : Type<Stencil_IsFieldType, "a input/output array">;
 def Stencil_ElementType : AnyTypeOf<[F32, F64]>;
 
 //===----------------------------------------------------------------------===//
@@ -47,6 +47,5 @@ class Stencil_Op<string mnemonic, list<OpTrait> traits = []> :
     let printer = [{ ::print(*this, p); }];
     let verifier = [{ return ::verify(*this); }];
 }
-
 
 #endif // Stencil_BASE

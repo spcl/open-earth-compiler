@@ -42,31 +42,55 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
 }
 
 def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
-  let summary = "temp access operation";
+  let summary = "stencil access operation";
   let description = [{
-    This operation takes a temp as an input as well as an offset
-    attribute and return the corresponding element from the temp's
-    underlying field. The offset is specified relatively to the
-    current position.
+    This operation accesses a temporary element given a constant 
+    offset. The offset is specified relative to the current position.
 
     Example:
-
       %0 = stencil.access %temp[-1, 0, 0] : !stencil.temp<ijk,f64> -> f64
   }];
 
-  let arguments = (ins Stencil_Temp:$temp, I64ArrayAttr:$offset);
-  let results = (outs Stencil_ElementType:$res);
+  let arguments = (
+    ins Stencil_Temp:$temp, 
+    Confined<I64ArrayAttr, [ArrayCount<3>]>:$offset);
 
-  let builders = [OpBuilder<"OpBuilder &, OperationState &, Value,"
-                            "ArrayRef<int64_t>">];
+  let results = (
+    outs Stencil_ElementType:$res);
+  
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "Value temp, ArrayRef<int64_t> offset", [{
+      state.addOperands(temp);
+      state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
+      state.addTypes(temp.getType().cast<stencil::TempType>().getElementType());
+    }]>
+  ];
+
+  let assemblyFormat = [{
+    $temp $offset attr-dict `:` functional-type($temp, $res)
+  }];
+
+  let verifier = [{
+    Type elementType = this->temp().getType().cast<stencil::TempType>().getElementType();
+    Type resultType = this->res().getType();
+    if (resultType != elementType)
+      return this->emitOpError("result type ")
+             << resultType << " and element type " << elementType << " are inconsistent";
+    return success();
+  }];
 
   let extraClassDeclaration = [{
-    static StringRef getOffsetAttrName() { return "offset"; }
+    static StringRef getOffsetAttrName() { 
+      return "offset"; 
+    }
     SmallVector<int64_t, 3> getOffset() {
-      return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), getContext());
+      return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), 
+                                           getContext());
     }
     void setOffset(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AccessOp::getOffsetAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::AccessOp::getOffsetAttrName(), 
+              convertSmallVectorToArrayAttr(bound, getContext()));
     }
     stencil::TempType getTempType() {
       return temp().getType().cast<stencil::TempType>();
