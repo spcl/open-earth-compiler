@@ -1,4 +1,5 @@
 add_mlir_dialect_library(Stencil
+  StencilUtils.cpp
   StencilDialect.cpp
   StencilOps.cpp
   StencilTypes.cpp

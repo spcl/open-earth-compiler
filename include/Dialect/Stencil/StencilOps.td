@@ -44,18 +44,16 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     SmallVector<int64_t, 3> getLB() {
-      return convertArrayAttrToSmallVector(lb().cast<ArrayAttr>(), getContext());
+      return convertAttrToVec(lb()); 
     }
     SmallVector<int64_t, 3> getUB() {
-      return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
+      return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AssertOp::getLBAttrName(), 
-              convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::AssertOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AssertOp::getUBAttrName(), 
-              convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::AssertOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
     }
     stencil::FieldType getFieldType() {
       return field().getType().cast<stencil::FieldType>();
@@ -100,12 +98,10 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
     SmallVector<int64_t, 3> getOffset() {
-      return convertArrayAttrToSmallVector(offset().cast<ArrayAttr>(), 
-                                           getContext());
+      return convertAttrToVec(offset());
     }
     void setOffset(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AccessOp::getOffsetAttrName(), 
-              convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::AccessOp::getOffsetAttrName(), convertVecToAttr(bound, getContext()));
     }
     stencil::TempType getTempType() {
       return temp().getType().cast<stencil::TempType>();
@@ -164,18 +160,16 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     SmallVector<int64_t, 3> getLB() {
-      assert(lb().hasValue() && "expected lb to have value");
-      return convertArrayAttrToSmallVector(lb().getValue(), getContext());
+      return convertAttrToVec(lb());
     }
     SmallVector<int64_t, 3> getUB() {
-      assert(ub().hasValue() && "expected ub to have value");
-      return convertArrayAttrToSmallVector(ub().getValue(), getContext());
+      return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::LoadOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::LoadOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::LoadOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::LoadOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
     }
     stencil::TempType getResultTempType() {
       return res().getType().cast<stencil::TempType>();
@@ -238,16 +232,16 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     SmallVector<int64_t, 3> getLB() {
-      return convertArrayAttrToSmallVector(lb().cast<ArrayAttr>(), getContext());
+      return convertAttrToVec(lb());
     }
     SmallVector<int64_t, 3> getUB() {
-      return convertArrayAttrToSmallVector(ub().cast<ArrayAttr>(), getContext());
+      return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::StoreOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::StoreOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::StoreOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::StoreOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
     }
     stencil::FieldType getFieldType() {
       return field().getType().cast<stencil::FieldType>();
@@ -287,7 +281,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
   
       SmallVector<Type, 3> resultTypes;
       resultTypes.resize(results.size());
-      llvm::transform(results, std::begin(resultTypes),
+      llvm::transform(results, resultTypes.begin(),
                       [](Value value) { return value.getType(); });
       state.addTypes(resultTypes);
     }]>
@@ -310,18 +304,16 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     SmallVector<int64_t, 3> getLB() {
-      assert(lb().hasValue() && "expected lb to have value");
-      return convertArrayAttrToSmallVector(lb().getValue(), getContext());
+      return convertAttrToVec(lb());
     }
     SmallVector<int64_t, 3> getUB() {
-      assert(ub().hasValue() && "expected ub to have value");
-      return convertArrayAttrToSmallVector(ub().getValue(), getContext());
+      return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::ApplyOp::getLBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::ApplyOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::ApplyOp::getUBAttrName(), convertSmallVectorToArrayAttr(bound, getContext()));
+      setAttr(stencil::ApplyOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
     }
     stencil::TempType getResultTempType(unsigned i) {
       return res()[i].getType().cast<stencil::TempType>();
@@ -385,8 +377,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
   let extraClassDeclaration = [{
     static StringRef getUnrollAttrName() { return "unroll"; }
     SmallVector<int64_t, 3> getUnroll() {
-      assert(unroll().hasValue() && "expected unroll to have value");
-      return convertArrayAttrToSmallVector(unroll().getValue(), getContext());
+      return convertAttrToVec(unroll());
     }
     unsigned getUnrollFactor() {
       unsigned factor = 1;
