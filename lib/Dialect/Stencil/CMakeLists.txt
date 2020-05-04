@@ -13,6 +13,7 @@ add_mlir_dialect_library(Stencil
   DEPENDS
   MLIRStencilOpsIncGen
   MLIRStencilPassIncGen
+  MLIRStencilInterfacesIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR

@@ -37,9 +37,9 @@ func @laplap(%arg0: !stencil.field<ijk,f64>, %arg1: !stencil.field<ijk,f64>) att
 }
 
 // CHECK-LABEL: func @laplap(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program} {
-//  CHECK-NEXT: stencil.assert %{{.*}} ([0, 0, 0]:[70, 70, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([0, 0, 0]:[70, 70, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} ([1, 1, 0]:[69, 69, 60]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([0, 0, 0] : [70, 70, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([0, 0, 0] : [70, 70, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}}([1, 1, 0] : [69, 69, 60]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 
 //       CHECK: } to ([0, 0, 0]:[66, 66, 60]) : !stencil.temp<ijk,f64>
 //       CHECK: } to ([0, 0, 0]:[64, 64, 60]) : !stencil.temp<ijk,f64>
@@ -57,8 +57,8 @@ func @lowerdim(%arg0: !stencil.field<ij,f64>, %arg1: !stencil.field<ijk,f64>) at
 }
 
 // CHECK-LABEL: func @lowerdim(%{{.*}}: !stencil.field<ij,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program} {
-//  CHECK-NEXT: stencil.assert %{{.*}} ([0, 0, -9223372036854775808]:[70, 70, -9223372036854775808]) : !stencil.field<ij,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([0, 0, 0]:[70, 70, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} ([3, 3, -9223372036854775808]:[67, 67, -9223372036854775808]) : (!stencil.field<ij,f64>) -> !stencil.temp<ij,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([0, 0, -9223372036854775808] : [70, 70, -9223372036854775808]) : !stencil.field<ij,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([0, 0, 0] : [70, 70, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}}([3, 3, -9223372036854775808] : [67, 67, -9223372036854775808]) : (!stencil.field<ij,f64>) -> !stencil.temp<ij,f64>
 
 //       CHECK: %{{.*}} = stencil.access %{{.*}}[0, 0, -9223372036854775808] : (!stencil.temp<ij,f64>) -> f64

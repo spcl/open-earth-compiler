@@ -1,24 +1,20 @@
 #ifndef Stencil_BASE
 #define Stencil_BASE
 
-include "mlir/Interfaces/SideEffects.td"
+include "mlir/IR/OpBase.td"
 
 //===----------------------------------------------------------------------===//
-// Stencil dialect definition
+// Stencil Dialect
 //===----------------------------------------------------------------------===//
 
 def Stencil_Dialect : Dialect {
     let name = "stencil";
-
-    let description = [{
-        A stencil dialect for weather and climate.
-    }];
-
+    let description = [{A stencil dialect for weather and climate.}];
     let cppNamespace = "stencil";
 }
 
 //===----------------------------------------------------------------------===//
-// Stencil type definitions
+// Stencil Types
 //===----------------------------------------------------------------------===//
 
 def Stencil_IsTempType : CPred<"$_self.isa<::mlir::stencil::TempType>()">;
@@ -28,8 +24,10 @@ def Stencil_Temp : Type<Stencil_IsTempType, "a temporary value">;
 def Stencil_Field : Type<Stencil_IsFieldType, "a input/output array">;
 def Stencil_ElementType : AnyTypeOf<[F32, F64]>;
 
+def Stencil_Index : Confined<I64ArrayAttr, [ArrayCount<3>]>;
+
 //===----------------------------------------------------------------------===//
-// Stencil op definition
+// Stencil Operation
 //===----------------------------------------------------------------------===//
 
 // Base class for all Stencil ops.
