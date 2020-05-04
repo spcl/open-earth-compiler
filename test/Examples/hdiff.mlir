@@ -1,69 +1,67 @@
 
-func @hdiff(%uin_fd : !stencil.field<ijk,f64>, %mask_fd : !stencil.field<ijk,f64>, %uout_fd : !stencil.field<ijk,f64>)
-  attributes { stencil.program } {
-	stencil.assert %uin_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
-  stencil.assert %mask_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
-  stencil.assert %uout_fd ([-4, -4, -4]:[68, 68, 68]) : !stencil.field<ijk,f64>
-  %uin = stencil.load %uin_fd : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
-  %mask = stencil.load %mask_fd : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
-  // lap
-  %lap = stencil.apply %arg1 = %uin : !stencil.temp<ijk,f64> {  
-      %0 = stencil.access %arg1[-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %1 = stencil.access %arg1[1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %2 = stencil.access %arg1[0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %3 = stencil.access %arg1[0, -1, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %4 = stencil.access %arg1[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %5 = addf %0, %1 : f64
-      %6 = addf %2, %3 : f64
-      %7 = addf %5, %6 : f64
-      %cst = constant -4.0 : f64
-      %8 = mulf %4, %cst : f64
-      %9 = addf %8, %7 : f64
-      stencil.return %9 : f64
-	} : !stencil.temp<ijk,f64>
-  // flx
-  %flx = stencil.apply %arg2 = %uin, %arg3 = %lap : !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64> {  
-      %0 = stencil.access %arg3[1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %1 = stencil.access %arg3[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %2 = subf %0, %1 : f64
-      %3 = stencil.access %arg2[1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %4 = stencil.access %arg2[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %5 = subf %3, %4 : f64
-      %6 = mulf %2, %5 : f64
-      %c0 = constant 0.0 : f64
-      %7 = cmpf "ogt", %6, %c0 : f64
-      %8 = select %7, %c0, %2 : f64
-      stencil.return %8 : f64
-	} : !stencil.temp<ijk,f64>
-  // fly
-  %fly = stencil.apply %arg4 = %uin, %arg5 = %lap : !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64> {  
-      %0 = stencil.access %arg5[0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %1 = stencil.access %arg5[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %2 = subf %0, %1 : f64
-      %3 = stencil.access %arg4[0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %4 = stencil.access %arg4[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %5 = subf %3, %4 : f64
-      %6 = mulf %2, %5 : f64
-      %c0 = constant 0.0 : f64
-      %7 = cmpf "ogt", %6, %c0 : f64
-      %8 = select %7, %c0, %2 : f64
-      stencil.return %8 : f64
-	} : !stencil.temp<ijk,f64>
-  // out
-  %out = stencil.apply %arg6 = %uin, %arg7 = %flx, %arg8 = %fly, %arg9 = %mask : !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64> {  
-      %0 = stencil.access %arg7[-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %1 = stencil.access %arg7[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %2 = subf %0, %1 : f64
-      %3 = stencil.access %arg8[0, -1, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %4 = stencil.access %arg8[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %5 = subf %3, %4 : f64
-      %6 = addf %2, %5 : f64
-      %7 = stencil.access %arg9[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %8 = mulf %7, %6 : f64
-      %9 = stencil.access %arg6[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-      %10 = addf %8, %9 : f64
-      stencil.return %10 : f64
-	} : !stencil.temp<ijk,f64>
-	stencil.store %out to %uout_fd ([0, 0, 0]:[64, 64, 64]) : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
-  return
+
+module {
+  func @hdiff(%arg0: !stencil.field<ijk,f64>, %arg1: !stencil.field<ijk,f64>, %arg2: !stencil.field<ijk,f64>) attributes {stencil.program} {
+    stencil.assert %arg0([-4, -4, -4] : [68, 68, 68]) : !stencil.field<ijk,f64>
+    stencil.assert %arg1([-4, -4, -4] : [68, 68, 68]) : !stencil.field<ijk,f64>
+    stencil.assert %arg2([-4, -4, -4] : [68, 68, 68]) : !stencil.field<ijk,f64>
+    %0 = stencil.load %arg0 : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
+    %1 = stencil.load %arg1 : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
+    %2 = stencil.apply (%arg3 = %0 : !stencil.temp<ijk,f64>) -> !stencil.temp<ijk,f64> {
+      %6 = stencil.access %arg3 [-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %7 = stencil.access %arg3 [1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %8 = stencil.access %arg3 [0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %9 = stencil.access %arg3 [0, -1, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %10 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %11 = addf %6, %7 : f64
+      %12 = addf %8, %9 : f64
+      %13 = addf %11, %12 : f64
+      %cst = constant -4.000000e+00 : f64
+      %14 = mulf %10, %cst : f64
+      %15 = addf %14, %13 : f64
+      stencil.return %15 : f64
+    }
+    %3 = stencil.apply (%arg3 = %0 : !stencil.temp<ijk,f64>, %arg4 = %2 : !stencil.temp<ijk,f64>) -> !stencil.temp<ijk,f64> {
+      %6 = stencil.access %arg4 [1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %7 = stencil.access %arg4 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %8 = subf %6, %7 : f64
+      %9 = stencil.access %arg3 [1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %10 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %11 = subf %9, %10 : f64
+      %12 = mulf %8, %11 : f64
+      %cst = constant 0.000000e+00 : f64
+      %13 = cmpf "ogt", %12, %cst : f64
+      %14 = select %13, %cst, %8 : f64
+      stencil.return %14 : f64
+    }
+    %4 = stencil.apply (%arg3 = %0 : !stencil.temp<ijk,f64>, %arg4 = %2 : !stencil.temp<ijk,f64>) -> !stencil.temp<ijk,f64> {
+      %6 = stencil.access %arg4 [0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %7 = stencil.access %arg4 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %8 = subf %6, %7 : f64
+      %9 = stencil.access %arg3 [0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %10 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %11 = subf %9, %10 : f64
+      %12 = mulf %8, %11 : f64
+      %cst = constant 0.000000e+00 : f64
+      %13 = cmpf "ogt", %12, %cst : f64
+      %14 = select %13, %cst, %8 : f64
+      stencil.return %14 : f64
+    }
+    %5 = stencil.apply (%arg3 = %0 : !stencil.temp<ijk,f64>, %arg4 = %3 : !stencil.temp<ijk,f64>, %arg5 = %4 : !stencil.temp<ijk,f64>, %arg6 = %1 : !stencil.temp<ijk,f64>) -> !stencil.temp<ijk,f64> {
+      %6 = stencil.access %arg4 [-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %7 = stencil.access %arg4 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %8 = subf %6, %7 : f64
+      %9 = stencil.access %arg5 [0, -1, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %10 = stencil.access %arg5 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %11 = subf %9, %10 : f64
+      %12 = addf %8, %11 : f64
+      %13 = stencil.access %arg6 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %14 = mulf %13, %12 : f64
+      %15 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+      %16 = addf %14, %15 : f64
+      stencil.return %16 : f64
+    }
+    stencil.store %5 to %arg2([0, 0, 0] : [64, 64, 64]) : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
+    return
+  }
 }
