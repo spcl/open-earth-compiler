@@ -8,6 +8,7 @@
 namespace mlir {
 namespace stencil {
 
+// TODO is this still needed?
 // Constant used to mark unused dimensions of lower dimensional fields
 constexpr static int64_t kIgnoreDimension = std::numeric_limits<int64_t>::min();
 

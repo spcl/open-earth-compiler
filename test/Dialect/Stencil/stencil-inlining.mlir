@@ -1,8 +1,8 @@
 // RUN: oec-opt %s -split-input-file --stencil-inlining -cse | oec-opt | FileCheck %s
 
 // CHECK-LABEL: func @simple(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply [[ARG0:%.*]] = %{{.*}} : !stencil.temp<ijk,f64> {
 //   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
@@ -32,9 +32,9 @@ func @simple(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f64>)
 // -----
 
 // CHECK-LABEL: func @multiple_edges(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply [[ARG0:%.*]] = %{{.*}}, [[ARG1:%.*]] = %{{.*}} : !stencil.temp<ijk,f64>, !stencil.temp<ijk,f64> {
@@ -71,8 +71,8 @@ func @multiple_edges(%in1 : !stencil.field<ijk,f64>, %in2 : !stencil.field<ijk,f
 // -----
 
 // CHECK-LABEL: func @avoid_redundant(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply [[ARG0:%.*]] = %{{.*}} : !stencil.temp<ijk,f64> {
 //  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
@@ -104,9 +104,9 @@ func @avoid_redundant(%in : !stencil.field<ijk,f64>, %out : !stencil.field<ijk,f
 // -----
 
 // CHECK-LABEL: func @reroute(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply [[ARG0:%.*]] = %{{.*}} : !stencil.temp<ijk,f64> {
 //       CHECK: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
@@ -138,9 +138,9 @@ func @reroute(%in : !stencil.field<ijk,f64>, %out1 : !stencil.field<ijk,f64>, %o
 // -----
 
 // CHECK-LABEL: func @root(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply [[ARG0:%.*]] = %{{.*}} : !stencil.temp<ijk,f64> {
 //   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64

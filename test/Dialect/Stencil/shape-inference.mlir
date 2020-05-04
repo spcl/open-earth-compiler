@@ -39,9 +39,9 @@ module {
 }
 
 // CHECK-LABEL: func @lap_stencil(%{{.*}}: !stencil.field<ijk,f64>, %{{.*}}: !stencil.field<ijk,f64>) attributes {stencil.program}
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: stencil.assert %{{.*}} ([-3, -3, 0]:[67, 67, 60]) : !stencil.field<ijk,f64>
-//  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} ([-2, -2, 0]:[66, 66, 60]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+//  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}}([-2, -2, 0] : [66, 66, 60]) : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
 
 //       CHECK: } to ([-1, -1, 0]:[65, 65, 60]) : !stencil.temp<ijk,f64>
 //       CHECK: } to ([0, 0, 0]:[64, 64, 60]) : !stencil.temp<ijk,f64>

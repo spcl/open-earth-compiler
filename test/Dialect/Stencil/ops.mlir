@@ -40,6 +40,8 @@ func @unroll(%in : f64, %out : !stencil.field<ijk,f64>)
 func @unroll_2(%in_0 : f64, %in_1 : f32, %out : !stencil.field<ijk,f64>)
   attributes { stencil.program } {
   "stencil.assert"(%out) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<ijk,f64>) -> ()
+  %7 = "stencil.load"(%out) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<ijk,f64>) -> (!stencil.temp<ijk,f64>)
+  
   %0, %1 = "stencil.apply"(%in_0, %in_1) ({
     ^bb0(%2 : f64, %3 : f32):
     //  CHECK: stencil.return unroll [1, 2, 1] %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : f64, f64, f32, f32
