@@ -69,10 +69,10 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   if (!parser.parseOptionalKeyword("to")) {
     // Parse the optional bounds
     if (parser.parseLParen() ||
-        parser.parseAttribute(lbAttr, stencil::LoadOp::getLBAttrName(),
+        parser.parseAttribute(lbAttr, stencil::ApplyOp::getLBAttrName(),
                               state.attributes) ||
         parser.parseColon() ||
-        parser.parseAttribute(ubAttr, stencil::LoadOp::getUBAttrName(),
+        parser.parseAttribute(ubAttr, stencil::ApplyOp::getUBAttrName(),
                               state.attributes) ||
         parser.parseRParen())
       return failure();

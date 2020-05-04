@@ -3,6 +3,7 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
@@ -380,7 +381,7 @@ public:
 
     // Allocate and deallocate storage for every output
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      Type elementType = applyOp.getResultTempType(i).getElementType();
+      Type elementType = stencil::getElementType(applyOp.getResult(i));
       auto strides = computeStrides(applyOp.getUB());
       auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
                                          {}, rewriter);
@@ -410,7 +411,7 @@ public:
     // Adjust the steps to account for the loop unrolling
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
     assert(!returnOp.unroll().hasValue() ||
-           steps.size() == returnOp.getUnroll().size() &&
+           steps.size() == returnOp.unroll().getValue().size() &&
                "expected unroll attribute to have loop bound size");
     if (returnOp.unroll().hasValue()) {
       auto unroll = returnOp.getUnroll();
