@@ -336,7 +336,7 @@ public:
           auto it = llvm::find_if(unroll, [&](int64_t x) {
             return x == returnOp.getUnrollFactor();
           });
-          auto unrollDim = std::distance(std::begin(unroll), it);
+          auto unrollDim = std::distance(unroll.begin(), it);
           auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
           ValueRange params = {loopIVs[unrollDim], constantOp.getResult()};
           auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
@@ -421,7 +421,7 @@ public:
           steps[i] = rewriter.create<ConstantIndexOp>(loc, unroll[i]);
         }
       }
-    }
+    } 
 
     // Introduce the parallel loop and copy the body of the apply op
     auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
@@ -430,7 +430,7 @@ public:
           applyOp.getOperand(i));
     }
     loop.getBody()->getOperations().splice(
-        std::begin(loop.getBody()->getOperations()),
+        loop.getBody()->getOperations().begin(),
         applyOp.getBody()->getOperations());
 
     // Erase the actual apply op

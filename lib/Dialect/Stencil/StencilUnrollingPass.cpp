@@ -1,6 +1,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -87,8 +88,8 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   unrollVector[unrollIndex] = unrollFactor;
   b.create<stencil::ReturnOp>(
       returnOp.getLoc(), newResults,
-      stencil::convertSmallVectorToArrayAttr(unrollVector, b.getContext()));
-
+      stencil::convertVecToAttr(unrollVector, b.getContext()));
+      
   // Erase the original return op
   returnOp.erase();
 }
