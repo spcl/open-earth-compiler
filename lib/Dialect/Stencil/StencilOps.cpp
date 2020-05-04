@@ -34,33 +34,38 @@ using namespace mlir;
 static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::OperandType, 8> operands;
   SmallVector<OpAsmParser::OperandType, 8> arguments;
+  SmallVector<Type, 8> operandTypes;
+
   ArrayAttr lbAttr, ubAttr;
 
   // Parse region arguments and the assigned data operands
   llvm::SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseLParen())
+    return failure();
   do {
     OpAsmParser::OperandType currentArgument;
     OpAsmParser::OperandType currentOperand;
+    Type currentType;
     if (parser.parseRegionArgument(currentArgument) || parser.parseEqual() ||
-        parser.parseOperand(currentOperand))
+        parser.parseOperand(currentOperand) ||
+        parser.parseColonType(currentType))
       return failure();
+
     arguments.push_back(currentArgument);
     operands.push_back(currentOperand);
+    operandTypes.push_back(currentType);
   } while (!parser.parseOptionalComma());
-
-  // Parse optional attributes and the operand types
-  SmallVector<Type, 8> operandTypes;
-  if (parser.parseColonTypeList(operandTypes))
+  if (parser.parseRParen())
     return failure();
 
-  if (operands.size() != operandTypes.size()) {
-    parser.emitError(parser.getCurrentLocation(), "expected ")
-        << operands.size() << " operand types";
+  // Parse the result types and the optional attributes
+  SmallVector<Type, 8> resultTypes;
+  if (parser.parseArrowTypeList(resultTypes) ||
+      parser.parseOptionalAttrDictWithKeyword(state.attributes))
     return failure();
-  }
+
 
   // Parse the body region.
-  SmallVector<Type, 8> resultTypes;
   Region *body = state.addRegion();
   if (parser.parseRegion(*body, arguments, operandTypes))
     return failure();
@@ -76,21 +81,10 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
                               state.attributes) ||
         parser.parseRParen())
       return failure();
-
-    // Make sure bounds have the right number of dimensions
-    if (lbAttr.size() != stencil::kNumOfDimensions ||
-        ubAttr.size() != stencil::kNumOfDimensions) {
-      parser.emitError(
-          parser.getCurrentLocation(),
-          "expected bounds to have a component for every dimension");
-      return failure();
-    }
   }
 
-  // Parse the return types and resolve all operands
-  if (parser.parseOptionalAttrDict(state.attributes) ||
-      parser.parseColonTypeList(resultTypes) ||
-      parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
+  // Resolve the operands
+  if (parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
       parser.addTypesToList(resultTypes, state.types))
     return failure();
 
@@ -104,15 +98,23 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   ValueRange operands = applyOp.getOperands();
   if (!applyOp.region().empty() && !operands.empty()) {
     Block *body = applyOp.getBody();
+    printer << "(";
     llvm::interleaveComma(
         llvm::seq<int>(0, operands.size()), printer, [&](int i) {
-          printer << body->getArgument(i) << " = " << operands[i];
+          printer << body->getArgument(i) << " = " << operands[i] << " : "
+                  << operands[i].getType();
         });
+    printer << ")";
   }
 
-  // Print the operand types
-  printer << " : ";
-  llvm::interleaveComma(applyOp.getOperandTypes(), printer);
+  // Print the result types
+  printer << " -> ";
+  llvm::interleaveComma(applyOp.res().getTypes(), printer);
+
+  // Print optional attributes
+  printer.printOptionalAttrDictWithKeyword(
+      applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
+                                           stencil::ApplyOp::getUBAttrName()});
 
   // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),
@@ -124,11 +126,6 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
     printer.printAttribute(applyOp.ub().getValue());
     printer << ")";
   }
-  printer.printOptionalAttrDict(
-      applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
-                                           stencil::ApplyOp::getUBAttrName()});
-  printer << " : ";
-  llvm::interleaveComma(applyOp.res().getTypes(), printer);
 }
 
 namespace {
