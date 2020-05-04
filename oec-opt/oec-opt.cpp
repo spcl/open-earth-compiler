@@ -24,6 +24,7 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/Pass.h"
@@ -101,6 +102,8 @@ int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
 
   // Register any pass manager command line options.
+  registerAsmPrinterCLOptions();
+  registerMLIRContextCLOptions();
   registerPassManagerCLOptions();
   PassPipelineCLParser passPipeline("", "Compiler passes to run");
 
