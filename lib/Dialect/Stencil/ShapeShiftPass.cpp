@@ -1,8 +1,8 @@
-#include "PassDetail.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "PassDetail.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
@@ -17,7 +17,6 @@
 #include <limits>
 
 using namespace mlir;
-using namespace stencil;
 
 namespace {
 
@@ -39,22 +38,18 @@ struct ShapeShiftPass : public ShapeShiftPassBase<ShapeShiftPass> {
 };
 
 // Helper method to mark the unused dimensions
-template <typename FieldOrTempType>
-SmallVector<int64_t, 3> markIgnoredDimensions(FieldOrTempType fieldOrTempType,
+SmallVector<int64_t, 3> markIgnoredDimensions(Value value,
                                               ArrayRef<int64_t> offset) {
-  static_assert(std::is_same<FieldOrTempType, stencil::FieldType>::value ||
-                    std::is_same<FieldOrTempType, stencil::TempType>::value,
-                "expected stencil field or temp type");
-
   // Replace unused dimensions by ignore value
   SmallVector<int64_t, 3> result(offset.size());
-  ArrayRef<int> allocated = fieldOrTempType.getDimensions();
-  ArrayRef<int> all = {kIDimension, kJDimension, kKDimension};
+  ArrayRef<int> allocated = stencil::getDimensions(value);
+  ArrayRef<int> all = {stencil::kIDimension, stencil::kJDimension,
+                       stencil::kKDimension};
   llvm::transform(llvm::zip(all, offset), result.begin(),
                   [&](std::tuple<int, int64_t> x) {
                     if (llvm::is_contained(allocated, std::get<0>(x)))
                       return std::get<1>(x);
-                    return kIgnoreDimension;
+                    return stencil::kIgnoreDimension;
                   });
   return result;
 }
@@ -143,29 +138,23 @@ void ShapeShiftPass::runOnFunction() {
   funcOp.walk([](Operation *op) {
     if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
       accessOp.setOffset(
-          markIgnoredDimensions(accessOp.getTempType(), accessOp.getOffset()));
+          markIgnoredDimensions(accessOp.temp(), accessOp.getOffset()));
     }
     if (auto loadOp = dyn_cast<stencil::LoadOp>(op)) {
-      loadOp.setLB(
-          markIgnoredDimensions(loadOp.getResultTempType(), loadOp.getLB()));
-      loadOp.setUB(
-          markIgnoredDimensions(loadOp.getResultTempType(), loadOp.getUB()));
+      loadOp.setLB(markIgnoredDimensions(loadOp.res(), loadOp.getLB()));
+      loadOp.setUB(markIgnoredDimensions(loadOp.res(), loadOp.getUB()));
     }
     if (auto storeOp = dyn_cast<stencil::StoreOp>(op)) {
-      storeOp.setLB(
-          markIgnoredDimensions(storeOp.getFieldType(), storeOp.getLB()));
-      storeOp.setUB(
-          markIgnoredDimensions(storeOp.getFieldType(), storeOp.getUB()));
+      storeOp.setLB(markIgnoredDimensions(storeOp.field(), storeOp.getLB()));
+      storeOp.setUB(markIgnoredDimensions(storeOp.field(), storeOp.getUB()));
     }
     if (auto assertOp = dyn_cast<stencil::AssertOp>(op)) {
-      assertOp.setLB(
-          markIgnoredDimensions(assertOp.getFieldType(), assertOp.getLB()));
-      assertOp.setUB(
-          markIgnoredDimensions(assertOp.getFieldType(), assertOp.getUB()));
+      assertOp.setLB(markIgnoredDimensions(assertOp.field(), assertOp.getLB()));
+      assertOp.setUB(markIgnoredDimensions(assertOp.field(), assertOp.getUB()));
     }
   });
 }
 
 std::unique_ptr<OperationPass<FuncOp>> mlir::createShapeShiftPass() {
   return std::make_unique<ShapeShiftPass>();
-} 
+}

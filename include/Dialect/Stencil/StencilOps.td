@@ -14,7 +14,7 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
     This operation asserts the size of input fields.
 
     Example:
-      stencil.assert %in [-3, -3, 0] : [67, 67, 60] : !stencil.field<ijk,f64>
+      stencil.assert %in ([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
   }];
 
   let arguments = (ins Stencil_Field:$field, Stencil_Index:$lb, Stencil_Index:$ub);
@@ -33,10 +33,8 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
   }];
 
   let verifier = [{
-    for (auto user : field().getUsers()) {
-      if (isa<stencil::AssertOp>(user) && user != getOperation())
-        return emitOpError("multiple asserts for the same field");
-    }
+    if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
+      return emitOpError("expected exactly one assert operation");
     return success();
   }];
   
@@ -50,10 +48,10 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
       return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AssertOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
+      lbAttr(convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AssertOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
+      ubAttr(convertVecToAttr(bound, getContext()));
     }
     stencil::FieldType getFieldType() {
       return field().getType().cast<stencil::FieldType>();
@@ -79,7 +77,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
               "Value temp, ArrayRef<int64_t> offset", [{
       state.addOperands(temp);
       state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
-      state.addTypes(temp.getType().cast<stencil::TempType>().getElementType());
+      state.addTypes(getElementType(temp));
     }]>
   ];
 
@@ -88,9 +86,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   }];
 
   let verifier = [{
-    Type elementType = getTempType().getElementType();
-    Type resultType = res().getType();
-    if (resultType != elementType)
+    if (res().getType() != getElementType(temp()))
       return emitOpError("result type and element type are inconsistent");
     return success();
   }];
@@ -102,9 +98,6 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
     }
     void setOffset(ArrayRef<int64_t> bound) {
       setAttr(stencil::AccessOp::getOffsetAttrName(), convertVecToAttr(bound, getContext()));
-    }
-    stencil::TempType getTempType() {
-      return temp().getType().cast<stencil::TempType>();
     }
   }];
 }
@@ -126,9 +119,8 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, Value field", [{
       state.addOperands(field);
-      stencil::FieldType fieldType = field.getType().cast<stencil::FieldType>();
       state.addTypes(stencil::TempType::get(builder.getContext(), 
-                     fieldType.getElementType(), fieldType.getDimensions()));
+                     getElementType(field), getDimensions(field)));
     }]>
   ];
 
@@ -137,21 +129,14 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   }];
 
   let verifier = [{
-    stencil::FieldType fieldType = field().getType().cast<stencil::FieldType>();
-    stencil::TempType tempType = res().getType().cast<stencil::TempType>();
-    if (fieldType.getElementType() != tempType.getElementType())
+    if (getElementType(field()) != getElementType(res()))
       return emitOpError("the field and temp element types do not match");
-    if (fieldType.getDimensions() != tempType.getDimensions())
+    if (getDimensions(field()) != getDimensions(res()))
       return emitOpError("the field and temp dimensions do not match");
-  
-    int asserts = 0;
-    for (OpOperand &use : field().getUses()) {
-      if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
-        asserts++;
-    }
-    if (asserts != 1)
+
+    if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
-  
+
     return success();
   }];
 
@@ -166,13 +151,10 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
       return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::LoadOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
+      lbAttr(convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::LoadOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
-    }
-    stencil::TempType getResultTempType() {
-      return res().getType().cast<stencil::TempType>();
+      ubAttr(convertVecToAttr(bound, getContext()));
     }
   }];
 }
@@ -183,7 +165,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
     This operation takes a temp and writes a field on a user defined range.
 
     Example:
-      stencil.store %temp to %field[0,0,0][64,64,60] : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
+      stencil.store %temp to %field ([0,0,0] : [64,64,60]) : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
   }];
 
   let arguments = (ins Stencil_Temp:$temp, 
@@ -206,24 +188,18 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 
   let verifier = [{
-    stencil::FieldType fieldType = field().getType().cast<stencil::FieldType>();
-    stencil::TempType tempType = temp().getType().cast<stencil::TempType>();
-    if (fieldType.getElementType() != tempType.getElementType())
+    if (getElementType(field()) != getElementType(temp()))
       return emitOpError("the field and temp element types do not match");
-    if (fieldType.getDimensions() != tempType.getDimensions())
+    if (getDimensions(field()) != getDimensions(temp()))
       return emitOpError("the field and temp dimensions do not match");
   
     if (!dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()))
       return emitOpError("output temp not result of an apply");
 
-    // TODO check no load and a single store!
-    int asserts = 0;
-    for (OpOperand &use : field().getUses()) {
-      if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner()))
-        asserts++;
-    }
-    if (asserts != 1)
+    if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
+    if (llvm::count_if(field().getUsers(), hasOpType<stencil::LoadOp>) != 0)
+      return emitOpError("an output cannot be an input");
   
     return success();
   }];
@@ -238,16 +214,10 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
       return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::StoreOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
+      lbAttr(convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::StoreOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
-    }
-    stencil::FieldType getFieldType() {
-      return field().getType().cast<stencil::FieldType>();
-    }
-    stencil::TempType getTempType() {
-      return temp().getType().cast<stencil::TempType>();
+      ubAttr(convertVecToAttr(bound, getContext()));
     }
   }];
 }
@@ -310,15 +280,11 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
       return convertAttrToVec(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::ApplyOp::getLBAttrName(), convertVecToAttr(bound, getContext()));
+      lbAttr(convertVecToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      setAttr(stencil::ApplyOp::getUBAttrName(), convertVecToAttr(bound, getContext()));
+      ubAttr(convertVecToAttr(bound, getContext()));
     }
-    stencil::TempType getResultTempType(unsigned i) {
-      return res()[i].getType().cast<stencil::TempType>();
-    }
-    /// Get the body of the apply op
     Block *getBody() { return &region().front(); }
   }];
 }
@@ -367,8 +333,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
     // Verify the element types match
     for (unsigned i = 0, e = results.size(); i != e; ++i) {
       for (unsigned j = 0; j < unrollFactor; j++)
-        if (getOperand(i * unrollFactor + j).getType() !=
-            applyOp.getResultTempType(i).getElementType())
+        if (getOperand(i * unrollFactor + j).getType() != getElementType(applyOp.getResult(i)))
           return emitOpError("the operand and apply result element types do not match");
     }
     return success();
