@@ -64,7 +64,6 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
       parser.parseOptionalAttrDictWithKeyword(state.attributes))
     return failure();
 
-
   // Parse the body region.
   Region *body = state.addRegion();
   if (parser.parseRegion(*body, arguments, operandTypes))
@@ -109,8 +108,10 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
 
   // Print the result types
   printer << " -> ";
+  if(applyOp.res().size() > 1) printer << "(";
   llvm::interleaveComma(applyOp.res().getTypes(), printer);
-
+  if(applyOp.res().size() > 1) printer << ")";
+  
   // Print optional attributes
   printer.printOptionalAttrDictWithKeyword(
       applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
