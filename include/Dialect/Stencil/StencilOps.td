@@ -29,7 +29,7 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
   ];
 
   let assemblyFormat = [{
-    $field `(` $lb `:` $ub `)` attr-dict `:` type($field)
+    $field `(` $lb `:` $ub `)` attr-dict-with-keyword `:` type($field)
   }];
 
   let verifier = [{
@@ -82,7 +82,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   ];
 
   let assemblyFormat = [{
-    $temp $offset attr-dict `:` functional-type($temp, $res)
+    $temp $offset attr-dict-with-keyword `:` functional-type($temp, $res)
   }];
 
   let verifier = [{
@@ -125,7 +125,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   ];
 
   let assemblyFormat = [{
-    $field (`(` $lb^ `:` $ub `)`)? attr-dict `:` functional-type($field, $res)
+    $field (`(` $lb^ `:` $ub `)`)? attr-dict-with-keyword `:` functional-type($field, $res)
   }];
 
   let verifier = [{
@@ -184,7 +184,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   ];
   
   let assemblyFormat = [{
-    $temp `to` $field `(` $lb `:` $ub `)` attr-dict `:` type($temp) `to` type($field)
+    $temp `to` $field `(` $lb `:` $ub `)` attr-dict-with-keyword `:` type($temp) `to` type($field)
   }];
 
   let verifier = [{
@@ -305,7 +305,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
       stencil.return %0 : f64
   }];
 
-  let arguments = (ins Variadic<AnyType>:$operands,
+  let arguments = (ins Variadic<Stencil_ElementType>:$operands,
                    OptionalAttr<Stencil_Index>:$unroll);
 
   let builders = [
@@ -318,7 +318,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
   ];
 
   let assemblyFormat = [{
-    (`unroll` $unroll^)? $operands attr-dict `:` type($operands)
+    (`unroll` $unroll^)? $operands attr-dict-with-keyword `:` type($operands)
   }];
 
   let verifier = [{
