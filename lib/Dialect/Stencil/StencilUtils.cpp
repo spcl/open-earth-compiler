@@ -6,7 +6,6 @@
 namespace mlir {
 namespace stencil {
 
-// Convert a vector to an attribute
 ArrayAttr convertVecToAttr(ArrayRef<int64_t> vector, MLIRContext *context) {
   SmallVector<Attribute, 3> result;
   for (int64_t value : vector) {
@@ -14,8 +13,6 @@ ArrayAttr convertVecToAttr(ArrayRef<int64_t> vector, MLIRContext *context) {
   }
   return ArrayAttr::get(result, context);
 }
-
-// Convert an attribute to a vector
 SmallVector<int64_t, 3> convertAttrToVec(ArrayAttr attr) {
   SmallVector<int64_t, 3> result;
   for (auto &elem : attr) {
@@ -31,29 +28,25 @@ SmallVector<int64_t, 3> convertAttrToVec(Optional<ArrayAttr> attr) {
 
 Type getElementType(Value value) {
   assert((value.getType().isa<stencil::FieldType>() ||
-        value.getType().isa<stencil::TempType>()) &&
-        "expected stencil field or temp type");
+          value.getType().isa<stencil::TempType>()) &&
+         "expected stencil field or temp type");
 
-  if(value.getType().isa<stencil::FieldType>()) {
+  if (value.getType().isa<stencil::FieldType>())
     return value.getType().cast<stencil::FieldType>().getElementType();
-  }
-  if(value.getType().isa<stencil::TempType>()) {
+  if (value.getType().isa<stencil::TempType>())
     return value.getType().cast<stencil::TempType>().getElementType();
-  }
   return {};
 }
 
 ArrayRef<int> getDimensions(Value value) {
   assert((value.getType().isa<stencil::FieldType>() ||
-        value.getType().isa<stencil::TempType>()) &&
-        "expected stencil field or temp type");
+          value.getType().isa<stencil::TempType>()) &&
+         "expected stencil field or temp type");
 
-  if(value.getType().isa<stencil::FieldType>()) {
-    return value.getType().cast<stencil::FieldType>().getDimensions();
-  }
-  if(value.getType().isa<stencil::TempType>()) {
-    return value.getType().cast<stencil::TempType>().getDimensions();
-  }
+  if (value.getType().isa<stencil::FieldType>())
+    return value.getType().cast<stencil::FieldType>().getShape();
+  if (value.getType().isa<stencil::TempType>())
+    return value.getType().cast<stencil::TempType>().getShape();
   return {};
 }
 

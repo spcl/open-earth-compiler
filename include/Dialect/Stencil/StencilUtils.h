@@ -11,18 +11,18 @@
 namespace mlir {
 namespace stencil {
 
-// Convert a vector to an attribute
+/// Convert a vector to an attribute
 ArrayAttr convertVecToAttr(ArrayRef<int64_t> vector, MLIRContext *context);
 
-// Convert an attribute to a vector
+/// Convert an attribute to a vector
 SmallVector<int64_t, 3> convertAttrToVec(ArrayAttr attr);
 SmallVector<int64_t, 3> convertAttrToVec(Optional<ArrayAttr> attr);
 
-// Acces stencil field and temporary properties
+/// Acces stencil field and temporary properties
 Type getElementType(Value value);
 ArrayRef<int> getDimensions(Value value);
 
-// Return true if the operation has the given type
+/// Return true if the operation has the given type
 template <typename TOp>
 unsigned hasOpType(Operation *op) {
   return isa_and_nonnull<TOp>(op);
