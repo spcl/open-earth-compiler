@@ -1,27 +1,27 @@
-// RUN: oec-opt %s | oec-opt | FileCheck %s
+// RUN: oec-opt %s -split-input-file | oec-opt | FileCheck %s
 
-func @lap(%in : !stencil.temp<ijk,f64>) -> f64
-  attributes { stencil.function } {
-  %0 = "stencil.access"(%in) {offset = [-1, 0, 0]} : (!stencil.temp<ijk,f64>) -> f64
-  %1 = "stencil.access"(%in) {offset = [ 1, 0, 0]} : (!stencil.temp<ijk,f64>) -> f64
-  %2 = "stencil.access"(%in) {offset = [ 0, 1, 0]} : (!stencil.temp<ijk,f64>) -> f64
-  %3 = "stencil.access"(%in) {offset = [ 0,-1, 0]} : (!stencil.temp<ijk,f64>) -> f64
-  %4 = "stencil.access"(%in) {offset = [ 0, 0, 0]} : (!stencil.temp<ijk,f64>) -> f64
-  %5 = addf %0, %1 : f64
-  %6 = addf %2, %3 : f64
-  %7 = addf %5, %6 : f64
-  %8 = constant -4.0 : f64
-  %9 = mulf %4, %8 : f64
-  %10 = addf %9, %7 : f64
-  return %10 : f64
+// CHECK-LABEL: func @access(%{{.*}}: !stencil.temp<ijk,f64>, %{{.*}}: !stencil.temp<ij,f32>) {
+func @access(%in1 : !stencil.temp<ijk,f64>, %in2 : !stencil.temp<ij,f32>) {
+  //  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[-1, 2, -3] : (!stencil.temp<ijk,f64>) -> f64
+  %0 = "stencil.access"(%in1) {offset = [-1, 2, -3]} : (!stencil.temp<ijk,f64>) -> f64
+  //  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[3, -2, 1] : (!stencil.temp<ij,f32>) -> f32
+  %1 = "stencil.access"(%in2) {offset = [3, -2, 1]} : (!stencil.temp<ij,f32>) -> f32
+  return
 }
 
-// CHECK-LABEL: func @lap(%{{.*}}: !stencil.temp<ijk,f64>) -> f64 attributes {stencil.function} {
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[-1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[1, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, 1, 0] : (!stencil.temp<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, -1, 0] : (!stencil.temp<ijk,f64>) -> f64
-//  CHECK-NEXT: %{{.*}} = stencil.access %{{.*}}[0, 0, 0] : (!stencil.temp<ijk,f64>) -> f64
+// -----
+
+// CHECK-LABEL: func @return(%{{.*}}: f64, %{{.*}}: !stencil.field<ijk,f64>) 
+func @return(%in : f64, %out : !stencil.field<ijk,f64>)
+  attributes { stencil.program } {
+  // CHECK %{{.*}} = stencil.apply (%{{.*}}: f64) -> !stencil.temp<ijk,f64>
+  %0 = "stencil.apply"(%in) ({
+    ^bb0(%1 : f64):
+    //  CHECK: stencil.return %{{.*}} : f64
+    "stencil.return"(%1) : (f64) -> ()
+  }) : (f64) -> !stencil.temp<ijk,f64>
+  return
+}
 
 // -----
 

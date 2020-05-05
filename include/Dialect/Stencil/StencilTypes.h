@@ -3,13 +3,15 @@
 
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Support/LLVM.h"
-#include <bits/stdint-intn.h>
-#include <cstdint>
-#include <limits>
 
 namespace mlir {
 namespace stencil {
+
+namespace detail {
+struct GridTypeStorage;
+struct FieldTypeStorage;
+struct TempTypeStorage;
+} // namespace detail
 
 namespace StencilTypes {
 enum Kind {
@@ -20,11 +22,48 @@ enum Kind {
 }
 
 //===----------------------------------------------------------------------===//
+// GridType
+//===----------------------------------------------------------------------===//
+
+/// Base class of the field and view types.
+class GridType : public Type {
+public:
+  using ImplType = detail::GridTypeStorage;
+  using Type::Type;
+
+  /// Constants used to mark dynamic size or scalarized dimensions
+  static constexpr int32_t kDynamicSize = -1;
+  static constexpr int32_t kScalarDim = 0;
+
+  /// Return the element type
+  Type getElementType() const;
+
+  /// Return the shape of the type
+  ArrayRef<int> getShape() const;
+
+  /// Support isa, cast, and dyn_cast
+  static bool classof(Type type) {
+    return type.getKind() == StencilTypes::Field ||
+           type.getKind() == StencilTypes::Temp;
+  }
+
+  /// Return true if the dimension size is dynamic
+  static constexpr bool isDynamic(int32_t dimSize) {
+    return dimSize == kDynamicSize;
+  }
+  /// Return true for scalarized dimensions
+  static constexpr bool isScalar(int32_t dimSize) {
+    return dimSize == kScalarDim;
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // FieldType
 //===----------------------------------------------------------------------===//
 
-struct FieldTypeStorage;
-class FieldType : public Type::TypeBase<FieldType, Type, FieldTypeStorage> {
+/// Fields are multi-dimensional input and output arrays
+class FieldType
+    : public Type::TypeBase<FieldType, GridType, detail::FieldTypeStorage> {
 public:
   using Base::Base;
 
@@ -33,19 +72,15 @@ public:
 
   /// Used to implement LLVM-style casts
   static bool kindof(unsigned kind) { return kind == StencilTypes::Field; }
-
-  /// Return the type of the field elements.
-  Type getElementType();
-  /// Return the allocated dimensions of the field.
-  ArrayRef<int> getDimensions();
 };
 
 //===----------------------------------------------------------------------===//
 // TempType
 //===----------------------------------------------------------------------===//
 
-struct TempTypeStorage;
-class TempType : public Type::TypeBase<TempType, Type, TempTypeStorage> {
+/// Temporaries keep multi-dimensional intermediate results
+class TempType
+    : public Type::TypeBase<TempType, GridType, detail::TempTypeStorage> {
 public:
   using Base::Base;
 
@@ -54,11 +89,6 @@ public:
 
   /// Used to implement LLVM-style casts.
   static bool kindof(unsigned kind) { return kind == StencilTypes::Temp; }
-
-  /// Return the type of the temp elements.
-  Type getElementType();
-  /// Return the allocated dimensions of the temp.
-  ArrayRef<int> getDimensions();
 };
 
 } // namespace stencil

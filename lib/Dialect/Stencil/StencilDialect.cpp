@@ -137,7 +137,7 @@ StringRef dimensionToString(int dimension) {
 
 void print(FieldType fieldType, DialectAsmPrinter &printer) {
   printer << StencilDialect::getFieldTypeName() << "<";
-  ArrayRef<int> dimensions = fieldType.getDimensions();
+  ArrayRef<int> dimensions = fieldType.getShape();
   for (auto dimension : dimensions)
     printer << dimensionToString(dimension);
   printer << ",";
@@ -146,7 +146,7 @@ void print(FieldType fieldType, DialectAsmPrinter &printer) {
 
 void print(TempType tempType, DialectAsmPrinter &printer) {
   printer << StencilDialect::getTempTypeName() << "<";
-  ArrayRef<int> dimensions = tempType.getDimensions();
+  ArrayRef<int> dimensions = tempType.getShape();
   for (auto dimension : dimensions)
     printer << dimensionToString(dimension);
   printer << ",";
