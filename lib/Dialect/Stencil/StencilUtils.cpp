@@ -2,6 +2,7 @@
 #include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
+#include <bits/stdint-intn.h>
 
 namespace mlir {
 namespace stencil {
@@ -27,27 +28,15 @@ SmallVector<int64_t, 3> convertAttrToVec(Optional<ArrayAttr> attr) {
 }
 
 Type getElementType(Value value) {
-  assert((value.getType().isa<stencil::FieldType>() ||
-          value.getType().isa<stencil::TempType>()) &&
+  assert(value.getType().isa<stencil::GridType>() &&
          "expected stencil field or temp type");
-
-  if (value.getType().isa<stencil::FieldType>())
-    return value.getType().cast<stencil::FieldType>().getElementType();
-  if (value.getType().isa<stencil::TempType>())
-    return value.getType().cast<stencil::TempType>().getElementType();
-  return {};
+  return value.getType().cast<stencil::GridType>().getElementType();
 }
 
-ArrayRef<int> getDimensions(Value value) {
-  assert((value.getType().isa<stencil::FieldType>() ||
-          value.getType().isa<stencil::TempType>()) &&
+ArrayRef<int64_t> getShape(Value value) {
+  assert(value.getType().isa<stencil::GridType>() &&
          "expected stencil field or temp type");
-
-  if (value.getType().isa<stencil::FieldType>())
-    return value.getType().cast<stencil::FieldType>().getShape();
-  if (value.getType().isa<stencil::TempType>())
-    return value.getType().cast<stencil::TempType>().getShape();
-  return {};
+  return value.getType().cast<stencil::GridType>().getShape();
 }
 
 } // namespace stencil

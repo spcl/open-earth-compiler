@@ -42,8 +42,8 @@ SmallVector<int64_t, 3> markIgnoredDimensions(Value value,
                                               ArrayRef<int64_t> offset) {
   // Replace unused dimensions by ignore value
   SmallVector<int64_t, 3> result(offset.size());
-  ArrayRef<int> allocated = stencil::getDimensions(value);
-  ArrayRef<int> all = {stencil::kIDimension, stencil::kJDimension,
+  ArrayRef<int64_t> allocated = stencil::getShape(value);
+  ArrayRef<int64_t> all = {stencil::kIDimension, stencil::kJDimension,
                        stencil::kKDimension};
   llvm::transform(llvm::zip(all, offset), result.begin(),
                   [&](std::tuple<int, int64_t> x) {

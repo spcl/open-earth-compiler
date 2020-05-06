@@ -3,6 +3,7 @@
 
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
+#include <bits/stdint-intn.h>
 
 namespace mlir {
 namespace stencil {
@@ -32,14 +33,14 @@ public:
   using Type::Type;
 
   /// Constants used to mark dynamic size or scalarized dimensions
-  static constexpr int32_t kDynamicSize = -1;
-  static constexpr int32_t kScalarDim = 0;
+  static constexpr int64_t kDynamicDimension = -1;
+  static constexpr int64_t kScalarDimension = 0;
 
   /// Return the element type
   Type getElementType() const;
 
   /// Return the shape of the type
-  ArrayRef<int> getShape() const;
+  ArrayRef<int64_t> getShape() const;
 
   /// Support isa, cast, and dyn_cast
   static bool classof(Type type) {
@@ -48,12 +49,12 @@ public:
   }
 
   /// Return true if the dimension size is dynamic
-  static constexpr bool isDynamic(int32_t dimSize) {
-    return dimSize == kDynamicSize;
+  static constexpr bool isDynamic(int64_t dimSize) {
+    return dimSize == kDynamicDimension;
   }
   /// Return true for scalarized dimensions
-  static constexpr bool isScalar(int32_t dimSize) {
-    return dimSize == kScalarDim;
+  static constexpr bool isScalar(int64_t dimSize) {
+    return dimSize == kScalarDimension;
   }
 };
 
@@ -68,7 +69,7 @@ public:
   using Base::Base;
 
   static FieldType get(MLIRContext *context, Type elementType,
-                       ArrayRef<int> dimensions);
+                       ArrayRef<int64_t> shape);
 
   /// Used to implement LLVM-style casts
   static bool kindof(unsigned kind) { return kind == StencilTypes::Field; }
@@ -85,7 +86,7 @@ public:
   using Base::Base;
 
   static TempType get(MLIRContext *context, Type elementType,
-                      ArrayRef<int> dimensions);
+                      ArrayRef<int64_t> shape);
 
   /// Used to implement LLVM-style casts.
   static bool kindof(unsigned kind) { return kind == StencilTypes::Temp; }

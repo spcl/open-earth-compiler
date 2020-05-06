@@ -120,7 +120,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
     OpBuilder<"OpBuilder &builder, OperationState &state, Value field", [{
       state.addOperands(field);
       state.addTypes(stencil::TempType::get(builder.getContext(), 
-                     getElementType(field), getDimensions(field)));
+                     getElementType(field), getShape(field)));
     }]>
   ];
 
@@ -131,9 +131,9 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   let verifier = [{
     if (getElementType(field()) != getElementType(res()))
       return emitOpError("the field and temp element types do not match");
-    if (getDimensions(field()) != getDimensions(res()))
-      return emitOpError("the field and temp dimensions do not match");
-
+    // TODO usefull tests 
+    // if (getShape(field()) != getShape(res()))
+    //   return emitOpError("the field and temp dimensions do not match");
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
 
@@ -190,8 +190,9 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   let verifier = [{
     if (getElementType(field()) != getElementType(temp()))
       return emitOpError("the field and temp element types do not match");
-    if (getDimensions(field()) != getDimensions(temp()))
-      return emitOpError("the field and temp dimensions do not match");
+    // TODO usefull tests
+    // if (getShape(field()) != getShape(temp()))
+    //   return emitOpError("the field and temp dimensions do not match");
   
     if (!dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()))
       return emitOpError("output temp not result of an apply");
