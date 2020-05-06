@@ -7,6 +7,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLExtras.h"
+#include <bits/stdint-intn.h>
 
 namespace mlir {
 namespace stencil {
@@ -20,7 +21,7 @@ SmallVector<int64_t, 3> convertAttrToVec(Optional<ArrayAttr> attr);
 
 /// Acces stencil field and temporary properties
 Type getElementType(Value value);
-ArrayRef<int> getDimensions(Value value);
+ArrayRef<int64_t> getShape(Value value);
 
 /// Return true if the operation has the given type
 template <typename TOp>

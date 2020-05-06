@@ -1,22 +1,28 @@
-// RUN: oec-opt %s | FileCheck %s
+// RUN: oec-opt %s -split-input-file | FileCheck %s
 
-func @foo0(%arg0: !stencil.field<ijk,f32>) {
+// CHECK-LABEL: func @field(%{{.*}}: !stencil.field<?x?x?xf32>) {
+func @field(%arg0: !stencil.field<?x?x?xf32>) {
 	return
 }
-// CHECK-LABEL: func @foo0(%{{.*}}: !stencil.field<ijk,f32>) {
 
-func @foo1(%arg0: !stencil.field<ij,f64>) {
+// -----
+
+// CHECK-LABEL: func @ldfield(%{{.*}}: !stencil.field<?x0x?xf64>) {
+func @ldfield(%arg0: !stencil.field<?x0x?xf64>) {
 	return
 }
-// CHECK-LABEL: func @foo1(%{{.*}}: !stencil.field<ij,f64>) {
 
+// -----
 
-func @bar0(%arg0: !stencil.temp<ijk,f32>) {
+// CHECK-LABEL: func @temp(%{{.*}}: !stencil.temp<1x2x3xf32>) {
+func @temp(%arg0: !stencil.temp<1x2x3xf32>) {
 	return
 }
-// CHECK-LABEL: func @bar0(%{{.*}}: !stencil.temp<ijk,f32>) {
 
-func @bar1(%arg0: !stencil.temp<k,f64>) {
+// -----
+
+// CHECK-LABEL: func @ldtemp(%{{.*}}: !stencil.temp<0x0x3xf64>) {
+func @ldtemp(%arg0: !stencil.temp<0x0x3xf64>) {
 	return
 }
-// CHECK-LABEL: func @bar1(%{{.*}}: !stencil.temp<k,f64>) {
+

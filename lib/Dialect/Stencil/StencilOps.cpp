@@ -36,32 +36,35 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::OperandType, 8> arguments;
   SmallVector<Type, 8> operandTypes;
 
-  ArrayAttr lbAttr, ubAttr;
+  // Parse the assignment list
+  if (succeeded(parser.parseOptionalLParen())) {
+    do {
+      OpAsmParser::OperandType currentArgument, currentOperand;
+      Type currentType;
 
-  // Parse region arguments and the assigned data operands
-  llvm::SMLoc loc = parser.getCurrentLocation();
-  if (parser.parseLParen())
-    return failure();
-  do {
-    OpAsmParser::OperandType currentArgument;
-    OpAsmParser::OperandType currentOperand;
-    Type currentType;
-    if (parser.parseRegionArgument(currentArgument) || parser.parseEqual() ||
-        parser.parseOperand(currentOperand) ||
-        parser.parseColonType(currentType))
+      if (parser.parseRegionArgument(currentArgument) || parser.parseEqual() ||
+          parser.parseOperand(currentOperand) ||
+          parser.parseColonType(currentType))
+        return failure();
+
+      arguments.push_back(currentArgument);
+      operands.push_back(currentOperand);
+      operandTypes.push_back(currentType);
+    } while (succeeded(parser.parseOptionalComma()));
+    if (parser.parseRParen())
       return failure();
-
-    arguments.push_back(currentArgument);
-    operands.push_back(currentOperand);
-    operandTypes.push_back(currentType);
-  } while (!parser.parseOptionalComma());
-  if (parser.parseRParen())
-    return failure();
+  }
 
   // Parse the result types and the optional attributes
   SmallVector<Type, 8> resultTypes;
   if (parser.parseArrowTypeList(resultTypes) ||
       parser.parseOptionalAttrDictWithKeyword(state.attributes))
+    return failure();
+
+  // Resolve the operand types
+  auto loc = parser.getCurrentLocation();
+  if (parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
+      parser.addTypesToList(resultTypes, state.types))
     return failure();
 
   // Parse the body region.
@@ -70,7 +73,8 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
     return failure();
 
   // Parse the optional bounds
-  if (!parser.parseOptionalKeyword("to")) {
+  ArrayAttr lbAttr, ubAttr;
+  if (succeeded(parser.parseOptionalKeyword("to"))) {
     // Parse the optional bounds
     if (parser.parseLParen() ||
         parser.parseAttribute(lbAttr, stencil::ApplyOp::getLBAttrName(),
@@ -81,11 +85,6 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
         parser.parseRParen())
       return failure();
   }
-
-  // Resolve the operands
-  if (parser.resolveOperands(operands, operandTypes, loc, state.operands) ||
-      parser.addTypesToList(resultTypes, state.types))
-    return failure();
 
   return success();
 }
@@ -103,15 +102,17 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
           printer << body->getArgument(i) << " = " << operands[i] << " : "
                   << operands[i].getType();
         });
-    printer << ")";
+    printer << ") ";
   }
 
   // Print the result types
-  printer << " -> ";
-  if(applyOp.res().size() > 1) printer << "(";
+  printer << "-> ";
+  if (applyOp.res().size() > 1)
+    printer << "(";
   llvm::interleaveComma(applyOp.res().getTypes(), printer);
-  if(applyOp.res().size() > 1) printer << ")";
-  
+  if (applyOp.res().size() > 1)
+    printer << ")";
+
   // Print optional attributes
   printer.printOptionalAttrDictWithKeyword(
       applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
