@@ -19,6 +19,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <bits/stdint-intn.h>
@@ -132,26 +133,6 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
 }
 
 namespace {
-/// Helper to compute mapping
-// SmallVector<int64_t, 10> computeMapping(ArrayRef<Value> operands) {
-//   int64_t index = 0;
-//   SmallVector<int64_t, 10> mapping;
-//   for (unsigned i = 0, e = operands.size(); i != e; ++i) {
-//     for(unsigned j=0, e=i; j != e; ++j) {
-//       if(operands[mapping[j]] == operands[i]) {
-//         mapping[i] = in
-//       }
-//     }
-
-//     auto it = llvm::find(operands.slice(index), operands[i]);
-//     std::distance(operands.be)
-//     if (llvm::is_contained(operands.slice(index), operands[i])) {
-
-//     }
-
-//   }
-//   return mapping;
-// }
 
 /// This is a pattern to remove duplicate results
 struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
@@ -251,13 +232,103 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
     return failure();
   }
 };
+
+// Helper methods to hoist operations
+LogicalResult hoistBackward(Operation *op, PatternRewriter &rewriter,
+                            std::function<bool(Operation *)> condition) {
+  // Skip compute operations
+  auto curr = op;
+  while (curr->getPrevNode() && condition(curr->getPrevNode())) {
+    curr = curr->getPrevNode();
+  }
+
+  // Move the operation
+  if (curr != op) {
+    rewriter.setInsertionPoint(curr);
+    rewriter.replaceOp(op, rewriter.clone(*op)->getResults());
+    return success();
+  }
+  return failure();
+}
+LogicalResult hoistForward(Operation *op, PatternRewriter &rewriter,
+                            std::function<bool(Operation *)> condition) {
+  // Skip compute operations
+  auto curr = op;
+  while (curr->getNextNode() && condition(curr->getNextNode())) {
+    curr = curr->getNextNode();
+  }
+
+  // Move the operation
+  if (curr != op) {
+    rewriter.setInsertionPointAfter(curr);
+    rewriter.replaceOp(op, rewriter.clone(*op)->getResults());
+    return success();
+  }
+  return failure();
+}
+
+/// This is a pattern to hoist assert ops out of the computation
+struct AssertOpHoisting : public OpRewritePattern<stencil::AssertOp> {
+  using OpRewritePattern<stencil::AssertOp>::OpRewritePattern;
+
+  // Remove duplicates if needed
+  LogicalResult matchAndRewrite(stencil::AssertOp assertOp,
+                                PatternRewriter &rewriter) const override {
+    // Skip all non assert operations
+    auto condition = [](Operation *op) { return !isa<stencil::AssertOp>(op); };
+    return hoistBackward(assertOp.getOperation(), rewriter, condition);
+  }
+};
+
+/// This is a pattern to hoist load ops out of the computation
+struct LoadOpHoisting : public OpRewritePattern<stencil::LoadOp> {
+  using OpRewritePattern<stencil::LoadOp>::OpRewritePattern;
+
+  // Remove duplicates if needed
+  LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
+                                PatternRewriter &rewriter) const override {
+    // Skip all apply and store operations
+    auto condition = [](Operation *op) {
+      return isa<stencil::ApplyOp>(op) || isa<stencil::StoreOp>(op);
+    };
+    return hoistBackward(loadOp.getOperation(), rewriter, condition);
+  }
+};
+
+/// This is a pattern to hoist store ops out of the computation
+struct StoreOpHoisting : public OpRewritePattern<stencil::StoreOp> {
+  using OpRewritePattern<stencil::StoreOp>::OpRewritePattern;
+
+  // Remove duplicates if needed
+  LogicalResult matchAndRewrite(stencil::StoreOp storeOp,
+                                PatternRewriter &rewriter) const override {
+    // Skip all apply and load operations
+    auto condition = [](Operation *op) {
+      return isa<stencil::ApplyOp>(op) || isa<stencil::LoadOp>(op);
+    };
+    return hoistForward(storeOp.getOperation(), rewriter, condition);
+  }
+};
+
 } // end anonymous namespace
 
-// TODO implement a pass that hoist all asserts, loads, and stores out of the
-// computation
+// Register canonicalization patterns
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
   results.insert<ApplyOpArgCleaner, ApplyOpResCleaner>(context);
+}
+
+void stencil::AssertOp::getCanonicalizationPatterns(
+    OwningRewritePatternList &results, MLIRContext *context) {
+  results.insert<AssertOpHoisting>(context);
+}
+void stencil::LoadOp::getCanonicalizationPatterns(
+    OwningRewritePatternList &results, MLIRContext *context) {
+  results.insert<LoadOpHoisting>(context);
+}
+void stencil::StoreOp::getCanonicalizationPatterns(
+    OwningRewritePatternList &results, MLIRContext *context) {
+  results.insert<StoreOpHoisting>(context);
 }
 
 namespace mlir {
