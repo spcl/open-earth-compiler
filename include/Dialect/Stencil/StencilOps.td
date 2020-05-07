@@ -14,7 +14,7 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
     This operation asserts the size of input fields.
 
     Example:
-      stencil.assert %in ([-3, -3, 0] : [67, 67, 60]) : !stencil.field<ijk,f64>
+      stencil.assert %in ([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
   }];
 
   let arguments = (ins Stencil_Field:$field, Stencil_Index:$lb, Stencil_Index:$ub);
@@ -33,6 +33,10 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
   }];
 
   let verifier = [{
+    // TODO check the dimensions
+    // TODO check the input shape is dynamic?
+    // (only check the sizes during the lowering)
+    
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
     return success();
@@ -66,7 +70,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
     offset. The offset is specified relative to the current position.
 
     Example:
-      %0 = stencil.access %temp [-1, 0, 0] : !stencil.temp<ijk,f64> -> f64
+      %0 = stencil.access %temp [-1, 0, 0] : !stencil.temp<?x?x?xf64> -> f64
   }];
 
   let arguments = (ins Stencil_Temp:$temp, Stencil_Index:$offset);
@@ -86,6 +90,8 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   }];
 
   let verifier = [{
+    if (offset().size() != getShape(temp()).size())
+      return emitOpError("offset and temp dimensions do not match");
     if (res().getType() != getElementType(temp()))
       return emitOpError("result type and element type are inconsistent");
     return success();
@@ -108,7 +114,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
     This operation takes a field and returns a temporary values.
 
     Example:
-      %0 = stencil.load %field : (!stencil.field<ijk,f64>) -> !stencil.temp<ijk,f64>
+      %0 = stencil.load %field : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
   }];
 
   let arguments = (ins Stencil_Field:$field,
@@ -129,17 +135,16 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   }];
 
   let verifier = [{
+    // TODO check the optional bounds dimensionality matches
+
+    if (getShape(field()).size() != getShape(res()).size())
+      return emitOpError("the field and temp dimensions do not match");
     if (getElementType(field()) != getElementType(res()))
       return emitOpError("the field and temp element types do not match");
-    // TODO usefull tests 
-    // if (getShape(field()) != getShape(res()))
-    //   return emitOpError("the field and temp dimensions do not match");
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
-
     return success();
   }];
-
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
@@ -165,7 +170,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
     This operation takes a temp and writes a field on a user defined range.
 
     Example:
-      stencil.store %temp to %field ([0,0,0] : [64,64,60]) : !stencil.temp<ijk,f64> to !stencil.field<ijk,f64>
+      stencil.store %temp to %field ([0,0,0] : [64,64,60]) : !stencil.temp<?x?x?xf64> to !stencil.field<?x?x?xf64>
   }];
 
   let arguments = (ins Stencil_Temp:$temp, 
@@ -188,20 +193,19 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 
   let verifier = [{
+    // TODO check the optional bounds dimensionality matches
+
+    if (getShape(temp()).size() != getShape(field()).size())
+      return emitOpError("the field and temp dimensions do not match");
     if (getElementType(field()) != getElementType(temp()))
       return emitOpError("the field and temp element types do not match");
-    // TODO usefull tests
-    // if (getShape(field()) != getShape(temp()))
-    //   return emitOpError("the field and temp dimensions do not match");
-  
+
     if (!dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()))
       return emitOpError("output temp not result of an apply");
-
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::LoadOp>) != 0)
-      return emitOpError("an output cannot be an input");
-  
+      return emitOpError("an output cannot be an input");  
     return success();
   }];
 
@@ -233,9 +237,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
 
     Example:
 
-      %0 = stencil.apply %arg0=%0 : !stencil.temp<ijk,f64> {
+      %0 = stencil.apply %arg0=%0 : !stencil.temp<?x?x?xf64> {
         ...
-      } : !stencil.temp<ijk,f64>
+      } : !stencil.temp<?x?x?xf64>
   }];
 
   let arguments = (ins Variadic<AnyType>:$operands, 
@@ -243,13 +247,18 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
                         OptionalAttr<Stencil_Index>:$ub);
   let results = (outs Variadic<Stencil_Temp>:$res);
   let regions = (region SizedRegion<1>:$region);
-
+  let hasCanonicalizer = 1;
+  
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state,"
               "ValueRange operands, ValueRange results", [{
       state.addOperands(operands);
-      Region *body = state.addRegion(); // Add an empty body
-  
+      auto region = state.addRegion(); 
+      region->push_back(new Block());
+      for(auto operand : operands) {
+        region->front().addArgument(operand.getType());
+      }
+      
       SmallVector<Type, 3> resultTypes;
       resultTypes.resize(results.size());
       llvm::transform(results, resultTypes.begin(),
@@ -259,6 +268,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
   ];
 
   let verifier = [{
+    // TODO check all results have the same dimension
+    // TODO check this dimension matches the range dim
+    
     if (region().front().getNumArguments() != operands().size())
       return emitOpError("operand and argument counts do not match");
       
@@ -271,7 +283,6 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
   }];
 
   let extraClassDeclaration = [{
-    static void getCanonicalizationPatterns(OwningRewritePatternList &results, MLIRContext *context);
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     SmallVector<int64_t, 3> getLB() {

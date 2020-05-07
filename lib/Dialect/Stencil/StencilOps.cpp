@@ -20,6 +20,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <functional>
@@ -131,31 +132,39 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
 }
 
 namespace {
+/// Helper to compute mapping
+// SmallVector<int64_t, 10> computeMapping(ArrayRef<Value> operands) {
+//   int64_t index = 0;
+//   SmallVector<int64_t, 10> mapping;
+//   for (unsigned i = 0, e = operands.size(); i != e; ++i) {
+//     for(unsigned j=0, e=i; j != e; ++j) {
+//       if(operands[mapping[j]] == operands[i]) {
+//         mapping[i] = in
+//       }
+//     }
+
+//     auto it = llvm::find(operands.slice(index), operands[i]);
+//     std::distance(operands.be)
+//     if (llvm::is_contained(operands.slice(index), operands[i])) {
+
+//     }
+
+//   }
+//   return mapping;
+// }
+
 /// This is a pattern to remove duplicate results
 struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Get the terminator and compute the result list
+    // Compute the new return op operands
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-    unsigned unrollFactor = returnOp.getUnrollFactor();
-    unsigned numResults = returnOp.getNumOperands() / unrollFactor;
-    assert(returnOp.getNumOperands() % unrollFactor == 0 &&
-           "expected number of operands to be a multiple of the unroll factor");
-    SmallVector<Value, 10> oldOperands = returnOp.getOperands();
     SmallVector<Value, 10> newOperands;
-    SmallVector<Value, 10> newResults;
-    for (unsigned i = 0, e = numResults; i != e; ++i) {
-      // Get the operands for every result
-      auto operands =
-          returnOp.getOperands().slice(i * unrollFactor, unrollFactor);
-      if (!llvm::all_of(operands, [&](Value value) {
-            return llvm::is_contained(newOperands, value);
-          })) {
-        newOperands.insert(newOperands.end(), operands.begin(), operands.end());
-        newResults.push_back(applyOp.getResult(i));
-      }
+    for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
+      if (!llvm::is_contained(newOperands, returnOp.getOperand(i)))
+        newOperands.push_back(returnOp.getOperand(i));
     }
 
     // Remove duplicates if needed
@@ -164,23 +173,35 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
       rewriter.setInsertionPoint(returnOp);
       rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
                                          returnOp.unroll());
-      rewriter.eraseOp(returnOp);
+      // Compute the apply op results
+      SmallVector<Value, 10> newResults;
+      SmallVector<size_t, 10> newResultIndexes;
+      unsigned factor = returnOp.getUnrollFactor();
+      for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+        auto it = llvm::find(newOperands, returnOp.getOperand(i * factor));
+        size_t index = std::distance(newOperands.begin(), it);
+        assert(index % factor == 0 && "expected multiple of unroll factor");
+        assert(index / factor <= i && "expected lower replacement index");
+        // Add new results
+        if (index == i * factor)
+          newResults.push_back(applyOp.getResult(i));
+        newResultIndexes.push_back(index / factor);
+      }
 
       // Clone the apply op
       rewriter.setInsertionPoint(applyOp);
       auto newOp = rewriter.create<stencil::ApplyOp>(
           applyOp.getLoc(), applyOp.getOperands(), newResults);
-      rewriter.cloneRegionBefore(applyOp.region(), newOp.region(),
-                                 newOp.region().begin());
+      rewriter.inlineRegionBefore(applyOp.region(), newOp.region(),
+                                  newOp.region().begin());
 
       // Replace all uses of the applyOp results
       SmallVector<Value, 10> repResults;
-      for (size_t i = 0, e = applyOp.getResults().size(); i != e; ++i) {
-        auto it = llvm::find(newOperands, oldOperands[i]);
-        repResults.push_back(
-            newOp.getResult(std::distance(newOperands.begin(), it)));
+      for (size_t i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+        repResults.push_back(newOp.getResult(newResultIndexes[i]));
       }
       rewriter.replaceOp(applyOp, repResults);
+      rewriter.eraseOp(returnOp);
       return success();
     }
     return failure();
@@ -194,36 +215,34 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
   // Remove duplicates if needed
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Compute operand list and init the argument matcher
-    BlockAndValueMapping mapper;
+    // Compute the new Operand list
     SmallVector<Value, 10> newOperands;
     for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-      if (llvm::is_contained(newOperands, applyOp.getOperand(i))) {
-        mapper.map(applyOp.getBody()->getArgument(i),
-                   applyOp.getBody()->getArgument(i));
-      } else {
+      if (!llvm::is_contained(newOperands, applyOp.getOperand(i)))
         newOperands.push_back(applyOp.getOperand(i));
-      }
     }
 
     if (newOperands.size() < applyOp.getNumOperands()) {
-      // Replace all uses of duplicates
-      for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-        if (mapper.contains(applyOp.getBody()->getArgument(i))) {
-          auto it = llvm::find(applyOp.getOperands(), applyOp.getOperand(i));
-          size_t index = std::distance(applyOp.getOperands().begin(), it);
-          assert(index < i && "expected lower replacement index");
-          applyOp.getBody()->getArgument(i).replaceAllUsesWith(
-              applyOp.getBody()->getArgument(index));
-        }
-      }
-
       // Clone the apply op
       auto loc = applyOp.getLoc();
       auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
                                                      applyOp.getResults());
-      rewriter.cloneRegionBefore(applyOp.region(), newOp.region(),
-                                 newOp.region().begin(), mapper);
+
+      // Compute the block argument mapping
+      BlockAndValueMapping mapper;
+      for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
+        auto it = llvm::find(newOperands, applyOp.getOperand(i));
+        size_t index = std::distance(newOperands.begin(), it);
+        assert(index <= i && "expected lower replacement index");
+        mapper.map(applyOp.getBody()->getArgument(i),
+                   newOp.getBody()->getArgument(index));
+      }
+
+      // Clone the body
+      rewriter.setInsertionPointToStart(newOp.getBody());
+      for (auto &op : applyOp.getBody()->getOperations()) {
+        rewriter.clone(op, mapper);
+      }
 
       // Replace all uses of the applyOp results
       rewriter.replaceOp(applyOp, newOp.getResults());
@@ -234,7 +253,8 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
 };
 } // end anonymous namespace
 
-// TODO write a test and also sort the operations
+// TODO implement a pass that hoist all asserts, loads, and stores out of the
+// computation
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
   results.insert<ApplyOpArgCleaner, ApplyOpResCleaner>(context);
