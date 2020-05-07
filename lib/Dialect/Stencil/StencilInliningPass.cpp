@@ -70,11 +70,9 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     rewriter.setInsertionPoint(consumerOp);
     auto newOp =
         rewriter.create<stencil::ApplyOp>(loc, newOperands, newResults);
-    newOp.region().push_back(new Block());
     // Clone the body of the consumer op
     BlockAndValueMapping mapper;
     for (size_t i = 0, e = newOperands.size(); i != e; ++i) {
-      newOp.getBody()->addArgument(newOperands[i].getType());
       if (i < consumerOp.getNumOperands())
         mapper.map(consumerOp.getBody()->getArgument(i),
                    newOp.getBody()->getArgument(i));
