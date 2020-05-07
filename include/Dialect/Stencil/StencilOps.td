@@ -18,6 +18,7 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
   }];
 
   let arguments = (ins Stencil_Field:$field, Stencil_Index:$lb, Stencil_Index:$ub);
+  let hasCanonicalizer = 1;
 
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
@@ -121,6 +122,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
                        OptionalAttr<Stencil_Index>:$lb, 
                        OptionalAttr<Stencil_Index>:$ub);
   let results = (outs Stencil_Temp:$res);
+  let hasCanonicalizer = 1;
 
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, Value field", [{
@@ -178,6 +180,7 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
                        Stencil_Index:$lb, 
                        Stencil_Index:$ub);
   let results = (outs);
+  let hasCanonicalizer = 1;
 
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, Value temp, "
@@ -258,7 +261,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
       for(auto operand : operands) {
         region->front().addArgument(operand.getType());
       }
-      
+
       SmallVector<Type, 3> resultTypes;
       resultTypes.resize(results.size());
       llvm::transform(results, resultTypes.begin(),
