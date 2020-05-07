@@ -25,14 +25,6 @@ using namespace mlir;
 
 namespace {
 
-// Helper method to check if lower bound is zero
-// (TODO factor this out to a stencil utils header)
-bool isZero(ArrayRef<int64_t> offset) {
-  return llvm::all_of(offset, [](int64_t x) {
-    return x == 0 || x == stencil::kIgnoreDimension;
-  });
-}
-
 // Method updating the loop body of the apply op
 void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
                         unsigned unrollIndex) {
@@ -59,8 +51,7 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
       SmallVector<int64_t, 3> current = accessOp.getOffset();
-      if (current[unrollIndex] != stencil::kIgnoreDimension)
-        current[unrollIndex]++;
+      current[unrollIndex]++;
       ArrayAttr sum = b.getI64ArrayAttr(current);
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
     });
@@ -74,7 +65,6 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
       }
     }
   }
-
   clonedOp.erase();
 
   // Create a new return op returning all results
@@ -89,7 +79,7 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   b.create<stencil::ReturnOp>(
       returnOp.getLoc(), newResults,
       stencil::convertVecToAttr(unrollVector, b.getContext()));
-      
+
   // Erase the original return op
   returnOp.erase();
 }
@@ -116,27 +106,6 @@ void StencilUnrollingPass::runOnFunction() {
 
   // Unroll all stencil apply ops
   funcOp.walk([&](stencil::ApplyOp applyOp) {
-    // Check the loop bounds are known and valid
-    if (!(applyOp.lb().hasValue() && applyOp.ub().hasValue())) {
-      applyOp.emitError("run the shape inference passes first");
-      signalPassFailure();
-      return;
-    }
-    if (!isZero(applyOp.getLB())) {
-      applyOp.emitError("run the shape shift passes first");
-      signalPassFailure();
-      return;
-    }
-
-    // Check the unroll factor is a multiple of the domain size
-    auto ub = applyOp.getUB();
-    if (ub[unrollIndex.getValue()] % unrollFactor.getValue() != 0) {
-      applyOp.emitError(
-          "loop bounds have to be a multiple of the unroll factor");
-      signalPassFailure();
-      return;
-    }
-
     // Unroll the stencil
     unrollStencilApply(applyOp, unrollFactor.getValue(),
                        unrollIndex.getValue());

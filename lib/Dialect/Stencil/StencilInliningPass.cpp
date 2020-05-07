@@ -282,6 +282,23 @@ struct StencilInliningPass : public StencilInliningPassBase<StencilInliningPass>
 
 void StencilInliningPass::runOnFunction() {
   FuncOp funcOp = getFunction();
+  // Only run on functions marked as stencil programs
+  if (!stencil::StencilDialect::isStencilProgram(funcOp))
+    return;
+
+  // Verify unrolling has not been executed
+  bool hasUnrolledStencils = false;
+  funcOp.walk([&](stencil::ReturnOp returnOp) {
+    if (returnOp.unroll().hasValue()) {
+      returnOp.emitOpError("execute stencil inlining after stencil unrolling");
+      hasUnrolledStencils = true;
+    }
+  });
+  if(hasUnrolledStencils) {
+    signalPassFailure();
+    return;
+  }
+
   OwningRewritePatternList patterns;
   patterns.insert<InliningRewrite, RerouteRewrite>(
       &getContext());
