@@ -17,15 +17,16 @@
 #include <limits>
 
 using namespace mlir;
+using namespace stencil;
 
 namespace {
 
 // Helper method to shift a bound
-SmallVector<int64_t, 3> shiftOffset(ArrayRef<int64_t> bound,
+Index shiftOffset(ArrayRef<int64_t> bound,
                                     ArrayRef<int64_t> shift) {
   assert(bound.size() == shift.size() &&
          "expected bound and shift to have the same size");
-  SmallVector<int64_t, 3> result(bound.size());
+  Index result(bound.size());
   llvm::transform(llvm::zip(bound, shift), result.begin(),
                   [](std::tuple<int64_t, int64_t> x) {
                     return std::get<0>(x) - std::get<1>(x);
@@ -38,10 +39,10 @@ struct ShapeShiftPass : public ShapeShiftPassBase<ShapeShiftPass> {
 };
 
 // Helper method to mark the unused dimensions
-SmallVector<int64_t, 3> markIgnoredDimensions(Value value,
+Index markIgnoredDimensions(Value value,
                                               ArrayRef<int64_t> offset) {
   // Replace unused dimensions by ignore value
-  SmallVector<int64_t, 3> result(offset.size());
+  Index result(offset.size());
   ArrayRef<int64_t> allocated = stencil::getShape(value);
   ArrayRef<int64_t> all = {stencil::kIDimension, stencil::kJDimension,
                        stencil::kKDimension};
@@ -83,10 +84,10 @@ void ShapeShiftPass::runOnFunction() {
   // Adapt the access offsets to the positive range
   funcOp.walk([&](stencil::ApplyOp applyOp) {
     // Get the output bound
-    SmallVector<int64_t, 3> output = applyOp.getLB();
+    Index output = applyOp.getLB();
     // Get the input bound of the operand
     for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-      SmallVector<int64_t, 3> input;
+      Index input;
       // Compute the shift for the operand
       auto operand = applyOp.getOperand(i);
       if (auto loadOp =
@@ -109,7 +110,7 @@ void ShapeShiftPass::runOnFunction() {
 
   // Adapt the loop bounds of all apply ops to start start at zero
   funcOp.walk([](stencil::ApplyOp applyOp) {
-    SmallVector<int64_t, 3> shift = applyOp.getLB();
+    Index shift = applyOp.getLB();
     applyOp.setLB(shiftOffset(applyOp.getLB(), shift));
     applyOp.setUB(shiftOffset(applyOp.getUB(), shift));
   });
@@ -117,7 +118,7 @@ void ShapeShiftPass::runOnFunction() {
   // Adapt the bounds for all loads and stores
   funcOp.walk([](stencil::AssertOp assertOp) {
     // Adapt bounds by the lower bound of the assert op
-    SmallVector<int64_t, 3> shift = assertOp.getLB();
+    Index shift = assertOp.getLB();
     for (auto &use : assertOp.field().getUses()) {
       if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
         loadOp.setLB(shiftOffset(loadOp.getLB(), shift));

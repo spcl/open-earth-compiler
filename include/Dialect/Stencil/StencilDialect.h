@@ -20,6 +20,9 @@ constexpr static int kKDimension = 2;
 // Stencil dimensionality
 constexpr static int64_t kNumOfDimensions = 3; // TODO accessible inside tablegen?
 
+// Index type used to store offsets and bounds
+typedef SmallVector<int64_t, 3> Index;
+
 class StencilDialect : public Dialect {
 public:
   explicit StencilDialect(MLIRContext *context);

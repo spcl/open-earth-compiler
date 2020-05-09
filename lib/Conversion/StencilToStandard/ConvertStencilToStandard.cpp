@@ -36,6 +36,7 @@
 #include <iterator>
 
 using namespace mlir;
+using namespace stencil;
 
 namespace {
 
@@ -47,8 +48,8 @@ bool isZero(ArrayRef<int64_t> offset) {
 }
 
 // Helper to filter ignored dimensions
-SmallVector<int64_t, 3> filterIgnoredDimensions(ArrayRef<int64_t> offset) {
-  SmallVector<int64_t, 3> filtered(
+Index filterIgnoredDimensions(ArrayRef<int64_t> offset) {
+  Index filtered(
       llvm::make_range(offset.begin(), offset.end()));
   llvm::erase_if(filtered,
                  [](int64_t x) { return x == stencil::kIgnoreDimension; });
@@ -56,8 +57,8 @@ SmallVector<int64_t, 3> filterIgnoredDimensions(ArrayRef<int64_t> offset) {
 }
 
 // Helper method computing the strides given the size
-SmallVector<int64_t, 3> computeStrides(ArrayRef<int64_t> shape) {
-  SmallVector<int64_t, 3> result(shape.size());
+Index computeStrides(ArrayRef<int64_t> shape) {
+  Index result(shape.size());
   result[0] = 1;
   for (size_t i = 1, e = result.size(); i != e; ++i)
     result[i] = result[i - 1] * shape[i - 1];
@@ -65,10 +66,10 @@ SmallVector<int64_t, 3> computeStrides(ArrayRef<int64_t> shape) {
 }
 
 // Helper method computing the shape given the range
-SmallVector<int64_t, 3> computeShape(ArrayRef<int64_t> begin,
+Index computeShape(ArrayRef<int64_t> begin,
                                      ArrayRef<int64_t> end) {
   assert(begin.size() == end.size() && "expected bounds to have the same size");
-  SmallVector<int64_t, 3> result(begin.size());
+  Index result(begin.size());
   llvm::transform(llvm::zip(end, begin), result.begin(),
                   [](std::tuple<int64_t, int64_t> x) {
                     return std::get<0>(x) - std::get<1>(x);
@@ -80,7 +81,7 @@ SmallVector<int64_t, 3> computeShape(ArrayRef<int64_t> begin,
 
 // Helper method computing linearizing the offset
 int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
-  SmallVector<int64_t, 3> filtered = filterIgnoredDimensions(offset);
+  Index filtered = filterIgnoredDimensions(offset);
   // Delete the ignored dimensions
   assert(filtered.size() == strides.size() &&
          "expected offset and strides to have the same size");
@@ -201,8 +202,8 @@ public:
     }
 
     // Check if the field is large enough
-    auto verifyBounds = [&](const SmallVector<int64_t, 3> &lb,
-                            const SmallVector<int64_t, 3> &ub) {
+    auto verifyBounds = [&](const Index &lb,
+                            const Index &ub) {
       if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
                        [](std::tuple<int64_t, int64_t> x) {
                          return std::get<0>(x) < std::get<1>(x) &&
@@ -343,7 +344,7 @@ public:
           auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
           storeOffset[unrollDim] = affineApplyOp.getResult();
         }
-        rewriter.create<StoreOp>(loc, returnOp.getOperand(operandIdx),
+        rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(operandIdx),
                                  allocVals[i], storeOffset);
       }
     }
@@ -484,7 +485,7 @@ public:
            "expected load offset size to match memref rank");
 
     // Replace the access op by a load op
-    rewriter.replaceOpWithNewOp<LoadOp>(operation, accessOp.temp(), loadOffset);
+    rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, accessOp.temp(), loadOffset);
     return success();
   }
 };
