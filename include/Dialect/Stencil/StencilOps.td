@@ -2,13 +2,14 @@
 #define STENCIL_OPS
 
 include "Dialect/Stencil/StencilBase.td"
+include "Dialect/Stencil/StencilInterfaces.td"
 include "mlir/Interfaces/SideEffects.td"
 
 //===----------------------------------------------------------------------===//
 // Concrete Operations
 //===----------------------------------------------------------------------===//
 
-def Stencil_AssertOp : Stencil_Op<"assert", []> {
+def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeAccess>]> {
   let summary = "assert the input field size";
   let description = [{
     This operation asserts the size of input fields.
@@ -34,10 +35,23 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
   }];
 
   let verifier = [{
-    // TODO check the dimensions
-    // TODO check the input shape is dynamic?
-    // (only check the sizes during the lowering)
+    auto fieldType = field().getType().cast<stencil::GridType>();
+    auto shapeOp = cast<ShapeAccess>(this->getOperation());
+    if(fieldType.hasStaticShape())
+      return emitOpError("expected fields to have dynamic shape");
+    if(shapeOp.getRank() != fieldType.getRank())
+      return emitOpError("expected op and field to have the same rank");
     
+    // Verify all users fit the shape
+    for(auto user : field().getUsers()) {
+      if(auto userOp = dyn_cast<ShapeAccess>(user)) {
+        if(userOp.hasShape() &&
+           (shapeOp.getLB() != mapFunctionToIdxPair(shapeOp.getLB(), userOp.getLB(), minimum) ||
+            shapeOp.getUB() != mapFunctionToIdxPair(shapeOp.getUB(), userOp.getUB(), maximum))) 
+          return emitOpError("asserted shape not large enough to fit all accesses");
+      }
+    }
+
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
     return success();
@@ -46,17 +60,17 @@ def Stencil_AssertOp : Stencil_Op<"assert", []> {
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    SmallVector<int64_t, 3> getLB() {
-      return convertAttrToVec(lb()); 
+    Index getLB() {
+      return convertAttrToIndex(lb()); 
     }
-    SmallVector<int64_t, 3> getUB() {
-      return convertAttrToVec(ub());
+    Index getUB() {
+      return convertAttrToIndex(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      lbAttr(convertVecToAttr(bound, getContext()));
+      lbAttr(convertIndexToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      ubAttr(convertVecToAttr(bound, getContext()));
+      ubAttr(convertIndexToAttr(bound, getContext()));
     }
     stencil::FieldType getFieldType() {
       return field().getType().cast<stencil::FieldType>();
@@ -100,16 +114,18 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
 
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
-    SmallVector<int64_t, 3> getOffset() {
-      return convertAttrToVec(offset());
+    Index getOffset() {
+      return convertAttrToIndex(offset());
     }
     void setOffset(ArrayRef<int64_t> bound) {
-      setAttr(stencil::AccessOp::getOffsetAttrName(), convertVecToAttr(bound, getContext()));
+      setAttr(stencil::AccessOp::getOffsetAttrName(), convertIndexToAttr(bound, getContext()));
     }
   }];
 }
 
-def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
+def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeAccess>,
+                                         DeclareOpInterfaceMethods<ShapeInference>,
+                                         NoSideEffect]> {
   let summary = "load operation";
   let description = [{
     This operation takes a field and returns a temporary values.
@@ -137,12 +153,16 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   }];
 
   let verifier = [{
-    // TODO check the optional bounds dimensionality matches
-
-    if (getShape(field()).size() != getShape(res()).size())
-      return emitOpError("the field and temp dimensions do not match");
-    if (getElementType(field()) != getElementType(res()))
-      return emitOpError("the field and temp element types do not match");
+    // Check the field and result types
+    auto fieldType = field().getType().cast<stencil::GridType>();
+    auto resType = res().getType().cast<stencil::GridType>();
+    if (fieldType.getRank() != resType.getRank())
+      return emitOpError("the field and temp types have different rank");
+    if (fieldType.getAllocation() != resType.getAllocation())
+      return emitOpError("the field and temp types have different allocation");
+    if (fieldType.getElementType() != resType.getElementType())
+      return emitOpError("the field and temp types have different element type");
+    
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
       return emitOpError("expected exactly one assert operation");
     return success();
@@ -151,22 +171,22 @@ def Stencil_LoadOp : Stencil_Op<"load", [NoSideEffect]> {
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    SmallVector<int64_t, 3> getLB() {
-      return convertAttrToVec(lb());
+    Index getLB() {
+      return convertAttrToIndex(lb());
     }
-    SmallVector<int64_t, 3> getUB() {
-      return convertAttrToVec(ub());
+    Index getUB() {
+      return convertAttrToIndex(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      lbAttr(convertVecToAttr(bound, getContext()));
+      lbAttr(convertIndexToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      ubAttr(convertVecToAttr(bound, getContext()));
+      ubAttr(convertIndexToAttr(bound, getContext()));
     }
   }];
 }
 
-def Stencil_StoreOp : Stencil_Op<"store"> {
+def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeAccess>]> {
   let summary = "store operation";
   let description = [{
     This operation takes a temp and writes a field on a user defined range.
@@ -196,13 +216,16 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   }];
 
   let verifier = [{
-    // TODO check the optional bounds dimensionality matches
-
-    if (getShape(temp()).size() != getShape(field()).size())
-      return emitOpError("the field and temp dimensions do not match");
-    if (getElementType(field()) != getElementType(temp()))
-      return emitOpError("the field and temp element types do not match");
-
+    // Check the field and result types
+    auto fieldType = field().getType().cast<stencil::GridType>();
+    auto tempType = temp().getType().cast<stencil::GridType>();
+    if (fieldType.getRank() != tempType.getRank())
+      return emitOpError("the field and temp types have different rank");
+    if (fieldType.getAllocation() != tempType.getAllocation())
+      return emitOpError("the field and temp types have different allocation");
+    if (fieldType.getElementType() != tempType.getElementType())
+      return emitOpError("the field and temp types have different element type");
+    
     if (!dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()))
       return emitOpError("output temp not result of an apply");
     if (llvm::count_if(field().getUsers(), hasOpType<stencil::AssertOp>) != 1)
@@ -215,22 +238,24 @@ def Stencil_StoreOp : Stencil_Op<"store"> {
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    SmallVector<int64_t, 3> getLB() {
-      return convertAttrToVec(lb());
+    Index getLB() {
+      return convertAttrToIndex(lb());
     }
-    SmallVector<int64_t, 3> getUB() {
-      return convertAttrToVec(ub());
+    Index getUB() {
+      return convertAttrToIndex(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      lbAttr(convertVecToAttr(bound, getContext()));
+      lbAttr(convertIndexToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      ubAttr(convertVecToAttr(bound, getContext()));
+      ubAttr(convertIndexToAttr(bound, getContext()));
     }
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove, 
+def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeAccess>,
+                                           DeclareOpInterfaceMethods<ShapeInference>,
+                                           IsolatedFromAbove, 
                                            SingleBlockImplicitTerminator<"ReturnOp">,
                                            NoSideEffect]> {
   let summary = "apply operation";
@@ -288,17 +313,17 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [IsolatedFromAbove,
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    SmallVector<int64_t, 3> getLB() {
-      return convertAttrToVec(lb());
+    Index getLB() {
+      return convertAttrToIndex(lb());
     }
-    SmallVector<int64_t, 3> getUB() {
-      return convertAttrToVec(ub());
+    Index getUB() {
+      return convertAttrToIndex(ub());
     }
     void setLB(ArrayRef<int64_t> bound) {
-      lbAttr(convertVecToAttr(bound, getContext()));
+      lbAttr(convertIndexToAttr(bound, getContext()));
     }
     void setUB(ArrayRef<int64_t> bound) {
-      ubAttr(convertVecToAttr(bound, getContext()));
+      ubAttr(convertIndexToAttr(bound, getContext()));
     }
     Block *getBody() { return &region().front(); }
   }];
@@ -356,13 +381,13 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
 
   let extraClassDeclaration = [{
     static StringRef getUnrollAttrName() { return "unroll"; }
-    SmallVector<int64_t, 3> getUnroll() {
-      return convertAttrToVec(unroll());
+    Index getUnroll() {
+      return convertAttrToIndex(unroll());
     }
     unsigned getUnrollFactor() {
       unsigned factor = 1;
       if (unroll().hasValue()) {
-        SmallVector<int64_t, 3> unroll = getUnroll();
+        Index unroll = getUnroll();
         factor = std::accumulate(unroll.begin(), unroll.end(), 1,
                                       std::multiplies<int64_t>());
       }

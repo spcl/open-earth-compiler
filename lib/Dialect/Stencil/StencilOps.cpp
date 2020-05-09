@@ -126,7 +126,7 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   if (applyOp.lb().hasValue() && applyOp.ub().hasValue()) {
     printer << " to (";
     printer.printAttribute(applyOp.lb().getValue());
-    printer << ":";
+    printer << " : ";
     printer.printAttribute(applyOp.ub().getValue());
     printer << ")";
   }

@@ -22,6 +22,7 @@
 #include <cstddef>
 
 using namespace mlir;
+using namespace stencil;
 
 namespace {
 
@@ -50,7 +51,7 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   for (unsigned i = 1, e = unrollFactor; i != e; ++i) {
     // Update offsets on function clone
     clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
-      SmallVector<int64_t, 3> current = accessOp.getOffset();
+      Index current = accessOp.getOffset();
       current[unrollIndex]++;
       ArrayAttr sum = b.getI64ArrayAttr(current);
       accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
@@ -74,11 +75,11 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
       newResults.push_back(resultBuffer[j][i]);
     }
   }
-  SmallVector<int64_t, 3> unrollVector = {1, 1, 1};
+  Index unrollVector = {1, 1, 1};
   unrollVector[unrollIndex] = unrollFactor;
   b.create<stencil::ReturnOp>(
       returnOp.getLoc(), newResults,
-      stencil::convertVecToAttr(unrollVector, b.getContext()));
+      convertIndexToAttr(unrollVector, b.getContext()));
 
   // Erase the original return op
   returnOp.erase();
@@ -93,7 +94,7 @@ struct StencilUnrollingPass
 void StencilUnrollingPass::runOnFunction() {
   FuncOp funcOp = getFunction();
   // Only run on functions marked as stencil programs
-  if (!stencil::StencilDialect::isStencilProgram(funcOp))
+  if (!StencilDialect::isStencilProgram(funcOp))
     return;
 
   // Check for valid unrolling indexes

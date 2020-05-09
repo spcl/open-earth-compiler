@@ -3,6 +3,8 @@
 
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/STLExtras.h"
 #include <bits/stdint-intn.h>
 
 namespace mlir {
@@ -42,6 +44,25 @@ public:
   /// Return the shape of the type
   ArrayRef<int64_t> getShape() const;
 
+  /// Return the rank of the type
+  int64_t getRank() const { return getShape().size(); }
+
+  /// Return true if all dimensions are dynamic
+  int64_t hasStaticShape() const {
+    return llvm::none_of(getShape(), [](int64_t size) {
+      return size == kDynamicDimension;
+    });
+  }
+
+  /// Return the allocated / non-scalar dimensions
+  SmallVector<bool, 3> getAllocation() const {
+    SmallVector<bool, 3> result;
+    result.resize(getRank());
+    llvm::transform(getShape(), result.begin(),
+                    [](int64_t x) { return x != kScalarDimension; });
+    return result;
+  }
+
   /// Support isa, cast, and dyn_cast
   static bool classof(Type type) {
     return type.getKind() == StencilTypes::Field ||
@@ -56,7 +77,7 @@ public:
   static constexpr bool isScalar(int64_t dimSize) {
     return dimSize == kScalarDimension;
   }
-};
+}; // namespace stencil
 
 //===----------------------------------------------------------------------===//
 // FieldType

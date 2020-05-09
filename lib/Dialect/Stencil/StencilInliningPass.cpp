@@ -1,7 +1,8 @@
-#include "PassDetail.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "Dialect/Stencil/StencilUtils.h"
+#include "PassDetail.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
@@ -28,6 +29,7 @@
 #include <iterator>
 
 using namespace mlir;
+using namespace stencil;
 
 namespace {
 
@@ -37,7 +39,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
       : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
 
   // Helper method inlining the consumer in the producer
-  LogicalResult redirectStore(Operation* producerOp,
+  LogicalResult redirectStore(Operation *producerOp,
                               stencil::ApplyOp consumerOp,
                               PatternRewriter &rewriter) const {
     // Clone the producer op
@@ -95,7 +97,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
         auto it = llvm::find(newOperands, result);
         size_t index =
             std::distance(newOperands.begin(), llvm::find(newOperands, result));
-        SmallVector<int64_t, 3> zeroOffset = {0, 0, 0};
+        Index zeroOffset = {0, 0, 0};
         auto accessOp = rewriter.create<stencil::AccessOp>(
             loc, newOp.getBody()->getArgument(index), zeroOffset);
         returnOperands.push_back(accessOp.getResult());
@@ -218,18 +220,14 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Walk accesses of producer results and replace them by computation
     newOp.walk([&](stencil::AccessOp accessOp) {
       if (llvm::count(newOp.getBody()->getArguments(), accessOp.temp()) == 0) {
-        SmallVector<int64_t, 3> offset = accessOp.getOffset();
+        Index offset = accessOp.getOffset();
         // Copy the operations in after the access op
         rewriter.setInsertionPoint(accessOp);
         for (auto &op : producerOp.getBody()->getOperations()) {
           auto clonedOp = rewriter.clone(op, mapper);
           clonedOp->walk([&](stencil::AccessOp accessOp) {
-            SmallVector<int64_t, 3> sum(offset.size());
-            llvm::transform(llvm::zip(offset, accessOp.getOffset()),
-                            sum.begin(), [](std::tuple<int64_t, int64_t> x) {
-                              return std::get<0>(x) + std::get<1>(x);
-                            });
-            accessOp.setOffset(sum);
+            accessOp.setOffset(mapFunctionToIdxPair(accessOp.getOffset(), offset,
+                                                 std::plus<int64_t>()));
           });
         }
 
@@ -276,14 +274,15 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   }
 };
 
-struct StencilInliningPass : public StencilInliningPassBase<StencilInliningPass> {
+struct StencilInliningPass
+    : public StencilInliningPassBase<StencilInliningPass> {
   void runOnFunction() override;
 };
 
 void StencilInliningPass::runOnFunction() {
   FuncOp funcOp = getFunction();
   // Only run on functions marked as stencil programs
-  if (!stencil::StencilDialect::isStencilProgram(funcOp))
+  if (!StencilDialect::isStencilProgram(funcOp))
     return;
 
   // Verify unrolling has not been executed
@@ -294,14 +293,13 @@ void StencilInliningPass::runOnFunction() {
       hasUnrolledStencils = true;
     }
   });
-  if(hasUnrolledStencils) {
+  if (hasUnrolledStencils) {
     signalPassFailure();
     return;
   }
 
   OwningRewritePatternList patterns;
-  patterns.insert<InliningRewrite, RerouteRewrite>(
-      &getContext());
+  patterns.insert<InliningRewrite, RerouteRewrite>(&getContext());
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }
 
