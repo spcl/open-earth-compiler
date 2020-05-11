@@ -9,7 +9,7 @@ include "mlir/Interfaces/SideEffects.td"
 // Concrete Operations
 //===----------------------------------------------------------------------===//
 
-def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeAccess>]> {
+def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapedOp>]> {
   let summary = "assert the input field size";
   let description = [{
     This operation asserts the size of input fields.
@@ -36,18 +36,18 @@ def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeAcce
 
   let verifier = [{
     auto fieldType = field().getType().cast<stencil::GridType>();
-    auto shapeOp = cast<ShapeAccess>(this->getOperation());
+    auto shapedOp = cast<ShapedOp>(this->getOperation());
     if(fieldType.hasStaticShape())
       return emitOpError("expected fields to have dynamic shape");
-    if(shapeOp.getRank() != fieldType.getRank())
+    if(shapedOp.getRank() != fieldType.getRank())
       return emitOpError("expected op and field to have the same rank");
     
     // Verify all users fit the shape
     for(auto user : field().getUsers()) {
-      if(auto userOp = dyn_cast<ShapeAccess>(user)) {
+      if(auto userOp = dyn_cast<ShapedOp>(user)) {
         if(userOp.hasShape() &&
-           (shapeOp.getLB() != applyFunElementWise(shapeOp.getLB(), userOp.getLB(), min) ||
-            shapeOp.getUB() != applyFunElementWise(shapeOp.getUB(), userOp.getUB(), max))) 
+           (shapedOp.getLB() != applyFunElementWise(shapedOp.getLB(), userOp.getLB(), min) ||
+            shapedOp.getUB() != applyFunElementWise(shapedOp.getUB(), userOp.getUB(), max))) 
           return emitOpError("asserted shape not large enough to fit all accesses");
       }
     }
@@ -116,7 +116,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
   }];
 }
 
-def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeAccess>,
+def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapedOp>,
                                          DeclareOpInterfaceMethods<ShapeInference>,
                                          NoSideEffect]> {
   let summary = "load operation";
@@ -168,7 +168,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeAccess>,
   }];
 }
 
-def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeAccess>]> {
+def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapedOp>]> {
   let summary = "store operation";
   let description = [{
     This operation takes a temp and writes a field on a user defined range.
@@ -223,7 +223,7 @@ def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeAccess
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeAccess>,
+def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapedOp, ["setOperandType"]>,
                                            DeclareOpInterfaceMethods<ShapeInference>,
                                            IsolatedFromAbove, 
                                            SingleBlockImplicitTerminator<"ReturnOp">,
@@ -275,10 +275,10 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeAccess
     }
 
     // Check the results
-    auto shapeOp = cast<ShapeAccess>(this->getOperation());
+    auto shapedOp = cast<ShapedOp>(this->getOperation());
     for(auto result : res()) {
       auto tempType = result.getType().cast<GridType>();
-      if(shapeOp.hasShape() && shapeOp.getRank() != tempType.getRank())
+      if(shapedOp.hasShape() && shapedOp.getRank() != tempType.getRank())
         return emitOpError("expected result rank to match the operation rank");
     }
     return success();

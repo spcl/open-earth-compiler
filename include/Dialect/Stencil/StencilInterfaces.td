@@ -7,7 +7,7 @@ include "mlir/IR/OpBase.td"
 // Stencil Interfaces
 //===----------------------------------------------------------------------===//
 
-def ShapeAccess : OpInterface<"ShapeAccess"> {
+def ShapedOp : OpInterface<"ShapedOp"> {
   let description = [{
     Interface to get the operation bounds.
   }];
@@ -43,6 +43,10 @@ def ShapeAccess : OpInterface<"ShapeAccess"> {
                "expected lower and upper bound to have the same rank");
         return lb.getValue().size();
     }]>,
+    InterfaceMethod<"/*Set the operand type shape*/",
+      "void", "setOperandType", (ins  "Value":$operand, "TempType":$tempType), /*methodBody=*/[{}], [{
+        // empty default implementation
+    }]>,
   ];
 }
 
@@ -64,7 +68,7 @@ def ShapeInference : OpInterface<"ShapeInference"> {
         }
         op.lbAttr(ArrayAttr::get(lbAttr, op.getContext()));
         op.ubAttr(ArrayAttr::get(ubAttr, op.getContext()));
-    }]>    
+    }]>
   ];
 }
 
