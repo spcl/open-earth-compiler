@@ -47,9 +47,16 @@ public:
   /// Return the rank of the type
   int64_t getRank() const { return getShape().size(); }
 
-  /// Return true if all dimensions are dynamic
+  /// Return true if no dimension has a dynamic shape
   int64_t hasStaticShape() const {
     return llvm::none_of(getShape(), [](int64_t size) {
+      return size == kDynamicDimension;
+    });
+  }
+
+  /// Return true if all dimensions have a dynamic shape
+  int64_t hasDynamicShape() const {
+    return llvm::all_of(getShape(), [](int64_t size) {
       return size == kDynamicDimension;
     });
   }

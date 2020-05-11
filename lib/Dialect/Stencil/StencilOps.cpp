@@ -132,6 +132,12 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   }
 }
 
+void stencil::ApplyOp::setOperandType(Value operand, TempType type) {
+  auto it = llvm::find(getOperands(), operand);
+  assert(it != getOperands().end() && "failed to find operand");
+  getBody()->getArgument(std::distance(getOperands().begin(), it)).setType(type);
+}
+
 namespace {
 
 /// This is a pattern to remove duplicate results
@@ -251,7 +257,7 @@ LogicalResult hoistBackward(Operation *op, PatternRewriter &rewriter,
   return failure();
 }
 LogicalResult hoistForward(Operation *op, PatternRewriter &rewriter,
-                            std::function<bool(Operation *)> condition) {
+                           std::function<bool(Operation *)> condition) {
   // Skip compute operations
   auto curr = op;
   while (curr->getNextNode() && condition(curr->getNextNode())) {

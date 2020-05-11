@@ -95,9 +95,9 @@ LogicalResult extendBounds(Operation *op, const OpOperand &use,
                            const AccessExtents &extents, Index &lower,
                            Index &upper) {
   // Copy the bounds of store ops
-  if (auto shapeOp = dyn_cast<ShapeAccess>(use.getOwner())) {
-    auto lb = shapeOp.getLB();
-    auto ub = shapeOp.getUB();
+  if (auto shapedOp = dyn_cast<ShapedOp>(use.getOwner())) {
+    auto lb = shapedOp.getLB();
+    auto ub = shapedOp.getUB();
     // Extend the operation bounds if extent info exists
     if (auto opExtents = extents.lookupExtent(use.getOwner(), use.get())) {
       lb = applyFunElementWise(lb, opExtents->negative, std::plus<int64_t>());
@@ -108,10 +108,10 @@ LogicalResult extendBounds(Operation *op, const OpOperand &use,
       lower = lb;
       upper = ub;
     } else {
-      if (lower.size() != shapeOp.getRank() ||
-          upper.size() != shapeOp.getRank())
-        return shapeOp.emitOpError(
-            "expected all operations to have the same rank");
+      if (lower.size() != shapedOp.getRank() ||
+          upper.size() != shapedOp.getRank())
+        return shapedOp.emitOpError(
+            "expected operations to have the same rank");
       lower = applyFunElementWise(lower, lb, min);
       upper = applyFunElementWise(upper, ub, max);
     }
@@ -119,22 +119,37 @@ LogicalResult extendBounds(Operation *op, const OpOperand &use,
   return success();
 }
 
-LogicalResult inferShapes(ShapeInference shapeOp,
+LogicalResult inferShapes(ShapeInference shapeInfOp,
                           const AccessExtents &extents) {
   Index lb, ub;
   // Iterate all uses and extend the bounds
-  for (auto result : shapeOp.getOperation()->getResults()) {
+  for (auto result : shapeInfOp.getOperation()->getResults()) {
     for (OpOperand &use : result.getUses()) {
-      if (failed(extendBounds(shapeOp.getOperation(), use, extents, lb, ub)))
+      if (failed(extendBounds(shapeInfOp.getOperation(), use, extents, lb, ub)))
         return failure();
-
-      // TODO update the shape types
     }
   }
-  // Update the bounds
-  if (lb.empty() && ub.empty())
-    return shapeOp.emitOpError("failed to compute valid shape");
-  shapeOp.setOpShape(lb, ub);
+  // Update the bounds and result types
+  auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
+  if (shape.empty())
+    return shapeInfOp.emitOpError("expected shape to have non-zero size");
+  if (llvm::any_of(shape, [](int64_t size) { return size < 1; }))
+    return shapeInfOp.emitOpError("expected shape to have non-zero entries");
+  shapeInfOp.setOpShape(lb, ub);
+
+  for (auto result : shapeInfOp.getOperation()->getResults()) {
+    auto type = result.getType().template cast<TempType>();
+    assert(type.hasDynamicShape() &&
+           "expected result types to have dynamic shape");
+    auto newType =
+        TempType::get(shapeInfOp.getContext(), type.getElementType(), shape);
+    result.setType(newType);
+    for (OpOperand &use : result.getUses()) {
+      if (auto shapedOp = dyn_cast<ShapedOp>(use.getOwner()))
+        shapedOp.setOperandType(use.get(), newType);
+    }
+  }
+
   return success();
 }
 
@@ -153,8 +168,8 @@ void ShapeInferencePass::runOnFunction() {
   // Go through the operations in reverse order
   Block &entryBlock = funcOp.getOperation()->getRegion(0).front();
   for (auto op = entryBlock.rbegin(); op != entryBlock.rend(); ++op) {
-    if (auto shapeOp = dyn_cast<ShapeInference>(*op)) {
-      if (failed(inferShapes(shapeOp, extents))) {
+    if (auto shapeInfOp = dyn_cast<ShapeInference>(*op)) {
+      if (failed(inferShapes(shapeInfOp, extents))) {
         signalPassFailure();
         return;
       }
