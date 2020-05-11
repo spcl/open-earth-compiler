@@ -61,7 +61,7 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
       auto currentOp = b.clone(op, mapper);
       // Store the results after cloning the return op
       if (auto returnOp = dyn_cast<stencil::ReturnOp>(currentOp)) {
-        resultBuffer.push_back(SmallVector<Value, 3>(returnOp.operands()));
+        resultBuffer.push_back(SmallVector<Value, 10>(returnOp.operands()));
         currentOp->erase();
       }
     }
@@ -70,16 +70,20 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
 
   // Create a new return op returning all results
   SmallVector<Value, 16> newResults;
+  SmallVector<Attribute, kIndexSize> unrollAttr;
   for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
     for (unsigned j = 0; j != unrollFactor; ++j) {
       newResults.push_back(resultBuffer[j][i]);
     }
   }
-  Index unrollVector = {1, 1, 1};
-  unrollVector[unrollIndex] = unrollFactor;
+  for (int64_t i = 0, e = kIndexSize; i != e; ++i) {
+    unrollAttr.push_back(
+        IntegerAttr::get(IntegerType::get(64, returnOp.getContext()),
+                         i == unrollIndex ? unrollFactor : 1));
+  }
   b.create<stencil::ReturnOp>(
       returnOp.getLoc(), newResults,
-      convertIndexToAttr(unrollVector, b.getContext()));
+      ArrayAttr::get(unrollAttr, returnOp.getContext()));
 
   // Erase the original return op
   returnOp.erase();

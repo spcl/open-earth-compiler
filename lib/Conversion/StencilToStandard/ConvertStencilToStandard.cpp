@@ -43,17 +43,8 @@ namespace {
 // Helper method to check if lower bound is zero
 bool isZero(ArrayRef<int64_t> offset) {
   return llvm::all_of(offset, [](int64_t x) {
-    return x == 0 || x == stencil::kIgnoreDimension;
+    return x == 0;
   });
-}
-
-// Helper to filter ignored dimensions
-Index filterIgnoredDimensions(ArrayRef<int64_t> offset) {
-  Index filtered(
-      llvm::make_range(offset.begin(), offset.end()));
-  llvm::erase_if(filtered,
-                 [](int64_t x) { return x == stencil::kIgnoreDimension; });
-  return filtered;
 }
 
 // Helper method computing the strides given the size
@@ -81,15 +72,10 @@ Index computeShape(ArrayRef<int64_t> begin,
 
 // Helper method computing linearizing the offset
 int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
-  Index filtered = filterIgnoredDimensions(offset);
-  // Delete the ignored dimensions
-  assert(filtered.size() == strides.size() &&
-         "expected offset and strides to have the same size");
-
   // Compute the linear offset
   int64_t result = 0;
   for (size_t i = 0, e = strides.size(); i != e; ++i) {
-    result += filtered[i] * strides[i];
+    result += offset[i] * strides[i];
   }
   return result;
 }
@@ -137,13 +123,14 @@ public:
       if (argType.isa<stencil::FieldType>()) {
         Type inputType = NoneType();
         for (auto &use : argument.getUses()) {
-          if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
-            auto shape = filterIgnoredDimensions(assertOp.getUB());
-            inputType =
-                computeMemRefType(assertOp.getFieldType().getElementType(),
-                                  shape, computeStrides(shape), {}, rewriter);
-            break;
-          }
+          // TODO use the shape op interface
+          // if (auto assertOp = dyn_cast<stencil::AssertOp>(use.getOwner())) {
+          //   auto shape = filterIgnoredDimensions(assertOp.getUB());
+          //   inputType =
+          //       computeMemRefType(assertOp.getFieldType().getElementType(),
+          //                         shape, computeStrides(shape), {}, rewriter);
+          //   break;
+          // }
         }
         if (inputType == NoneType()) {
           funcOp.emitOpError("failed to convert argument types");
@@ -195,47 +182,48 @@ public:
     if (!assertOp.field().getType().isa<MemRefType>())
       return failure();
 
+    // TODO refactor
     // Verify the assert op has lower bound zero
-    if (!isZero(assertOp.getLB())) {
-      assertOp.emitOpError("expected zero lower bound");
-      return failure();
-    }
+    // if (!isZero(assertOp.getLB())) {
+    //   assertOp.emitOpError("expected zero lower bound");
+    //   return failure();
+    // }
 
     // Check if the field is large enough
-    auto verifyBounds = [&](const Index &lb,
-                            const Index &ub) {
-      if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
-                       [](std::tuple<int64_t, int64_t> x) {
-                         return std::get<0>(x) < std::get<1>(x) &&
-                                std::get<0>(x) != stencil::kIgnoreDimension;
-                       }) ||
-          llvm::any_of(llvm::zip(ub, assertOp.getUB()),
-                       [](std::tuple<int64_t, int64_t> x) {
-                         return std::get<0>(x) > std::get<1>(x) &&
-                                std::get<1>(x) != stencil::kIgnoreDimension;
-                       }))
-        return false;
-      return true;
-    };
-    for (OpOperand &use : assertOp.field().getUses()) {
-      if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-        if (llvm::is_contained(storeOp.getLB(), stencil::kIgnoreDimension)) {
-          storeOp.emitOpError("field expected to have full dimensionality");
-          return failure();
-        }
-        if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
-          storeOp.emitOpError("field bounds not large enough");
-          return failure();
-        }
-      }
-      if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
-        if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
-          if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
-            loadOp.emitOpError("field bounds not large enough");
-            return failure();
-          }
-      }
-    }
+    // auto verifyBounds = [&](const Index &lb,
+    //                         const Index &ub) {
+    //   if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
+    //                    [](std::tuple<int64_t, int64_t> x) {
+    //                      return std::get<0>(x) < std::get<1>(x) &&
+    //                             std::get<0>(x) != stencil::kIgnoreDimension;
+    //                    }) ||
+    //       llvm::any_of(llvm::zip(ub, assertOp.getUB()),
+    //                    [](std::tuple<int64_t, int64_t> x) {
+    //                      return std::get<0>(x) > std::get<1>(x) &&
+    //                             std::get<1>(x) != stencil::kIgnoreDimension;
+    //                    }))
+    //     return false;
+    //   return true;
+    // };
+    // for (OpOperand &use : assertOp.field().getUses()) {
+    //   if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
+    //     if (llvm::is_contained(storeOp.getLB(), stencil::kIgnoreDimension)) {
+    //       storeOp.emitOpError("field expected to have full dimensionality");
+    //       return failure();
+    //     }
+    //     if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
+    //       storeOp.emitOpError("field bounds not large enough");
+    //       return failure();
+    //     }
+    //   }
+    //   if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
+    //     if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
+    //       if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
+    //         loadOp.emitOpError("field bounds not large enough");
+    //         return failure();
+    //       }
+    //   }
+    // }
 
     rewriter.eraseOp(operation);
     return success();
@@ -254,25 +242,26 @@ public:
     auto loc = operation->getLoc();
     auto loadOp = cast<stencil::LoadOp>(operation);
 
-    // Verify the field has been converted
-    if (!loadOp.field().getType().isa<MemRefType>())
-      return failure();
+    // TODO refactor
+    // // Verify the field has been converted
+    // if (!loadOp.field().getType().isa<MemRefType>())
+    //   return failure();
 
-    // Compute the replacement types
-    auto inputType = loadOp.field().getType().cast<MemRefType>();
-    auto shape = computeShape(loadOp.getLB(), loadOp.getUB());
-    auto strides = computeStrides(inputType.getShape());
-    assert(shape.size() == inputType.getRank() &&
-           strides.size() == inputType.getRank() &&
-           "expected input field shape and strides to have the same rank");
-    auto outputType =
-        computeMemRefType(inputType.getElementType(), shape, strides,
-                          filterIgnoredDimensions(loadOp.getLB()), rewriter);
+    // // Compute the replacement types
+    // auto inputType = loadOp.field().getType().cast<MemRefType>();
+    // auto shape = computeShape(loadOp.getLB(), loadOp.getUB());
+    // auto strides = computeStrides(inputType.getShape());
+    // assert(shape.size() == inputType.getRank() &&
+    //        strides.size() == inputType.getRank() &&
+    //        "expected input field shape and strides to have the same rank");
+    // auto outputType =
+    //     computeMemRefType(inputType.getElementType(), shape, strides,
+    //                       filterIgnoredDimensions(loadOp.getLB()), rewriter);
 
-    // Replace the load
-    auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
-    operation->getResult(0).replaceAllUsesWith(subViewOp.getResult());
-    rewriter.eraseOp(operation);
+    // // Replace the load
+    // auto subViewOp = rewriter.create<SubViewOp>(loc, outputType, operands[0]);
+    // operation->getResult(0).replaceAllUsesWith(subViewOp.getResult());
+    // rewriter.eraseOp(operation);
     return success();
   }
 };
@@ -364,79 +353,80 @@ public:
     auto loc = operation->getLoc();
     auto applyOp = cast<stencil::ApplyOp>(operation);
 
-    // Verify the arguments have been converted
-    if (llvm::any_of(
-            llvm::zip(applyOp.getBody()->getArguments(), applyOp.getOperands()),
-            [](std::tuple<Value, Value> x) {
-              return std::get<0>(x).getType().isa<stencil::TempType>() &&
-                     !std::get<1>(x).getType().isa<MemRefType>();
-            })) {
-      return failure();
-    }
+    // TODO refactor
+    // // Verify the arguments have been converted
+    // if (llvm::any_of(
+    //         llvm::zip(applyOp.getBody()->getArguments(), applyOp.getOperands()),
+    //         [](std::tuple<Value, Value> x) {
+    //           return std::get<0>(x).getType().isa<stencil::TempType>() &&
+    //                  !std::get<1>(x).getType().isa<MemRefType>();
+    //         })) {
+    //   return failure();
+    // }
 
-    // Verify the the lower bound is zero
-    if (!isZero(applyOp.getLB())) {
-      applyOp.emitOpError("expected zero lower bound");
-      return failure();
-    }
+    // // Verify the the lower bound is zero
+    // if (!isZero(applyOp.getLB())) {
+    //   applyOp.emitOpError("expected zero lower bound");
+    //   return failure();
+    // }
 
-    // Allocate and deallocate storage for every output
-    for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      Type elementType = stencil::getElementType(applyOp.getResult(i));
-      auto strides = computeStrides(applyOp.getUB());
-      auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
-                                         {}, rewriter);
+    // // Allocate and deallocate storage for every output
+    // for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+    //   Type elementType = stencil::getElementType(applyOp.getResult(i));
+    //   auto strides = computeStrides(applyOp.getUB());
+    //   auto allocType = computeMemRefType(elementType, applyOp.getUB(), strides,
+    //                                      {}, rewriter);
 
-      auto allocOp = rewriter.create<AllocOp>(loc, allocType);
-      applyOp.getResult(i).replaceAllUsesWith(allocOp.getResult());
-      auto returnOp = allocOp.getParentRegion()->back().getTerminator();
-      rewriter.setInsertionPoint(returnOp);
-      rewriter.create<DeallocOp>(loc, allocOp.getResult());
-      rewriter.setInsertionPointAfter(allocOp);
-    }
+    //   auto allocOp = rewriter.create<AllocOp>(loc, allocType);
+    //   applyOp.getResult(i).replaceAllUsesWith(allocOp.getResult());
+    //   auto returnOp = allocOp.getParentRegion()->back().getTerminator();
+    //   rewriter.setInsertionPoint(returnOp);
+    //   rewriter.create<DeallocOp>(loc, allocOp.getResult());
+    //   rewriter.setInsertionPointAfter(allocOp);
+    // }
 
-    // Generate the apply loop nest
-    auto upper = applyOp.getUB();
-    assert(upper.size() >= 1 && "expected bounds to at least one dimension");
-    auto zero = rewriter.create<ConstantIndexOp>(loc, 0);
-    auto one = rewriter.create<ConstantIndexOp>(loc, 1);
-    SmallVector<Value, 3> lb;
-    SmallVector<Value, 3> ub;
-    SmallVector<Value, 3> steps;
-    for (size_t i = 0, e = upper.size(); i != e; ++i) {
-      lb.push_back(zero);
-      ub.push_back(rewriter.create<ConstantIndexOp>(loc, upper.begin()[i]));
-      steps.push_back(one);
-    }
+    // // Generate the apply loop nest
+    // auto upper = applyOp.getUB();
+    // assert(upper.size() >= 1 && "expected bounds to at least one dimension");
+    // auto zero = rewriter.create<ConstantIndexOp>(loc, 0);
+    // auto one = rewriter.create<ConstantIndexOp>(loc, 1);
+    // SmallVector<Value, 3> lb;
+    // SmallVector<Value, 3> ub;
+    // SmallVector<Value, 3> steps;
+    // for (size_t i = 0, e = upper.size(); i != e; ++i) {
+    //   lb.push_back(zero);
+    //   ub.push_back(rewriter.create<ConstantIndexOp>(loc, upper.begin()[i]));
+    //   steps.push_back(one);
+    // }
 
-    // Adjust the steps to account for the loop unrolling
-    auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-    assert(!returnOp.unroll().hasValue() ||
-           steps.size() == returnOp.unroll().getValue().size() &&
-               "expected unroll attribute to have loop bound size");
-    if (returnOp.unroll().hasValue()) {
-      auto unroll = returnOp.getUnroll();
-      for (size_t i = 0, e = steps.size(); i != e; ++i) {
-        if (unroll[i] != 1) {
-          assert(upper.begin()[i] % unroll[i] == 0 &&
-                 "expected loop length to be a multiple of the unroll factor");
-          steps[i] = rewriter.create<ConstantIndexOp>(loc, unroll[i]);
-        }
-      }
-    } 
+    // // Adjust the steps to account for the loop unrolling
+    // auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+    // assert(!returnOp.unroll().hasValue() ||
+    //        steps.size() == returnOp.unroll().getValue().size() &&
+    //            "expected unroll attribute to have loop bound size");
+    // if (returnOp.unroll().hasValue()) {
+    //   auto unroll = returnOp.getUnroll();
+    //   for (size_t i = 0, e = steps.size(); i != e; ++i) {
+    //     if (unroll[i] != 1) {
+    //       assert(upper.begin()[i] % unroll[i] == 0 &&
+    //              "expected loop length to be a multiple of the unroll factor");
+    //       steps[i] = rewriter.create<ConstantIndexOp>(loc, unroll[i]);
+    //     }
+    //   }
+    // } 
 
-    // Introduce the parallel loop and copy the body of the apply op
-    auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
-    for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
-      applyOp.getBody()->getArgument(i).replaceAllUsesWith(
-          applyOp.getOperand(i));
-    }
-    loop.getBody()->getOperations().splice(
-        loop.getBody()->getOperations().begin(),
-        applyOp.getBody()->getOperations());
+    // // Introduce the parallel loop and copy the body of the apply op
+    // auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
+    // for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
+    //   applyOp.getBody()->getArgument(i).replaceAllUsesWith(
+    //       applyOp.getOperand(i));
+    // }
+    // loop.getBody()->getOperations().splice(
+    //     loop.getBody()->getOperations().begin(),
+    //     applyOp.getBody()->getOperations());
 
-    // Erase the actual apply op
-    rewriter.eraseOp(applyOp);
+    // // Erase the actual apply op
+    // rewriter.eraseOp(applyOp);
 
     return success();
   }
@@ -473,12 +463,10 @@ public:
     auto offset = accessOp.getOffset();
     SmallVector<Value, 3> loadOffset;
     for (size_t i = 0, e = offset.size(); i != e; ++i) {
-      if (offset[i] != stencil::kIgnoreDimension) {
-        auto constantOp = rewriter.create<ConstantIndexOp>(loc, offset[i]);
-        ValueRange params = {loopIVs[i], constantOp.getResult()};
-        auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
-        loadOffset.push_back(affineApplyOp.getResult());
-      }
+      auto constantOp = rewriter.create<ConstantIndexOp>(loc, offset[i]);
+      ValueRange params = {loopIVs[i], constantOp.getResult()};
+      auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+      loadOffset.push_back(affineApplyOp.getResult());
     }
     assert(loadOffset.size() ==
                accessOp.temp().getType().cast<MemRefType>().getRank() &&
@@ -501,32 +489,33 @@ public:
     auto loc = operation->getLoc();
     auto storeOp = cast<stencil::StoreOp>(operation);
 
-    // Verify the field has been converted
-    if (!(storeOp.field().getType().isa<MemRefType>() &&
-          storeOp.temp().getType().isa<MemRefType>()))
-      return failure();
+    // TODO refactor
+    // // Verify the field has been converted
+    // if (!(storeOp.field().getType().isa<MemRefType>() &&
+    //       storeOp.temp().getType().isa<MemRefType>()))
+    //   return failure();
 
-    // Compute the replacement types
-    auto inputType = storeOp.field().getType().cast<MemRefType>();
-    assert(storeOp.getLB().size() == inputType.getRank() &&
-           "expected lower bounds and memref to have the same rank");
-    auto shape = computeShape(storeOp.getLB(), storeOp.getUB());
-    auto strides = computeStrides(inputType.getShape());
-    auto outputType = computeMemRefType(inputType.getElementType(), shape,
-                                        strides, storeOp.getLB(), rewriter);
+    // // Compute the replacement types
+    // auto inputType = storeOp.field().getType().cast<MemRefType>();
+    // assert(storeOp.getLB().size() == inputType.getRank() &&
+    //        "expected lower bounds and memref to have the same rank");
+    // auto shape = computeShape(storeOp.getLB(), storeOp.getUB());
+    // auto strides = computeStrides(inputType.getShape());
+    // auto outputType = computeMemRefType(inputType.getElementType(), shape,
+    //                                     strides, storeOp.getLB(), rewriter);
 
-    // Remove allocation and deallocation and insert subtemp op
-    auto allocOp = storeOp.temp().getDefiningOp();
-    rewriter.setInsertionPoint(allocOp);
-    auto subViewOp =
-        rewriter.create<SubViewOp>(loc, outputType, storeOp.field());
-    allocOp->getResult(0).replaceAllUsesWith(subViewOp.getResult());
-    rewriter.eraseOp(allocOp);
-    for (auto &use : storeOp.temp().getUses()) {
-      if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
-        rewriter.eraseOp(deallocOp);
-    }
-    rewriter.eraseOp(operation);
+    // // Remove allocation and deallocation and insert subtemp op
+    // auto allocOp = storeOp.temp().getDefiningOp();
+    // rewriter.setInsertionPoint(allocOp);
+    // auto subViewOp =
+    //     rewriter.create<SubViewOp>(loc, outputType, storeOp.field());
+    // allocOp->getResult(0).replaceAllUsesWith(subViewOp.getResult());
+    // rewriter.eraseOp(allocOp);
+    // for (auto &use : storeOp.temp().getUses()) {
+    //   if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
+    //     rewriter.eraseOp(deallocOp);
+    // }
+    // rewriter.eraseOp(operation);
     return success();
   }
 };

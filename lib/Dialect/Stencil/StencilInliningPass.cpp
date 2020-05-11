@@ -226,8 +226,8 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
         for (auto &op : producerOp.getBody()->getOperations()) {
           auto clonedOp = rewriter.clone(op, mapper);
           clonedOp->walk([&](stencil::AccessOp accessOp) {
-            accessOp.setOffset(mapFunctionToIdxPair(accessOp.getOffset(), offset,
-                                                 std::plus<int64_t>()));
+            accessOp.setOffset(applyFunElementWise(accessOp.getOffset(), offset,
+                                                   std::plus<int64_t>()));
           });
         }
 

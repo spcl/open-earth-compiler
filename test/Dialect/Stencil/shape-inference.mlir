@@ -8,7 +8,7 @@
 //       CHECK: } to ([-1, -1, 0]:[65, 65, 60])
 //       CHECK: } to ([0, 0, 0]:[64, 64, 60])
 func @lap_stencil(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0([-3, 0, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
+  stencil.assert %arg0([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
   stencil.assert %arg1([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
   %0 = stencil.load %arg0 : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
   %1 = stencil.apply (%arg2 = %0 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
