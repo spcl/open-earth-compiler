@@ -8,20 +8,16 @@
 namespace mlir {
 namespace stencil {
 
-// TODO is this still needed?
-// Constant used to mark unused dimensions of lower dimensional fields
-constexpr static int64_t kIgnoreDimension = std::numeric_limits<int64_t>::min();
-
 // Constant dimension identifiers
 constexpr static int kIDimension = 0;
 constexpr static int kJDimension = 1;
 constexpr static int kKDimension = 2;
 
-// Stencil dimensionality
-constexpr static int64_t kNumOfDimensions = 3; // TODO accessible inside tablegen?
+// Index type size
+constexpr static int64_t kIndexSize = 3;
 
 // Index type used to store offsets and bounds
-typedef SmallVector<int64_t, 3> Index;
+typedef SmallVector<int64_t, kIndexSize> Index;
 
 class StencilDialect : public Dialect {
 public:

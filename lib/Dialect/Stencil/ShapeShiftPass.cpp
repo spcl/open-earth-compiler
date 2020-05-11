@@ -43,15 +43,16 @@ Index markIgnoredDimensions(Value value,
                                               ArrayRef<int64_t> offset) {
   // Replace unused dimensions by ignore value
   Index result(offset.size());
-  ArrayRef<int64_t> allocated = stencil::getShape(value);
-  ArrayRef<int64_t> all = {stencil::kIDimension, stencil::kJDimension,
-                       stencil::kKDimension};
-  llvm::transform(llvm::zip(all, offset), result.begin(),
-                  [&](std::tuple<int, int64_t> x) {
-                    if (llvm::is_contained(allocated, std::get<0>(x)))
-                      return std::get<1>(x);
-                    return stencil::kIgnoreDimension;
-                  });
+  // TODO refactor
+  // ArrayRef<int64_t> allocated; // TODO refactor = stencil::getShape(value);
+  // ArrayRef<int64_t> all = {stencil::kIDimension, stencil::kJDimension,
+  //                      stencil::kKDimension};
+  // llvm::transform(llvm::zip(all, offset), result.begin(),
+  //                 [&](std::tuple<int, int64_t> x) {
+  //                   if (llvm::is_contained(allocated, std::get<0>(x)))
+  //                     return std::get<1>(x);
+  //                   return stencil::kIgnoreDimension;
+  //                 });
   return result;
 }
 
@@ -64,96 +65,97 @@ void ShapeShiftPass::runOnFunction() {
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
     return;
 
-  // Verify all apply and load ops have valid bounds
-  bool invalidBounds = false;
-  funcOp.walk([&](stencil::ApplyOp applyOp) {
-    if (!applyOp.lb().hasValue() || !applyOp.ub().hasValue()) {
-      applyOp.emitOpError("expected to have valid bounds");
-      invalidBounds = true;
-    }
-  });
-  funcOp.walk([&](stencil::LoadOp loadOp) {
-    if (!loadOp.lb().hasValue() || !loadOp.ub().hasValue()) {
-      loadOp.emitOpError("expected to have valid bounds");
-      invalidBounds = true;
-    }
-  });
-  if (invalidBounds)
-    return signalPassFailure();
+  // TODO refactor
+  // // Verify all apply and load ops have valid bounds
+  // bool invalidBounds = false;
+  // funcOp.walk([&](stencil::ApplyOp applyOp) {
+  //   if (!applyOp.lb().hasValue() || !applyOp.ub().hasValue()) {
+  //     applyOp.emitOpError("expected to have valid bounds");
+  //     invalidBounds = true;
+  //   }
+  // });
+  // funcOp.walk([&](stencil::LoadOp loadOp) {
+  //   if (!loadOp.lb().hasValue() || !loadOp.ub().hasValue()) {
+  //     loadOp.emitOpError("expected to have valid bounds");
+  //     invalidBounds = true;
+  //   }
+  // });
+  // if (invalidBounds)
+  //   return signalPassFailure();
 
-  // Adapt the access offsets to the positive range
-  funcOp.walk([&](stencil::ApplyOp applyOp) {
-    // Get the output bound
-    Index output = applyOp.getLB();
-    // Get the input bound of the operand
-    for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-      Index input;
-      // Compute the shift for the operand
-      auto operand = applyOp.getOperand(i);
-      if (auto loadOp =
-              dyn_cast_or_null<stencil::LoadOp>(operand.getDefiningOp())) {
-        input = loadOp.getLB();
-      }
-      if (auto applyOp =
-              dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
-        input = applyOp.getLB();
-      }
-      // Shift all accesses of the corresponding operand
-      auto argument = applyOp.getBody()->getArgument(i);
-      applyOp.walk([&](stencil::AccessOp accessOp) {
-        if (accessOp.temp() == argument)
-          accessOp.setOffset(
-              shiftOffset(accessOp.getOffset(), shiftOffset(input, output)));
-      });
-    }
-  });
+  // // Adapt the access offsets to the positive range
+  // funcOp.walk([&](stencil::ApplyOp applyOp) {
+  //   // Get the output bound
+  //   Index output = applyOp.getLB();
+  //   // Get the input bound of the operand
+  //   for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
+  //     Index input;
+  //     // Compute the shift for the operand
+  //     auto operand = applyOp.getOperand(i);
+  //     if (auto loadOp =
+  //             dyn_cast_or_null<stencil::LoadOp>(operand.getDefiningOp())) {
+  //       input = loadOp.getLB();
+  //     }
+  //     if (auto applyOp =
+  //             dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
+  //       input = applyOp.getLB();
+  //     }
+  //     // Shift all accesses of the corresponding operand
+  //     auto argument = applyOp.getBody()->getArgument(i);
+  //     applyOp.walk([&](stencil::AccessOp accessOp) {
+  //       if (accessOp.temp() == argument)
+  //         accessOp.setOffset(
+  //             shiftOffset(accessOp.getOffset(), shiftOffset(input, output)));
+  //     });
+  //   }
+  // });
 
-  // Adapt the loop bounds of all apply ops to start start at zero
-  funcOp.walk([](stencil::ApplyOp applyOp) {
-    Index shift = applyOp.getLB();
-    applyOp.setLB(shiftOffset(applyOp.getLB(), shift));
-    applyOp.setUB(shiftOffset(applyOp.getUB(), shift));
-  });
+  // // Adapt the loop bounds of all apply ops to start start at zero
+  // funcOp.walk([](stencil::ApplyOp applyOp) {
+  //   Index shift = applyOp.getLB();
+  //   applyOp.setLB(shiftOffset(applyOp.getLB(), shift));
+  //   applyOp.setUB(shiftOffset(applyOp.getUB(), shift));
+  // });
 
-  // Adapt the bounds for all loads and stores
-  funcOp.walk([](stencil::AssertOp assertOp) {
-    // Adapt bounds by the lower bound of the assert op
-    Index shift = assertOp.getLB();
-    for (auto &use : assertOp.field().getUses()) {
-      if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
-        loadOp.setLB(shiftOffset(loadOp.getLB(), shift));
-        loadOp.setUB(shiftOffset(loadOp.getUB(), shift));
-      }
-      if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-        storeOp.setLB(shiftOffset(storeOp.getLB(), shift));
-        storeOp.setUB(shiftOffset(storeOp.getUB(), shift));
-      }
-    }
+  // // Adapt the bounds for all loads and stores
+  // funcOp.walk([](stencil::AssertOp assertOp) {
+  //   // Adapt bounds by the lower bound of the assert op
+  //   Index shift = assertOp.getLB();
+  //   for (auto &use : assertOp.field().getUses()) {
+  //     if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
+  //       loadOp.setLB(shiftOffset(loadOp.getLB(), shift));
+  //       loadOp.setUB(shiftOffset(loadOp.getUB(), shift));
+  //     }
+  //     if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
+  //       storeOp.setLB(shiftOffset(storeOp.getLB(), shift));
+  //       storeOp.setUB(shiftOffset(storeOp.getUB(), shift));
+  //     }
+  //   }
 
-    // Adapt the assert bounds
-    assertOp.setLB(shiftOffset(assertOp.getLB(), shift));
-    assertOp.setUB(shiftOffset(assertOp.getUB(), shift));
-  });
+  //   // Adapt the assert bounds
+  //   assertOp.setLB(shiftOffset(assertOp.getLB(), shift));
+  //   assertOp.setUB(shiftOffset(assertOp.getUB(), shift));
+  // });
 
-  // Update bounds of lower dimensional fields
-  funcOp.walk([](Operation *op) {
-    if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
-      accessOp.setOffset(
-          markIgnoredDimensions(accessOp.temp(), accessOp.getOffset()));
-    }
-    if (auto loadOp = dyn_cast<stencil::LoadOp>(op)) {
-      loadOp.setLB(markIgnoredDimensions(loadOp.res(), loadOp.getLB()));
-      loadOp.setUB(markIgnoredDimensions(loadOp.res(), loadOp.getUB()));
-    }
-    if (auto storeOp = dyn_cast<stencil::StoreOp>(op)) {
-      storeOp.setLB(markIgnoredDimensions(storeOp.field(), storeOp.getLB()));
-      storeOp.setUB(markIgnoredDimensions(storeOp.field(), storeOp.getUB()));
-    }
-    if (auto assertOp = dyn_cast<stencil::AssertOp>(op)) {
-      assertOp.setLB(markIgnoredDimensions(assertOp.field(), assertOp.getLB()));
-      assertOp.setUB(markIgnoredDimensions(assertOp.field(), assertOp.getUB()));
-    }
-  });
+  // // Update bounds of lower dimensional fields
+  // funcOp.walk([](Operation *op) {
+  //   if (auto accessOp = dyn_cast<stencil::AccessOp>(op)) {
+  //     accessOp.setOffset(
+  //         markIgnoredDimensions(accessOp.temp(), accessOp.getOffset()));
+  //   }
+  //   if (auto loadOp = dyn_cast<stencil::LoadOp>(op)) {
+  //     loadOp.setLB(markIgnoredDimensions(loadOp.res(), loadOp.getLB()));
+  //     loadOp.setUB(markIgnoredDimensions(loadOp.res(), loadOp.getUB()));
+  //   }
+  //   if (auto storeOp = dyn_cast<stencil::StoreOp>(op)) {
+  //     storeOp.setLB(markIgnoredDimensions(storeOp.field(), storeOp.getLB()));
+  //     storeOp.setUB(markIgnoredDimensions(storeOp.field(), storeOp.getUB()));
+  //   }
+  //   if (auto assertOp = dyn_cast<stencil::AssertOp>(op)) {
+  //     assertOp.setLB(markIgnoredDimensions(assertOp.field(), assertOp.getLB()));
+  //     assertOp.setUB(markIgnoredDimensions(assertOp.field(), assertOp.getUB()));
+  //   }
+  // });
 }
 
 std::unique_ptr<OperationPass<FuncOp>> mlir::createShapeShiftPass() {

@@ -97,8 +97,8 @@ void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
 // Method tiling and mapping a parallel loop for the GPU execution
 void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
                             ArrayRef<int64_t> blockSizes) {
-  assert(parallelOp.getNumLoops() == stencil::kNumOfDimensions &&
-         "expected parallel loop to have full dimensionality");
+  // assert(parallelOp.getNumLoops() == stencil::kNumOfDimensions &&
+  //        "expected parallel loop to have full dimensionality");
   assert(llvm::all_of(parallelOp.lowerBound(),
                       [](Value val) {
                         return verifyIsConstant(val) &&

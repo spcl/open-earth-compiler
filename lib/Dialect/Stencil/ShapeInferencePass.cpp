@@ -53,17 +53,18 @@ public:
           // Extend the extents with the current offset
           auto &negative = extents[operation][argToOperand[argument]].negative;
           auto &positive = extents[operation][argToOperand[argument]].positive;
-          negative = mapFunctionToIdxPair(negative, offset, minimum);
-          positive = mapFunctionToIdxPair(positive, offset, maximum);
+          negative = applyFunElementWise(negative, offset, min);
+          positive = applyFunElementWise(positive, offset, max);
         }
       });
       // Subtract the unroll factor minus one from the positive extent
+      // (TODO shall we run shape inference before unrolling / inlining)
       auto returnOp =
           cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
       if (returnOp.unroll().hasValue()) {
         for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
           auto &positive = extents[operation][applyOp.getOperand(i)].positive;
-          positive = mapFunctionToIdxPair(
+          positive = applyFunElementWise(
               positive, returnOp.getUnroll(),
               [](int64_t x, int64_t y) { return x - y + 1; });
         }
@@ -98,21 +99,21 @@ LogicalResult extendBounds(Operation *op, const OpOperand &use,
     auto lb = shapeOp.getLB();
     auto ub = shapeOp.getUB();
     // Extend the operation bounds if extent info exists
-    auto opExtents = extents.lookupExtent(use.getOwner(), use.get());
-    if (opExtents) {
-      lb = mapFunctionToIdxPair(lb, opExtents->negative, std::plus<int64_t>());
-      ub = mapFunctionToIdxPair(ub, opExtents->positive, std::plus<int64_t>());
+    if (auto opExtents = extents.lookupExtent(use.getOwner(), use.get())) {
+      lb = applyFunElementWise(lb, opExtents->negative, std::plus<int64_t>());
+      ub = applyFunElementWise(ub, opExtents->positive, std::plus<int64_t>());
     }
     // Update the lower and upper bounds
     if (lower.empty() && upper.empty()) {
       lower = lb;
       upper = ub;
     } else {
-      assert(lower.size() == upper.size() &&
-             lower.size() == shapeOp.getRank() &&
-             "expected bounds to have the same rank");
-      lower = mapFunctionToIdxPair(lower, lb, minimum);
-      upper = mapFunctionToIdxPair(upper, ub, maximum);
+      if (lower.size() != shapeOp.getRank() ||
+          upper.size() != shapeOp.getRank())
+        return shapeOp.emitOpError(
+            "expected all operations to have the same rank");
+      lower = applyFunElementWise(lower, lb, min);
+      upper = applyFunElementWise(upper, ub, max);
     }
   }
   return success();
@@ -126,10 +127,13 @@ LogicalResult inferShapes(ShapeInference shapeOp,
     for (OpOperand &use : result.getUses()) {
       if (failed(extendBounds(shapeOp.getOperation(), use, extents, lb, ub)))
         return failure();
+
+      // TODO update the shape types
     }
   }
   // Update the bounds
-  assert(!lb.empty() && !ub.empty() && "failed to derive valid bounds");
+  if (lb.empty() && ub.empty())
+    return shapeOp.emitOpError("failed to compute valid shape");
   shapeOp.setOpShape(lb, ub);
   return success();
 }

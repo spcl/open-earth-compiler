@@ -56,8 +56,8 @@ def ShapeInference : OpInterface<"ShapeInference"> {
       "void", "setOpShape", (ins "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), [{
         assert(lb.size() == ub.size() && 
                "expected bounds to have the same size");
-        SmallVector<Attribute, 3> lbAttr;
-        SmallVector<Attribute, 3> ubAttr;
+        SmallVector<Attribute, kIndexSize> lbAttr;
+        SmallVector<Attribute, kIndexSize> ubAttr;
         for (size_t i = 0, e = lb.size(); i != e; ++i) { 
           lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), lb[i]));
           ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), ub[i]));
