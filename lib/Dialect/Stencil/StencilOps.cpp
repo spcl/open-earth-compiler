@@ -132,10 +132,16 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   }
 }
 
-void stencil::ApplyOp::setOperandType(Value operand, TempType type) {
+void stencil::ApplyOp::setOperandShape(Value operand, TempType newType) {
   auto it = llvm::find(getOperands(), operand);
   assert(it != getOperands().end() && "failed to find operand");
-  getBody()->getArgument(std::distance(getOperands().begin(), it)).setType(type);
+  auto arg = getBody()->getArgument(std::distance(getOperands().begin(), it));
+  auto oldType = arg.getType().cast<TempType>();
+  assert(oldType.getElementType() == newType.getElementType() &&
+         "expected the types to have the same element type");
+  assert(oldType.getAllocation() == newType.getAllocation() &&
+         "expected the types to have the same allocation");
+  arg.setType(newType);
 }
 
 namespace {
