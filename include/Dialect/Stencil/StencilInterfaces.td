@@ -7,7 +7,7 @@ include "mlir/IR/OpBase.td"
 // Stencil Interfaces
 //===----------------------------------------------------------------------===//
 
-def ShapedOp : OpInterface<"ShapedOp"> {
+def ShapeOp : OpInterface<"ShapeOp"> {
   let description = [{
     Interface to get the operation bounds.
   }];
@@ -29,6 +29,22 @@ def ShapedOp : OpInterface<"ShapedOp"> {
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
     }]>,
+      InterfaceMethod<"/*Set the lower bound of the operation*/",
+      "void", "setLB", (ins "ArrayRef<int64_t>":$lb), [{
+        SmallVector<Attribute, kIndexSize> lbAttr;
+        for (size_t i = 0, e = lb.size(); i != e; ++i) { 
+          lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), lb[i]));
+        }
+        op.lbAttr(ArrayAttr::get(lbAttr, op.getContext()));
+    }]>,
+    InterfaceMethod<"/*Set the upper bound of the operation*/",
+      "void", "setUB", (ins "ArrayRef<int64_t>":$ub), [{
+        SmallVector<Attribute, kIndexSize> ubAttr;
+        for (size_t i = 0, e = ub.size(); i != e; ++i) { 
+          ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), ub[i]));
+        }
+        op.ubAttr(ArrayAttr::get(ubAttr, op.getContext()));
+    }]>,
     InterfaceMethod<"/*Verify if the operation has valid bounds*/",
        "bool", "hasShape", (ins), [{
         Optional<ArrayAttr> lb = op.lb();
@@ -43,33 +59,33 @@ def ShapedOp : OpInterface<"ShapedOp"> {
                "expected lower and upper bound to have the same rank");
         return lb.getValue().size();
     }]>,
-    InterfaceMethod<"/*Set the operand type shape*/",
-      "void", "setOperandType", (ins  "Value":$operand, "TempType":$tempType), /*methodBody=*/[{}], [{
+    InterfaceMethod<"/*Set the operand type*/",
+      "void", "setOperandShape", (ins  "Value":$operand, "TempType":$newType), /*methodBody=*/[{}], [{
         // empty default implementation
     }]>,
   ];
 }
 
-def ShapeInference : OpInterface<"ShapeInference"> {
-  let description = [{
-    Interface to set the operation bounds and result types.
-  }];
+// def ShapeInference : OpInterface<"ShapeInference"> {
+//   let description = [{
+//     Interface to set the operation bounds and result types.
+//   }];
 
-  let methods = [
-    InterfaceMethod<"/*Method to get the bounds of the operation.*/",
-      "void", "setOpShape", (ins "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), [{
-        assert(lb.size() == ub.size() && 
-               "expected bounds to have the same size");
-        SmallVector<Attribute, kIndexSize> lbAttr;
-        SmallVector<Attribute, kIndexSize> ubAttr;
-        for (size_t i = 0, e = lb.size(); i != e; ++i) { 
-          lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), lb[i]));
-          ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), ub[i]));
-        }
-        op.lbAttr(ArrayAttr::get(lbAttr, op.getContext()));
-        op.ubAttr(ArrayAttr::get(ubAttr, op.getContext()));
-    }]>
-  ];
-}
+//   let methods = [
+//     InterfaceMethod<"/*Method to get the bounds of the operation.*/",
+//       "void", "setOpShape", (ins "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), [{
+//         assert(lb.size() == ub.size() && 
+//                "expected bounds to have the same size");
+//         SmallVector<Attribute, kIndexSize> lbAttr;
+//         SmallVector<Attribute, kIndexSize> ubAttr;
+//         for (size_t i = 0, e = lb.size(); i != e; ++i) { 
+//           lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), lb[i]));
+//           ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), ub[i]));
+//         }
+//         op.lbAttr(ArrayAttr::get(lbAttr, op.getContext()));
+//         op.ubAttr(ArrayAttr::get(ubAttr, op.getContext()));
+//     }]>
+//   ];
+// }
 
 #endif // Stencil_INTERFACES

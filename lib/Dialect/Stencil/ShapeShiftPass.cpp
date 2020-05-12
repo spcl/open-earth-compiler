@@ -31,30 +31,14 @@ Index shiftOffset(ArrayRef<int64_t> bound,
                   [](std::tuple<int64_t, int64_t> x) {
                     return std::get<0>(x) - std::get<1>(x);
                   });
+
+
   return result;
 }
 
 struct ShapeShiftPass : public ShapeShiftPassBase<ShapeShiftPass> {
   void runOnFunction() override;
 };
-
-// Helper method to mark the unused dimensions
-Index markIgnoredDimensions(Value value,
-                                              ArrayRef<int64_t> offset) {
-  // Replace unused dimensions by ignore value
-  Index result(offset.size());
-  // TODO refactor
-  // ArrayRef<int64_t> allocated; // TODO refactor = stencil::getShape(value);
-  // ArrayRef<int64_t> all = {stencil::kIDimension, stencil::kJDimension,
-  //                      stencil::kKDimension};
-  // llvm::transform(llvm::zip(all, offset), result.begin(),
-  //                 [&](std::tuple<int, int64_t> x) {
-  //                   if (llvm::is_contained(allocated, std::get<0>(x)))
-  //                     return std::get<1>(x);
-  //                   return stencil::kIgnoreDimension;
-  //                 });
-  return result;
-}
 
 } // namespace
 
@@ -65,18 +49,11 @@ void ShapeShiftPass::runOnFunction() {
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
     return;
 
-  // TODO refactor
   // // Verify all apply and load ops have valid bounds
   // bool invalidBounds = false;
-  // funcOp.walk([&](stencil::ApplyOp applyOp) {
-  //   if (!applyOp.lb().hasValue() || !applyOp.ub().hasValue()) {
-  //     applyOp.emitOpError("expected to have valid bounds");
-  //     invalidBounds = true;
-  //   }
-  // });
-  // funcOp.walk([&](stencil::LoadOp loadOp) {
-  //   if (!loadOp.lb().hasValue() || !loadOp.ub().hasValue()) {
-  //     loadOp.emitOpError("expected to have valid bounds");
+  // funcOp.walk([&](ShapeOp ShapeOp) {
+  //   if (!ShapeOp.hasShape()) {
+  //     ShapeOp.emitOpError("expected op to have valid bounds");
   //     invalidBounds = true;
   //   }
   // });

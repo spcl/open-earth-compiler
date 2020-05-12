@@ -57,7 +57,7 @@ public:
   /// Return true if all dimensions have a dynamic shape
   int64_t hasDynamicShape() const {
     return llvm::all_of(getShape(), [](int64_t size) {
-      return size == kDynamicDimension;
+      return size == kDynamicDimension || size == kScalarDimension;
     });
   }
 

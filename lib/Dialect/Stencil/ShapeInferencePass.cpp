@@ -91,13 +91,12 @@ struct ShapeInferencePass : public ShapeInferencePassBase<ShapeInferencePass> {
 };
 
 /// Extend the loop bounds for the given use
-LogicalResult extendBounds(Operation *op, const OpOperand &use,
-                           const AccessExtents &extents, Index &lower,
-                           Index &upper) {
+LogicalResult extendBounds(const OpOperand &use, const AccessExtents &extents,
+                           Index &lower, Index &upper) {
   // Copy the bounds of store ops
-  if (auto shapedOp = dyn_cast<ShapedOp>(use.getOwner())) {
-    auto lb = shapedOp.getLB();
-    auto ub = shapedOp.getUB();
+  if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner())) {
+    auto lb = shapeOp.getLB();
+    auto ub = shapeOp.getUB();
     // Extend the operation bounds if extent info exists
     if (auto opExtents = extents.lookupExtent(use.getOwner(), use.get())) {
       lb = applyFunElementWise(lb, opExtents->negative, std::plus<int64_t>());
@@ -108,10 +107,9 @@ LogicalResult extendBounds(Operation *op, const OpOperand &use,
       lower = lb;
       upper = ub;
     } else {
-      if (lower.size() != shapedOp.getRank() ||
-          upper.size() != shapedOp.getRank())
-        return shapedOp.emitOpError(
-            "expected operations to have the same rank");
+      if (lower.size() != shapeOp.getRank() ||
+          upper.size() != shapeOp.getRank())
+        return shapeOp.emitOpError("expected operations to have the same rank");
       lower = applyFunElementWise(lower, lb, min);
       upper = applyFunElementWise(upper, ub, max);
     }
@@ -119,37 +117,44 @@ LogicalResult extendBounds(Operation *op, const OpOperand &use,
   return success();
 }
 
-LogicalResult inferShapes(ShapeInference shapeInfOp,
-                          const AccessExtents &extents) {
+LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
   Index lb, ub;
   // Iterate all uses and extend the bounds
-  for (auto result : shapeInfOp.getOperation()->getResults()) {
+  for (auto result : shapeOp.getOperation()->getResults()) {
     for (OpOperand &use : result.getUses()) {
-      if (failed(extendBounds(shapeInfOp.getOperation(), use, extents, lb, ub)))
+      if (failed(extendBounds(use, extents, lb, ub)))
         return failure();
     }
   }
-  // Update the bounds and result types
+  // // Update the the operation bounds
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
   if (shape.empty())
-    return shapeInfOp.emitOpError("expected shape to have non-zero size");
+    return shapeOp.emitOpError("expected shape to have non-zero size");
   if (llvm::any_of(shape, [](int64_t size) { return size < 1; }))
-    return shapeInfOp.emitOpError("expected shape to have non-zero entries");
-  shapeInfOp.setOpShape(lb, ub);
+    return shapeOp.emitOpError("expected shape to have non-zero entries");
+  shapeOp.setLB(lb);
+  shapeOp.setUB(ub);
 
-  for (auto result : shapeInfOp.getOperation()->getResults()) {
-    auto type = result.getType().template cast<TempType>();
-    assert(type.hasDynamicShape() &&
-           "expected result types to have dynamic shape");
+  // Update the result types
+  for (auto result : shapeOp.getOperation()->getResults()) {
+    auto oldType = result.getType().template cast<TempType>();
+    assert(oldType.hasDynamicShape() &&
+           "expected result type to have a dynamic shape");
+    assert(oldType.getRank() == shape.size() &&
+           "expected result type to have operation rank");
+    // Set the scalar dimensions
+    for (int64_t i = 0, e = oldType.getRank(); i != e; ++i) {
+      if (GridType::isScalar(oldType.getShape()[i]))
+        shape[i] = GridType::kScalarDimension;
+    }
     auto newType =
-        TempType::get(shapeInfOp.getContext(), type.getElementType(), shape);
+        TempType::get(shapeOp.getContext(), oldType.getElementType(), shape);
     result.setType(newType);
     for (OpOperand &use : result.getUses()) {
-      if (auto shapedOp = dyn_cast<ShapedOp>(use.getOwner()))
-        shapedOp.setOperandType(use.get(), newType);
+      if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner()))
+        shapeOp.setOperandShape(use.get(), newType);
     }
   }
-
   return success();
 }
 
@@ -168,10 +173,12 @@ void ShapeInferencePass::runOnFunction() {
   // Go through the operations in reverse order
   Block &entryBlock = funcOp.getOperation()->getRegion(0).front();
   for (auto op = entryBlock.rbegin(); op != entryBlock.rend(); ++op) {
-    if (auto shapeInfOp = dyn_cast<ShapeInference>(*op)) {
-      if (failed(inferShapes(shapeInfOp, extents))) {
-        signalPassFailure();
-        return;
+    if (auto shapeOp = dyn_cast<ShapeOp>(*op)) {
+      if (!shapeOp.hasShape()) {
+        if (failed(inferShapes(shapeOp, extents))) {
+          signalPassFailure();
+          return;
+        }
       }
     }
   }

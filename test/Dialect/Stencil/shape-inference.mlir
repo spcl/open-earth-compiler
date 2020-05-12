@@ -73,3 +73,7 @@ func @multiple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64
   stencil.store %2 to %arg1([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<?x?x?xf64>
   return
 }
+
+// -----
+
+// TODO check lower dimensional!
