@@ -185,6 +185,7 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
       rewriter.setInsertionPoint(applyOp);
       auto newOp = rewriter.create<stencil::ApplyOp>(
           applyOp.getLoc(), applyOp.getOperands(), newResults);
+      newOp.getBody()->erase(); // TODO find better solution
       rewriter.inlineRegionBefore(applyOp.region(), newOp.region(),
                                   newOp.region().begin());
 
