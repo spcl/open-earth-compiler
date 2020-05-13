@@ -148,13 +148,7 @@ public:
     auto shapeOp = cast<ShapeOp>(operation);
     auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
                                      std::minus<int64_t>());
-    // auto strides = computeStrides(shape);
-    // auto offset = computeOffset(shapeOp.getLB(), strides);
-    // auto map =
-    //     makeStridedLinearLayoutMap(strides, offset, assertOp.getContext());
-
-    auto resultType =
-        MemRefType::get(shape, fieldType.getElementType()); //, map, 0);
+    auto resultType = MemRefType::get(shape, fieldType.getElementType());
 
     rewriter.create<MemRefCastOp>(loc, operands[0], resultType);
 
@@ -190,13 +184,12 @@ public:
     // TODO put in base class
     stencil::AssertOp assertOp;
     for (auto user : loadOp.field().getUsers()) {
-      if (assertOp = dyn_cast<stencil::AssertOp>(user)) 
+      if (assertOp = dyn_cast<stencil::AssertOp>(user))
         break;
     }
     if (!assertOp)
       return failure();
-    
-    
+
     auto inputType = castOp.getResult().getType().cast<MemRefType>();
 
     auto shapeOp = cast<ShapeOp>(operation);
@@ -205,9 +198,12 @@ public:
     auto strides = computeStrides(inputType.getShape());
 
     // TODO get assert operation!
-    auto offset = computeOffset(applyFunElementWise(shapeOp.getLB(), cast<ShapeOp>(assertOp.getOperation()).getLB(), std::minus<int64_t>()), strides);
-    auto map =
-        makeStridedLinearLayoutMap(strides, offset, loadOp.getContext());
+    auto offset = computeOffset(
+        applyFunElementWise(shapeOp.getLB(),
+                            cast<ShapeOp>(assertOp.getOperation()).getLB(),
+                            std::minus<int64_t>()),
+        strides);
+    auto map = makeStridedLinearLayoutMap(strides, offset, loadOp.getContext());
 
     auto resultType =
         MemRefType::get(shape, inputType.getElementType(), map, 0);
@@ -220,335 +216,214 @@ public:
   }
 };
 
-// class AssertOpLowering : public ConversionPattern {
-// public:
-//   explicit AssertOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::AssertOp::getOperationName(), 1, context)
-//       {}
+class ApplyOpLowering : public StencilOpToStdPattern<stencil::ApplyOp> {
+public:
+  using StencilOpToStdPattern<stencil::ApplyOp>::StencilOpToStdPattern;
 
-//   LogicalResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto assertOp = cast<stencil::AssertOp>(operation);
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto applyOp = cast<stencil::ApplyOp>(operation);
+    auto shapeOp = cast<ShapeOp>(operation);
 
-//     // Verify the field has been converted
-//     if (!assertOp.field().getType().isa<MemRefType>())
-//       return failure();
+    // Introduce parallel loop
+    // Are nested operations translated never the less
 
-//     // TODO refactor
-//     // Verify the assert op has lower bound zero
-//     // if (!isZero(assertOp.getLB())) {
-//     //   assertOp.emitOpError("expected zero lower bound");
-//     //   return failure();
-//     // }
+    // Allocate and deallocate storage for every output
+    SmallVector<Value, 10> newResults;
+    for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+      TempType tempType = applyOp.getResult(i).getType().cast<TempType>();
 
-//     // Check if the field is large enough
-//     // auto verifyBounds = [&](const Index &lb,
-//     //                         const Index &ub) {
-//     //   if (llvm::any_of(llvm::zip(lb, assertOp.getLB()),
-//     //                    [](std::tuple<int64_t, int64_t> x) {
-//     //                      return std::get<0>(x) < std::get<1>(x) &&
-//     //                             std::get<0>(x) !=
-//     stencil::kIgnoreDimension;
-//     //                    }) ||
-//     //       llvm::any_of(llvm::zip(ub, assertOp.getUB()),
-//     //                    [](std::tuple<int64_t, int64_t> x) {
-//     //                      return std::get<0>(x) > std::get<1>(x) &&
-//     //                             std::get<1>(x) !=
-//     stencil::kIgnoreDimension;
-//     //                    }))
-//     //     return false;
-//     //   return true;
-//     // };
-//     // for (OpOperand &use : assertOp.field().getUses()) {
-//     //   if (auto storeOp = dyn_cast<stencil::StoreOp>(use.getOwner())) {
-//     //     if (llvm::is_contained(storeOp.getLB(),
-//     stencil::kIgnoreDimension)) {
-//     //       storeOp.emitOpError("field expected to have full
-//     dimensionality");
-//     //       return failure();
-//     //     }
-//     //     if (!verifyBounds(storeOp.getLB(), storeOp.getUB())) {
-//     //       storeOp.emitOpError("field bounds not large enough");
-//     //       return failure();
-//     //     }
-//     //   }
-//     //   if (auto loadOp = dyn_cast<stencil::LoadOp>(use.getOwner())) {
-//     //     if (loadOp.lb().hasValue() && loadOp.ub().hasValue())
-//     //       if (!verifyBounds(loadOp.getLB(), loadOp.getUB())) {
-//     //         loadOp.emitOpError("field bounds not large enough");
-//     //         return failure();
-//     //       }
-//     //   }
-//     // }
+      auto strides = computeStrides(tempType.getShape());
+      auto map = makeStridedLinearLayoutMap(strides, 0, applyOp.getContext());
 
-//     rewriter.eraseOp(operation);
-//     return success();
-//   }
-// };
+      // TODO fix this conversion for scalarized stuff
+      auto allocType = MemRefType::get(tempType.getShape(),
+                                       tempType.getElementType(), map, 0);
 
-// class LoadOpLowering : public ConversionPattern {
-// public:
-//   explicit LoadOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::LoadOp::getOperationName(), 1, context) {}
+      auto allocOp = rewriter.create<AllocOp>(loc, allocType);
+      // auto returnOp = allocOp.getParentRegion()->back().getTerminator();
+      // rewriter.setInsertionPoint(returnOp);
+      // rewriter.create<DeallocOp>(loc, allocOp.getResult());
+      // rewriter.setInsertionPointAfter(allocOp);
 
-//   LogicalResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     // Replace the load operation with a subtemp op
-//     auto loc = operation->getLoc();
-//     auto loadOp = cast<stencil::LoadOp>(operation);
+      newResults.push_back(allocOp.getResult());
+    }
 
-//     // TODO refactor
-//     // // Verify the field has been converted
-//     // if (!loadOp.field().getType().isa<MemRefType>())
-//     //   return failure();
+    // Compute the loop bounds
+    SmallVector<Value, 3> lb;
+    SmallVector<Value, 3> ub;
+    SmallVector<Value, 3> steps;
+    auto one = rewriter.create<ConstantIndexOp>(loc, 1);
+    for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
+      lb.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getLB()[i]));
+      ub.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getUB()[i]));
+      steps.push_back(rewriter.create<ConstantIndexOp>(loc, one));
+    }
 
-//     // // Compute the replacement types
-//     // auto inputType = loadOp.field().getType().cast<MemRefType>();
-//     // auto shape = computeShape(loadOp.getLB(), loadOp.getUB());
-//     // auto strides = computeStrides(inputType.getShape());
-//     // assert(shape.size() == inputType.getRank() &&
-//     //        strides.size() == inputType.getRank() &&
-//     //        "expected input field shape and strides to have the same
-//     rank");
-//     // auto outputType =
-//     //     computeMemRefType(inputType.getElementType(), shape, strides,
-//     //                       filterIgnoredDimensions(loadOp.getLB()),
-//     rewriter);
+    TypeConverter::SignatureConversion result(applyOp.getNumOperands());
+    for (auto &en : llvm::enumerate(applyOp.getOperands()))
+      result.remapInput(en.index(), operands[en.index()]);
+    Type indexType = IndexType::get(applyOp.getContext());
+    result.addInputs({indexType, indexType, indexType});
+    rewriter.applySignatureConversion(&applyOp.region(), result);
 
-//     // // Replace the load
-//     // auto subViewOp = rewriter.create<SubViewOp>(loc, outputType,
-//     operands[0]);
-//     // operation->getResult(0).replaceAllUsesWith(subViewOp.getResult());
-//     // rewriter.eraseOp(operation);
-//     return success();
-//   }
-// };
+    // BlockAndValueMapping mapper;
+    // for (auto en : llvm::enumerate(applyOp.getOperands()))
+    //   mapper.map(applyOp.getBody()->getArgument(en.index()), en.value());
 
-// class ReturnOpLowering : public ConversionPattern {
-// public:
-//   explicit ReturnOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::ReturnOp::getOperationName(), 1, context)
-//       {}
+    auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
+    //rewriter.eraseOp(loop.getBody()->getTerminator());
+    loop.getBody()->erase();
+    rewriter.inlineRegionBefore(applyOp.region(), loop.region(), loop.region().begin());
+    rewriter.setInsertionPointToEnd(loop.getBody());
+    rewriter.create<loop::YieldOp>(loc);
 
-//   LogicalResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto loc = operation->getLoc();
-//     auto returnOp = cast<stencil::ReturnOp>(operation);
+    
+    // for (auto &op : applyOp.getBody()->getOperations()) {
+    //   rewriter. clone(op, mapper);
+    // }
 
-//     // Get the parallel loop
-//     if (!isa<loop::ParallelOp>(operation->getParentOp()))
-//       return failure();
-//     auto loop = cast<loop::ParallelOp>(operation->getParentOp());
-//     SmallVector<Value, 3> loopIVs(loop.getNumLoops());
-//     llvm::transform(loop.getInductionVars(), loopIVs.begin(),
-//                     [](Value blockArg) { return blockArg; });
+    // rewriter.inlineRegionBefore(applyOp.region(), loop.region(),
+    // loop.region().end());
 
-//     // Get temporary buffers
-//     SmallVector<Operation *, 10> allocOps;
-//     Operation *currentOp = loop.getOperation();
-//     // Skip the loop constants
-//     while (isa<ConstantOp>(currentOp->getPrevNode())) {
-//       currentOp = currentOp->getPrevNode();
-//       assert(currentOp && "failed to find allocation for results");
-//     }
-//     // Compute the number of result temps
-//     unsigned numResults =
-//         returnOp.getNumOperands() / returnOp.getUnrollFactor();
-//     assert(returnOp.getNumOperands() % returnOp.getUnrollFactor() == 0 &&
-//            "expected number of operands to be a multiple of the unroll
-//            factor");
-//     for (unsigned i = 0, e = numResults; i != e; ++i) {
-//       currentOp = currentOp->getPrevNode();
-//       allocOps.push_back(currentOp);
-//       assert(dyn_cast<AllocOp>(currentOp) &&
-//              "failed to find allocation for results");
-//     }
-//     SmallVector<Value, 10> allocVals(allocOps.size());
-//     llvm::transform(llvm::reverse(allocOps), allocVals.begin(),
-//                     [](Operation *allocOp) { return allocOp->getResult(0);
-//                     });
+    //     // for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
+    //     //   applyOp.getBody()->getArgument(i).replaceAllUsesWith(
+    //     //       applyOp.getOperand(i));
+    //     // }
 
-//     // Replace the return op by store ops
-//     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-//     auto map = AffineMap::get(2, 0, expr);
-//     for (unsigned i = 0, e = numResults; i != e; ++i) {
-//       for (unsigned j = 0, e = returnOp.getUnrollFactor(); j != e; ++j) {
-//         rewriter.setInsertionPoint(returnOp);
-//         unsigned operandIdx = i * returnOp.getUnrollFactor() + j;
-//         auto definingOp = returnOp.getOperand(operandIdx).getDefiningOp();
-//         if (definingOp && returnOp.getParentOp() ==
-//         definingOp->getParentOp())
-//           rewriter.setInsertionPointAfter(definingOp);
-//         // Add the unrolling offset to the loop ivs
-//         SmallVector<Value, 3> storeOffset = loopIVs;
-//         if (j > 0) {
-//           auto unroll = returnOp.getUnroll();
-//           assert(llvm::count(unroll, 1) == unroll.size() - 1 &&
-//                  "expected a single non-zero entry");
-//           auto it = llvm::find_if(unroll, [&](int64_t x) {
-//             return x == returnOp.getUnrollFactor();
-//           });
-//           auto unrollDim = std::distance(unroll.begin(), it);
-//           auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
-//           ValueRange params = {loopIVs[unrollDim], constantOp.getResult()};
-//           auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map,
-//           params); storeOffset[unrollDim] = affineApplyOp.getResult();
-//         }
-//         rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(operandIdx),
-//                                  allocVals[i], storeOffset);
-//       }
-//     }
-//     rewriter.eraseOp(operation);
-//     return success();
-//   }
-// };
+    loop.dump();
 
-// class ApplyOpLowering : public ConversionPattern {
-// public:
-//   explicit ApplyOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::ApplyOp::getOperationName(), 1, context)
-//       {}
+    rewriter.replaceOp(applyOp, newResults);
+    return success();
+  }
+};
 
-//   LogicalResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto loc = operation->getLoc();
-//     auto applyOp = cast<stencil::ApplyOp>(operation);
+class ReturnOpLowering : public StencilOpToStdPattern<stencil::ReturnOp> {
+public:
+  using StencilOpToStdPattern<stencil::ReturnOp>::StencilOpToStdPattern;
 
-//     // TODO refactor
-//     // // Verify the arguments have been converted
-//     // if (llvm::any_of(
-//     //         llvm::zip(applyOp.getBody()->getArguments(),
-//     applyOp.getOperands()),
-//     //         [](std::tuple<Value, Value> x) {
-//     //           return std::get<0>(x).getType().isa<stencil::TempType>() &&
-//     //                  !std::get<1>(x).getType().isa<MemRefType>();
-//     //         })) {
-//     //   return failure();
-//     // }
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto returnOp = cast<stencil::ReturnOp>(operation);
 
-//     // // Verify the the lower bound is zero
-//     // if (!isZero(applyOp.getLB())) {
-//     //   applyOp.emitOpError("expected zero lower bound");
-//     //   return failure();
-//     // }
+    // Get the parallel loop
+    if (!isa<loop::ParallelOp>(operation->getParentOp()))
+      return failure();
+    auto loop = cast<loop::ParallelOp>(operation->getParentOp());
+    SmallVector<Value, 3> loopIVs(loop.getNumLoops());
+    llvm::transform(loop.getInductionVars(), loopIVs.begin(),
+                    [](Value blockArg) { return blockArg; });
 
-//     // // Allocate and deallocate storage for every output
-//     // for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-//     //   Type elementType = stencil::getElementType(applyOp.getResult(i));
-//     //   auto strides = computeStrides(applyOp.getUB());
-//     //   auto allocType = computeMemRefType(elementType, applyOp.getUB(),
-//     strides,
-//     //                                      {}, rewriter);
+    // Get temporary buffers
+    SmallVector<Operation *, 10> allocOps;
+    Operation *currentOp = loop.getOperation();
+    // Skip the loop constants
+    while (isa<ConstantOp>(currentOp->getPrevNode())) {
+      currentOp = currentOp->getPrevNode();
+      assert(currentOp && "failed to find allocation for results");
+    }
+    // Compute the number of result temps
+    unsigned numResults =
+        returnOp.getNumOperands() / returnOp.getUnrollFactor();
+    // assert(returnOp.getNumOperands() % returnOp.getUnrollFactor() == 0 &&
+    //        "expected number of operands to be a multiple of the unroll
+    //        factor");
+    for (unsigned i = 0, e = numResults; i != e; ++i) {
+      currentOp = currentOp->getPrevNode();
+      allocOps.push_back(currentOp);
+      assert(dyn_cast<AllocOp>(currentOp) &&
+             "failed to find allocation for results");
+    }
+    SmallVector<Value, 10> allocVals(allocOps.size());
+    llvm::transform(llvm::reverse(allocOps), allocVals.begin(),
+                    [](Operation *allocOp) { return allocOp->getResult(0); });
 
-//     //   auto allocOp = rewriter.create<AllocOp>(loc, allocType);
-//     //   applyOp.getResult(i).replaceAllUsesWith(allocOp.getResult());
-//     //   auto returnOp = allocOp.getParentRegion()->back().getTerminator();
-//     //   rewriter.setInsertionPoint(returnOp);
-//     //   rewriter.create<DeallocOp>(loc, allocOp.getResult());
-//     //   rewriter.setInsertionPointAfter(allocOp);
-//     // }
+    // Replace the return op by store ops
+    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+    auto map = AffineMap::get(2, 0, expr);
+    for (unsigned i = 0, e = numResults; i != e; ++i) {
+      for (unsigned j = 0, e = returnOp.getUnrollFactor(); j != e; ++j) {
+        rewriter.setInsertionPoint(returnOp);
+        unsigned operandIdx = i * returnOp.getUnrollFactor() + j;
+        auto definingOp = returnOp.getOperand(operandIdx).getDefiningOp();
+        if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
+          rewriter.setInsertionPointAfter(definingOp);
+        // Add the unrolling offset to the loop ivs
+        SmallVector<Value, 3> storeOffset = loopIVs;
+        if (j > 0) {
+          auto unroll = returnOp.getUnroll();
+          assert(llvm::count(unroll, 1) == unroll.size() - 1 &&
+                 "expected a single non-zero entry");
+          auto it = llvm::find_if(unroll, [&](int64_t x) {
+            return x == returnOp.getUnrollFactor();
+          });
+          auto unrollDim = std::distance(unroll.begin(), it);
+          auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
+          ValueRange params = {loopIVs[unrollDim], constantOp.getResult()};
+          auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+          storeOffset[unrollDim] = affineApplyOp.getResult();
+        }
+        rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(i),
+                                       allocVals[i], storeOffset);
+      }
+    }
 
-//     // // Generate the apply loop nest
-//     // auto upper = applyOp.getUB();
-//     // assert(upper.size() >= 1 && "expected bounds to at least one
-//     dimension");
-//     // auto zero = rewriter.create<ConstantIndexOp>(loc, 0);
-//     // auto one = rewriter.create<ConstantIndexOp>(loc, 1);
-//     // SmallVector<Value, 3> lb;
-//     // SmallVector<Value, 3> ub;
-//     // SmallVector<Value, 3> steps;
-//     // for (size_t i = 0, e = upper.size(); i != e; ++i) {
-//     //   lb.push_back(zero);
-//     //   ub.push_back(rewriter.create<ConstantIndexOp>(loc,
-//     upper.begin()[i]));
-//     //   steps.push_back(one);
-//     // }
+    rewriter.eraseOp(operation);
+    return success();
+  }
+};
 
-//     // // Adjust the steps to account for the loop unrolling
-//     // auto returnOp =
-//     cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-//     // assert(!returnOp.unroll().hasValue() ||
-//     //        steps.size() == returnOp.unroll().getValue().size() &&
-//     //            "expected unroll attribute to have loop bound size");
-//     // if (returnOp.unroll().hasValue()) {
-//     //   auto unroll = returnOp.getUnroll();
-//     //   for (size_t i = 0, e = steps.size(); i != e; ++i) {
-//     //     if (unroll[i] != 1) {
-//     //       assert(upper.begin()[i] % unroll[i] == 0 &&
-//     //              "expected loop length to be a multiple of the unroll
-//     factor");
-//     //       steps[i] = rewriter.create<ConstantIndexOp>(loc, unroll[i]);
-//     //     }
-//     //   }
-//     // }
+class AccessOpLowering : public StencilOpToStdPattern<stencil::AccessOp> {
+public:
+  using StencilOpToStdPattern<stencil::AccessOp>::StencilOpToStdPattern;
 
-//     // // Introduce the parallel loop and copy the body of the apply op
-//     // auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
-//     // for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
-//     //   applyOp.getBody()->getArgument(i).replaceAllUsesWith(
-//     //       applyOp.getOperand(i));
-//     // }
-//     // loop.getBody()->getOperations().splice(
-//     //     loop.getBody()->getOperations().begin(),
-//     //     applyOp.getBody()->getOperations());
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto accessOp = cast<stencil::AccessOp>(operation);
 
-//     // // Erase the actual apply op
-//     // rewriter.eraseOp(applyOp);
+    // Get the parallel loop
+    auto loopOp = operation->getParentOfType<loop::ParallelOp>();
+    if (!loopOp)
+      return failure();
+    assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
+           "expected loop nest and access offset to have the same size");
+    SmallVector<Value, 3> loopIVs(loopOp.getNumLoops());
+    llvm::transform(loopOp.getInductionVars(), loopIVs.begin(),
+                    [](Value arg) { return arg; });
 
-//     return success();
-//   }
-// }; // namespace
+    // Compute the access offsets
+    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+    auto map = AffineMap::get(2, 0, expr);
+    auto offset = accessOp.getOffset();
+    SmallVector<Value, 3> loadOffset;
+    for (size_t i = 0, e = offset.size(); i != e; ++i) {
+      auto constantOp = rewriter.create<ConstantIndexOp>(loc, offset[i]);
+      ValueRange params = {loopIVs[i], constantOp.getResult()};
+      auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+      loadOffset.push_back(affineApplyOp.getResult());
+    }
+    // assert(loadOffset.size() ==
+    //            operands[0].getType().cast<MemRefType>().getRank() &&
+    //        "expected load offset size to match memref rank");
 
-// class AccessOpLowering : public ConversionPattern {
-// public:
-//   explicit AccessOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::AccessOp::getOperationName(), 1, context)
-//       {}
+    // accessOp.temp().getType().dump();
+    // operands[0].getType().dump();
+    
+    // Replace the access op by a load op
+    rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
+                                              loadOffset);
 
-//   LogicalResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto loc = operation->getLoc();
-//     auto accessOp = cast<stencil::AccessOp>(operation);
+    return success();
+  }
+};
 
-//     // Check the temp is a memref type
-//     if (!accessOp.temp().getType().isa<MemRefType>())
-//       return failure();
 
-//     // Get the parallel loop
-//     auto loopOp = operation->getParentOfType<loop::ParallelOp>();
-//     if (!loopOp)
-//       return failure();
-//     assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
-//            "expected loop nest and access offset to have the same size");
-//     SmallVector<Value, 3> loopIVs(loopOp.getNumLoops());
-//     llvm::transform(loopOp.getInductionVars(), loopIVs.begin(),
-//                     [](Value arg) { return arg; });
-
-//     // Compute the access offsets
-//     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-//     auto map = AffineMap::get(2, 0, expr);
-//     auto offset = accessOp.getOffset();
-//     SmallVector<Value, 3> loadOffset;
-//     for (size_t i = 0, e = offset.size(); i != e; ++i) {
-//       auto constantOp = rewriter.create<ConstantIndexOp>(loc, offset[i]);
-//       ValueRange params = {loopIVs[i], constantOp.getResult()};
-//       auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
-//       loadOffset.push_back(affineApplyOp.getResult());
-//     }
-//     assert(loadOffset.size() ==
-//                accessOp.temp().getType().cast<MemRefType>().getRank() &&
-//            "expected load offset size to match memref rank");
-
-//     // Replace the access op by a load op
-//     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, accessOp.temp(),
-//     loadOffset); return success();
-//   }
-// };
 
 // class StoreOpLowering : public ConversionPattern {
 // public:
@@ -610,6 +485,14 @@ public:
              !funcOp.getAttr(
                  stencil::StencilDialect::getStencilFunctionAttrName());
     }
+    // if(auto ifOp = dyn_cast<loop::IfOp>(op)) {
+    //   llvm::errs() << "check if if-else is legal\n";
+    //   bool hasAccessOp = false;
+    //   ifOp.walk([&](stencil::AccessOp accessOp) {
+    //     hasAccessOp = true;
+    //   });
+    //   return !hasAccessOp; 
+    // }
     return true;
   }
 };
@@ -635,10 +518,15 @@ void StencilToStandardPass::runOnOperation() {
   StencilToStdTarget target(*(module.getContext()));
   target.addLegalDialect<AffineDialect>();
   target.addLegalDialect<StandardOpsDialect>();
-  target.addLegalDialect<loop::LoopOpsDialect>();
+  target.addLegalOp<loop::IfOp>();
+  target.addLegalOp<loop::ParallelOp>();
+  target.addLegalOp<loop::YieldOp>();
+  
+  //target.addLegalDialect<loop::LoopOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
-
+  
+  
   if (failed(applyFullConversion(module, target, patterns, &typeConverter))) {
     signalPassFailure();
   }
@@ -661,14 +549,14 @@ StencilTypeConverter::StencilTypeConverter() {
 
 Type StencilTypeConverter::convertFieldType(FieldType type) {
   auto elementType = type.getElementType();
-  SmallVector<int64_t, kIndexSize> shape, strides;
+  SmallVector<int64_t, kIndexSize> shape; //, strides;
   for (auto size : type.getShape()) {
     assert(GridType::isScalar(size) ||
            GridType::isDynamic(size) &&
                "expected fields to have a dynamic shape");
     if (GridType::isDynamic(size)) {
       shape.push_back(ShapedType::kDynamicSize);
-      strides.push_back(ShapedType::kDynamicStrideOrOffset);
+      //      strides.push_back(ShapedType::kDynamicStrideOrOffset);
     }
   }
   // auto affineMap = makeStridedLinearLayoutMap(
@@ -693,7 +581,8 @@ void populateStencilToStdConversionPatterns(
   //     ApplyOpLowering,
   //             AccessOpLowering, StoreOpLowering, ReturnOpLowering>(ctx);
 
-  patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering>(
+  patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
+                  ApplyOpLowering, ReturnOpLowering, AccessOpLowering>(
       ctx, typeConveter);
 }
 

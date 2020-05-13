@@ -182,6 +182,8 @@ void ShapeInferencePass::runOnFunction() {
       }
     }
   }
+
+  // TODO extend the shape of the store operation if needed!
 }
 
 std::unique_ptr<OperationPass<FuncOp>> mlir::createShapeInferencePass() {
