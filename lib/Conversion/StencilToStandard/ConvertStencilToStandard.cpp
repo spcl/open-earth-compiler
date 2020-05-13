@@ -274,13 +274,12 @@ public:
     //   mapper.map(applyOp.getBody()->getArgument(en.index()), en.value());
 
     auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
-    //rewriter.eraseOp(loop.getBody()->getTerminator());
-    loop.getBody()->erase();
-    rewriter.inlineRegionBefore(applyOp.region(), loop.region(), loop.region().begin());
+    loop.getBody()->erase(); // TODO find better solution
+    rewriter.inlineRegionBefore(applyOp.region(), loop.region(),
+                                loop.region().begin());
     rewriter.setInsertionPointToEnd(loop.getBody());
     rewriter.create<loop::YieldOp>(loc);
 
-    
     // for (auto &op : applyOp.getBody()->getOperations()) {
     //   rewriter. clone(op, mapper);
     // }
@@ -292,8 +291,6 @@ public:
     //     //   applyOp.getBody()->getArgument(i).replaceAllUsesWith(
     //     //       applyOp.getOperand(i));
     //     // }
-
-    loop.dump();
 
     rewriter.replaceOp(applyOp, newResults);
     return success();
@@ -414,7 +411,7 @@ public:
 
     // accessOp.temp().getType().dump();
     // operands[0].getType().dump();
-    
+
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
                                               loadOffset);
@@ -423,51 +420,68 @@ public:
   }
 };
 
+class StoreOpLowering : public StencilOpToStdPattern<stencil::StoreOp> {
+public:
+  using StencilOpToStdPattern<stencil::StoreOp>::StencilOpToStdPattern;
 
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto storeOp = cast<stencil::StoreOp>(operation);
 
-// class StoreOpLowering : public ConversionPattern {
-// public:
-//   explicit StoreOpLowering(MLIRContext *context)
-//       : ConversionPattern(stencil::StoreOp::getOperationName(), 1, context)
-//       {}
+    // Get the memref cast operation
+    // TODO put in base class
+    MemRefCastOp castOp;
+    for (auto user : operands[1].getUsers()) {
+      if (castOp = dyn_cast<MemRefCastOp>(user))
+        break;
+    }
+    if (!castOp)
+      return failure();
 
-//   LogicalResult
-//   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     auto loc = operation->getLoc();
-//     auto storeOp = cast<stencil::StoreOp>(operation);
+    // Get the assert operation
+    // TODO put in base class
+    stencil::AssertOp assertOp;
+    for (auto user : storeOp.field().getUsers()) {
+      if (assertOp = dyn_cast<stencil::AssertOp>(user))
+        break;
+    }
+    if (!assertOp)
+      return failure();
 
-//     // TODO refactor
-//     // // Verify the field has been converted
-//     // if (!(storeOp.field().getType().isa<MemRefType>() &&
-//     //       storeOp.temp().getType().isa<MemRefType>()))
-//     //   return failure();
+    auto inputType = castOp.getResult().getType().cast<MemRefType>();
 
-//     // // Compute the replacement types
-//     // auto inputType = storeOp.field().getType().cast<MemRefType>();
-//     // assert(storeOp.getLB().size() == inputType.getRank() &&
-//     //        "expected lower bounds and memref to have the same rank");
-//     // auto shape = computeShape(storeOp.getLB(), storeOp.getUB());
-//     // auto strides = computeStrides(inputType.getShape());
-//     // auto outputType = computeMemRefType(inputType.getElementType(), shape,
-//     //                                     strides, storeOp.getLB(),
-//     rewriter);
+    auto shapeOp = cast<ShapeOp>(operation);
+    auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
+                                     std::minus<int64_t>());
+    auto strides = computeStrides(inputType.getShape());
 
-//     // // Remove allocation and deallocation and insert subtemp op
-//     // auto allocOp = storeOp.temp().getDefiningOp();
-//     // rewriter.setInsertionPoint(allocOp);
-//     // auto subViewOp =
-//     //     rewriter.create<SubViewOp>(loc, outputType, storeOp.field());
-//     // allocOp->getResult(0).replaceAllUsesWith(subViewOp.getResult());
-//     // rewriter.eraseOp(allocOp);
-//     // for (auto &use : storeOp.temp().getUses()) {
-//     //   if (auto deallocOp = dyn_cast<DeallocOp>(use.getOwner()))
-//     //     rewriter.eraseOp(deallocOp);
-//     // }
-//     // rewriter.eraseOp(operation);
-//     return success();
-//   }
-// };
+    // TODO get assert operation!
+    auto offset = computeOffset(
+        applyFunElementWise(shapeOp.getLB(),
+                            cast<ShapeOp>(assertOp.getOperation()).getLB(),
+                            std::minus<int64_t>()),
+        strides);
+    auto map = makeStridedLinearLayoutMap(strides, offset, storeOp.getContext());
+
+    auto outputType =
+        MemRefType::get(shape, inputType.getElementType(), map, 0);
+
+    // Remove allocation and deallocation and insert subtemp op
+    auto allocOp = operands[0].getDefiningOp();
+    rewriter.setInsertionPoint(allocOp);
+    auto subViewOp =
+        rewriter.create<SubViewOp>(loc, outputType, castOp.getResult());
+    rewriter.replaceOp(allocOp, subViewOp.getResult());
+    
+    // TODO remove dealloc
+
+    rewriter.eraseOp(operation);
+
+    return success();
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // Conversion Target
@@ -491,7 +505,7 @@ public:
     //   ifOp.walk([&](stencil::AccessOp accessOp) {
     //     hasAccessOp = true;
     //   });
-    //   return !hasAccessOp; 
+    //   return !hasAccessOp;
     // }
     return true;
   }
@@ -521,12 +535,11 @@ void StencilToStandardPass::runOnOperation() {
   target.addLegalOp<loop::IfOp>();
   target.addLegalOp<loop::ParallelOp>();
   target.addLegalOp<loop::YieldOp>();
-  
-  //target.addLegalDialect<loop::LoopOpsDialect>();
+
+  // target.addLegalDialect<loop::LoopOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
-  
-  
+
   if (failed(applyFullConversion(module, target, patterns, &typeConverter))) {
     signalPassFailure();
   }
@@ -576,14 +589,10 @@ void populateStencilToStdConversionPatterns(
     mlir::MLIRContext *ctx, StencilTypeConverter &typeConveter,
     mlir::OwningRewritePatternList &patterns) {
 
-  // patterns
-  //     .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
-  //     ApplyOpLowering,
-  //             AccessOpLowering, StoreOpLowering, ReturnOpLowering>(ctx);
-
-  patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
-                  ApplyOpLowering, ReturnOpLowering, AccessOpLowering>(
-      ctx, typeConveter);
+  patterns
+      .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
+              ReturnOpLowering, AccessOpLowering, StoreOpLowering>(
+          ctx, typeConveter);
 }
 
 } // namespace stencil
