@@ -569,12 +569,9 @@ Type StencilTypeConverter::convertFieldType(FieldType type) {
                "expected fields to have a dynamic shape");
     if (GridType::isDynamic(size)) {
       shape.push_back(ShapedType::kDynamicSize);
-      //      strides.push_back(ShapedType::kDynamicStrideOrOffset);
     }
   }
-  // auto affineMap = makeStridedLinearLayoutMap(
-  //     strides, ShapedType::kDynamicStrideOrOffset, type.getContext());
-  return MemRefType::get(shape, elementType); //, affineMap, 0);
+  return MemRefType::get(shape, elementType); 
 }
 
 // Implementation of the stencil to standard pattern

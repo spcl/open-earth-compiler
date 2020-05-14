@@ -1,6 +1,7 @@
 #ifndef DIALECT_STENCIL_STENCILTYPES_H
 #define DIALECT_STENCIL_STENCILTYPES_H
 
+#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LLVM.h"
@@ -47,13 +48,6 @@ public:
   /// Return the rank of the type
   int64_t getRank() const { return getShape().size(); }
 
-  /// Return true if no dimension has a dynamic shape
-  int64_t hasStaticShape() const {
-    return llvm::none_of(getShape(), [](int64_t size) {
-      return size == kDynamicDimension;
-    });
-  }
-
   /// Return true if all dimensions have a dynamic shape
   int64_t hasDynamicShape() const {
     return llvm::all_of(getShape(), [](int64_t size) {
@@ -67,6 +61,23 @@ public:
     result.resize(getRank());
     llvm::transform(getShape(), result.begin(),
                     [](int64_t x) { return x != kScalarDimension; });
+    return result;
+  }
+
+  /// Return the compatible memref shape
+  SmallVector<int64_t, 3> getMemRefShape() const {
+    SmallVector<int64_t, 3> result;
+    for(auto size : getShape()) {
+      switch(size) {
+        case(kDynamicDimension):
+          result.push_back(MemRefType::kDynamicSize);
+          break;
+        case(kScalarDimension):
+          break;
+        default:
+          result.push_back(size);
+      }
+    }
     return result;
   }
 
