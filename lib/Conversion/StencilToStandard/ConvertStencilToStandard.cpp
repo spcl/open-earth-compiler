@@ -41,60 +41,6 @@ using namespace stencil;
 
 namespace {
 
-// // Helper method to check if lower bound is zero
-// bool isZero(ArrayRef<int64_t> offset) {
-//   return llvm::all_of(offset, [](int64_t x) {
-//     return x == 0;
-//   });
-// }
-
-// Helper method computing the strides given the size
-Index computeStrides(ArrayRef<int64_t> shape) {
-  Index result(shape.size());
-  result[0] = 1;
-  for (size_t i = 1, e = result.size(); i != e; ++i)
-    result[i] = result[i - 1] * shape[i - 1];
-  return result;
-}
-
-// // Helper method computing the shape given the range
-// Index computeShape(ArrayRef<int64_t> begin,
-//                                      ArrayRef<int64_t> end) {
-//   assert(begin.size() == end.size() && "expected bounds to have the same
-//   size"); Index result(begin.size()); llvm::transform(llvm::zip(end, begin),
-//   result.begin(),
-//                   [](std::tuple<int64_t, int64_t> x) {
-//                     return std::get<0>(x) - std::get<1>(x);
-//                   });
-//   // Remove ignored dimensions
-//   llvm::erase_if(result, [](int64_t x) { return x == 0; });
-//   return result;
-// }
-
-// Helper method computing linearizing the offset
-int64_t computeOffset(ArrayRef<int64_t> offset, ArrayRef<int64_t> strides) {
-  // Compute the linear offset
-  int64_t result = 0;
-  for (size_t i = 0, e = strides.size(); i != e; ++i) {
-    result += offset[i] * strides[i];
-  }
-  return result;
-}
-
-// // Helper to compute a memref type
-// MemRefType computeMemRefType(Type elementType, ArrayRef<int64_t> shape,
-//                              ArrayRef<int64_t> strides,
-//                              ArrayRef<int64_t> origin,
-//                              ConversionPatternRewriter &rewriter) {
-//   // Get the element type
-//   int64_t offset = 0;
-//   if (origin.size() != 0) {
-//     offset = computeOffset(origin, strides);
-//   }
-//   auto map = makeStridedLinearLayoutMap(strides, offset,
-//   rewriter.getContext()); return MemRefType::get(shape, elementType, map, 0);
-// }
-
 //===----------------------------------------------------------------------===//
 // Rewriting Pattern
 //===----------------------------------------------------------------------===//
@@ -126,7 +72,6 @@ public:
     // Convert the signature and delete the original operation
     rewriter.applySignatureConversion(&newFuncOp.getBody(), result);
     rewriter.eraseOp(funcOp);
-
     return success();
   }
 };
@@ -141,21 +86,14 @@ public:
     auto loc = operation->getLoc();
     auto assertOp = cast<stencil::AssertOp>(operation);
 
+    // Compute the static shape of the field and cast the input memref
     auto fieldType = assertOp.field().getType().cast<FieldType>();
-
-    // // Compute the shape
-    // // TODO factor to base class and support scalarized dimensions
-    auto shapeOp = cast<ShapeOp>(operation);
-    auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
-                                     std::minus<int64_t>());
-    auto resultType = MemRefType::get(shape, fieldType.getElementType());
-
+    auto shape = computeOpShape(operation, fieldType.getAllocation());
+    assert(shape.hasValue() && "expected assertOp to have a shape");
+    auto resultType =
+        MemRefType::get(shape.getValue(), fieldType.getElementType());
     rewriter.create<MemRefCastOp>(loc, operands[0], resultType);
-
-    // rewriter.replaceOp(assertOp, {resultCast});
-
     rewriter.eraseOp(assertOp);
-
     return success();
   }
 };
@@ -170,48 +108,25 @@ public:
     auto loc = operation->getLoc();
     auto loadOp = cast<stencil::LoadOp>(operation);
 
-    // Get the memref cast operation
-    // TODO put in base class
-    MemRefCastOp castOp;
-    for (auto user : operands[0].getUsers()) {
-      if (castOp = dyn_cast<MemRefCastOp>(user))
-        break;
-    }
-    if (!castOp)
+    // Get the assert and the cast operation
+    auto castOp = getUserOp<MemRefCastOp>(operands[0]);
+    assert(castOp && "exepected operands[0] to point to the input field");
+    auto assertOp = getUserOp<stencil::AssertOp>(loadOp.field());
+    if (!castOp || !assertOp)
       return failure();
 
-    // Get the assert operation
-    // TODO put in base class
-    stencil::AssertOp assertOp;
-    for (auto user : loadOp.field().getUsers()) {
-      if (assertOp = dyn_cast<stencil::AssertOp>(user))
-        break;
-    }
-    if (!assertOp)
+    // Compute the memref type that stores the loaded data
+    auto resultType = computeResultType(
+        castOp.getResult().getType().cast<MemRefType>(),
+        loadOp.res().getType().cast<TempType>().getAllocation(),
+        assertOp.getOperation(), operation);
+    if (!resultType.hasValue())
       return failure();
 
-    auto inputType = castOp.getResult().getType().cast<MemRefType>();
-
-    auto shapeOp = cast<ShapeOp>(operation);
-    auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
-                                     std::minus<int64_t>());
-    auto strides = computeStrides(inputType.getShape());
-
-    // TODO get assert operation!
-    auto offset = computeOffset(
-        applyFunElementWise(shapeOp.getLB(),
-                            cast<ShapeOp>(assertOp.getOperation()).getLB(),
-                            std::minus<int64_t>()),
-        strides);
-    auto map = makeStridedLinearLayoutMap(strides, offset, loadOp.getContext());
-
-    auto resultType =
-        MemRefType::get(shape, inputType.getElementType(), map, 0);
-
-    auto subViewOp =
-        rewriter.create<SubViewOp>(loc, resultType, castOp.getResult());
+    // Replace the load operation by a subview operation
+    auto subViewOp = rewriter.create<SubViewOp>(loc, resultType.getValue(),
+                                                castOp.getResult());
     rewriter.replaceOp(operation, subViewOp.getResult());
-
     return success();
   }
 };
@@ -225,74 +140,68 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto applyOp = cast<stencil::ApplyOp>(operation);
-    auto shapeOp = cast<ShapeOp>(operation);
 
-    // Introduce parallel loop
-    // Are nested operations translated never the less
-
-    // Allocate and deallocate storage for every output
+    // Allocate storage for every stencil output
     SmallVector<Value, 10> newResults;
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
       TempType tempType = applyOp.getResult(i).getType().cast<TempType>();
-
-      auto strides = computeStrides(tempType.getShape());
-      auto map = makeStridedLinearLayoutMap(strides, 0, applyOp.getContext());
-
-      // TODO fix this conversion for scalarized stuff
-      auto allocType = MemRefType::get(tempType.getShape(),
-                                       tempType.getElementType(), map, 0);
+      auto strides = computeStrides(tempType.getMemRefShape());
+      auto affineMap =
+          makeStridedLinearLayoutMap(strides, 0, applyOp.getContext());
+      auto allocType = MemRefType::get(tempType.getMemRefShape(),
+                                       tempType.getElementType(), affineMap, 0);
 
       auto allocOp = rewriter.create<AllocOp>(loc, allocType);
-      // auto returnOp = allocOp.getParentRegion()->back().getTerminator();
-      // rewriter.setInsertionPoint(returnOp);
-      // rewriter.create<DeallocOp>(loc, allocOp.getResult());
-      // rewriter.setInsertionPointAfter(allocOp);
-
       newResults.push_back(allocOp.getResult());
     }
 
-    // Compute the loop bounds
+    // Compute the shape of the operation
+    auto shape = computeOpShape(
+        operation,
+        applyOp.getResults()[0].getType().cast<TempType>().getAllocation());
+    if (!shape.hasValue())
+      return failure();
+
+    // Compute the loop bounds starting from zero
+    // (in case of loop unrolling adjust the step of the loop)
     SmallVector<Value, 3> lb;
     SmallVector<Value, 3> ub;
     SmallVector<Value, 3> steps;
-    auto one = rewriter.create<ConstantIndexOp>(loc, 1);
-    for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
-      lb.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getLB()[i]));
-      ub.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getUB()[i]));
-      steps.push_back(rewriter.create<ConstantIndexOp>(loc, one));
+    auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+    for (int64_t i = 0, e = shape.getValue().size(); i != e; ++i) {
+      lb.push_back(rewriter.create<ConstantIndexOp>(loc, 0));
+      ub.push_back(rewriter.create<ConstantIndexOp>(loc, shape.getValue()[i]));
+      steps.push_back(rewriter.create<ConstantIndexOp>(
+          loc, returnOp.unroll().hasValue() ? returnOp.getUnroll()[i] : 1));
     }
 
+    // Convert the signature of the apply op body
+    // (access the apply op oparands directly and introduce the loop indicies)
     TypeConverter::SignatureConversion result(applyOp.getNumOperands());
-    for (auto &en : llvm::enumerate(applyOp.getOperands()))
+    for (auto &en : llvm::enumerate(applyOp.getOperands())) {
       result.remapInput(en.index(), operands[en.index()]);
-    Type indexType = IndexType::get(applyOp.getContext());
-    result.addInputs({indexType, indexType, indexType});
+    }
+    SmallVector<Type, 3> indexes(steps.size(),
+                                 IndexType::get(applyOp.getContext()));
+    result.addInputs(indexes);
     rewriter.applySignatureConversion(&applyOp.region(), result);
 
-    // BlockAndValueMapping mapper;
-    // for (auto en : llvm::enumerate(applyOp.getOperands()))
-    //   mapper.map(applyOp.getBody()->getArgument(en.index()), en.value());
-
+    // Replace the stencil apply operation by a parallel loop
     auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
     loop.getBody()->erase(); // TODO find better solution
     rewriter.inlineRegionBefore(applyOp.region(), loop.region(),
                                 loop.region().begin());
     rewriter.setInsertionPointToEnd(loop.getBody());
     rewriter.create<loop::YieldOp>(loc);
-
-    // for (auto &op : applyOp.getBody()->getOperations()) {
-    //   rewriter. clone(op, mapper);
-    // }
-
-    // rewriter.inlineRegionBefore(applyOp.region(), loop.region(),
-    // loop.region().end());
-
-    //     // for (size_t i = 0, e = applyOp.operands().size(); i < e; ++i) {
-    //     //   applyOp.getBody()->getArgument(i).replaceAllUsesWith(
-    //     //       applyOp.getOperand(i));
-    //     // }
-
     rewriter.replaceOp(applyOp, newResults);
+
+    // Deallocate the temporary storage
+    rewriter.setInsertionPoint(
+        applyOp.getParentRegion()->back().getTerminator());
+    for (auto newResult : newResults) {
+      rewriter.create<DeallocOp>(loc, newResult);
+    }
+
     return success();
   }
 };
@@ -430,51 +339,28 @@ public:
     auto loc = operation->getLoc();
     auto storeOp = cast<stencil::StoreOp>(operation);
 
-    // Get the memref cast operation
-    // TODO put in base class
-    MemRefCastOp castOp;
-    for (auto user : operands[1].getUsers()) {
-      if (castOp = dyn_cast<MemRefCastOp>(user))
-        break;
-    }
-    if (!castOp)
+    // Get the assert and the cast operation
+    auto castOp = getUserOp<MemRefCastOp>(operands[1]);
+    assert(castOp && "exepected operands[1] to point to the output field");
+    auto assertOp = getUserOp<stencil::AssertOp>(storeOp.field());
+    if (!castOp || !assertOp)
       return failure();
 
-    // Get the assert operation
-    // TODO put in base class
-    stencil::AssertOp assertOp;
-    for (auto user : storeOp.field().getUsers()) {
-      if (assertOp = dyn_cast<stencil::AssertOp>(user))
-        break;
-    }
-    if (!assertOp)
+    // Compute the memref type that stores the loaded data
+    auto resultType = computeResultType(
+        castOp.getResult().getType().cast<MemRefType>(),
+        storeOp.temp().getType().cast<TempType>().getAllocation(),
+        assertOp.getOperation(), operation);
+    if (!resultType.hasValue())
       return failure();
-
-    auto inputType = castOp.getResult().getType().cast<MemRefType>();
-
-    auto shapeOp = cast<ShapeOp>(operation);
-    auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
-                                     std::minus<int64_t>());
-    auto strides = computeStrides(inputType.getShape());
-
-    // TODO get assert operation!
-    auto offset = computeOffset(
-        applyFunElementWise(shapeOp.getLB(),
-                            cast<ShapeOp>(assertOp.getOperation()).getLB(),
-                            std::minus<int64_t>()),
-        strides);
-    auto map = makeStridedLinearLayoutMap(strides, offset, storeOp.getContext());
-
-    auto outputType =
-        MemRefType::get(shape, inputType.getElementType(), map, 0);
 
     // Remove allocation and deallocation and insert subtemp op
     auto allocOp = operands[0].getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
-    auto subViewOp =
-        rewriter.create<SubViewOp>(loc, outputType, castOp.getResult());
+    auto subViewOp = rewriter.create<SubViewOp>(loc, resultType.getValue(),
+                                                castOp.getResult());
     rewriter.replaceOp(allocOp, subViewOp.getResult());
-    
+
     // TODO remove dealloc
 
     rewriter.eraseOp(operation);
@@ -499,14 +385,6 @@ public:
              !funcOp.getAttr(
                  stencil::StencilDialect::getStencilFunctionAttrName());
     }
-    // if(auto ifOp = dyn_cast<loop::IfOp>(op)) {
-    //   llvm::errs() << "check if if-else is legal\n";
-    //   bool hasAccessOp = false;
-    //   ifOp.walk([&](stencil::AccessOp accessOp) {
-    //     hasAccessOp = true;
-    //   });
-    //   return !hasAccessOp;
-    // }
     return true;
   }
 };
@@ -524,22 +402,15 @@ void StencilToStandardPass::runOnOperation() {
   OwningRewritePatternList patterns;
   auto module = getOperation();
 
-  StencilTypeConverter typeConverter;
-
-  populateStencilToStdConversionPatterns(module.getContext(), typeConverter,
-                                         patterns);
+  StencilTypeConverter typeConverter(module.getContext());
+  populateStencilToStdConversionPatterns(typeConverter, patterns);
 
   StencilToStdTarget target(*(module.getContext()));
   target.addLegalDialect<AffineDialect>();
   target.addLegalDialect<StandardOpsDialect>();
-  target.addLegalOp<loop::IfOp>();
-  target.addLegalOp<loop::ParallelOp>();
-  target.addLegalOp<loop::YieldOp>();
-
-  // target.addLegalDialect<loop::LoopOpsDialect>();
+  target.addLegalDialect<loop::LoopOpsDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
-
   if (failed(applyFullConversion(module, target, patterns, &typeConverter))) {
     signalPassFailure();
   }
@@ -550,9 +421,26 @@ void StencilToStandardPass::runOnOperation() {
 namespace mlir {
 namespace stencil {
 
-// Implementation of the Stencil Type converter
-StencilTypeConverter::StencilTypeConverter() {
-  addConversion([&](FieldType type) { return convertFieldType(type); });
+// Populate the conversion pattern list
+void populateStencilToStdConversionPatterns(
+    StencilTypeConverter &typeConveter,
+    mlir::OwningRewritePatternList &patterns) {
+  patterns
+      .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
+              ReturnOpLowering, AccessOpLowering, StoreOpLowering>(
+          typeConveter);
+}
+
+//===----------------------------------------------------------------------===//
+// Stencil Type Converter
+//===----------------------------------------------------------------------===//
+
+StencilTypeConverter::StencilTypeConverter(MLIRContext *context_)
+    : context(context_) {
+  // Add a type conversion for the stencil field type
+  addConversion([&](FieldType type) {
+    return MemRefType::get(type.getMemRefShape(), type.getElementType());
+  });
   addConversion([&](Type type) -> Optional<Type> {
     if (auto fieldType = type.dyn_cast<FieldType>())
       return llvm::None;
@@ -560,36 +448,69 @@ StencilTypeConverter::StencilTypeConverter() {
   });
 }
 
-Type StencilTypeConverter::convertFieldType(FieldType type) {
-  auto elementType = type.getElementType();
-  SmallVector<int64_t, kIndexSize> shape; //, strides;
-  for (auto size : type.getShape()) {
-    assert(GridType::isScalar(size) ||
-           GridType::isDynamic(size) &&
-               "expected fields to have a dynamic shape");
-    if (GridType::isDynamic(size)) {
-      shape.push_back(ShapedType::kDynamicSize);
-    }
-  }
-  return MemRefType::get(shape, elementType); 
-}
+//===----------------------------------------------------------------------===//
+// Stencil Pattern Base Class
+//===----------------------------------------------------------------------===//
 
-// Implementation of the stencil to standard pattern
 StencilToStdPattern::StencilToStdPattern(StringRef rootOpName,
-                                         MLIRContext *context,
                                          StencilTypeConverter &typeConverter_,
                                          PatternBenefit benefit)
-    : ConversionPattern(rootOpName, benefit, context),
+    : ConversionPattern(rootOpName, benefit, typeConverter_.getContext()),
       typeConverter(typeConverter_) {}
 
-void populateStencilToStdConversionPatterns(
-    mlir::MLIRContext *ctx, StencilTypeConverter &typeConveter,
-    mlir::OwningRewritePatternList &patterns) {
+Index StencilToStdPattern::computeStrides(ArrayRef<int64_t> shape) const {
+  Index result(shape.size());
+  result[0] = 1;
+  for (size_t i = 1, e = result.size(); i != e; ++i)
+    result[i] = result[i - 1] * shape[i - 1];
+  return result;
+}
 
-  patterns
-      .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
-              ReturnOpLowering, AccessOpLowering, StoreOpLowering>(
-          ctx, typeConveter);
+Optional<MemRefType> StencilToStdPattern::computeResultType(
+    MemRefType inputType, SmallVector<bool, 3> hasAlloc, ShapeOp assertOp,
+    ShapeOp accessOp) const {
+  if (accessOp.hasShape()) {
+    // Compute strides and shape
+    auto strides = computeStrides(inputType.getShape());
+    auto shape = computeOpShape(accessOp.getOperation(), hasAlloc).getValue();
+    assert(strides.size() == shape.size() &&
+           "expected strides and shape to have the same size");
+    assert(shape.size() <= hasAlloc.size() &&
+           "expected shape to have at most allocation rank");
+
+    // Compute the stride considering only the allocated dimensions
+    int64_t offset = 0;
+    for (auto en : llvm::enumerate(hasAlloc)) {
+      if (en.value())
+        offset +=
+            (accessOp.getLB()[en.index()] - assertOp.getLB()[en.index()]) *
+            strides[en.index()];
+    }
+
+    // Compute the affine map and assemble the memref type
+    auto affineMap =
+        makeStridedLinearLayoutMap(strides, offset, accessOp.getContext());
+    return MemRefType::get(shape, inputType.getElementType(), affineMap, 0);
+  }
+  return llvm::None;
+}
+
+Optional<Index>
+StencilToStdPattern::computeOpShape(Operation *operation,
+                                    SmallVector<bool, 3> hasAlloc) const {
+  if (auto shapeOp = dyn_cast<ShapeOp>(operation)) {
+    if (shapeOp.hasShape()) {
+      auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
+                                       std::minus<int64_t>());
+      // Keep only the allocated dimensions
+      Index allocShape;
+      for (auto en : llvm::enumerate(shape))
+        if (hasAlloc[en.index()])
+          allocShape.push_back(en.value());
+      return allocShape;
+    }
+  }
+  return llvm::None;
 }
 
 } // namespace stencil

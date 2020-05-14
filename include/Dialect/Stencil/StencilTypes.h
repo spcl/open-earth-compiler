@@ -70,7 +70,7 @@ public:
     for(auto size : getShape()) {
       switch(size) {
         case(kDynamicDimension):
-          result.push_back(MemRefType::kDynamicSize);
+          result.push_back(ShapedType::kDynamicSize);
           break;
         case(kScalarDimension):
           break;
