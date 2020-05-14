@@ -37,7 +37,7 @@ def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeOp>]
   let verifier = [{
     auto fieldType = field().getType().cast<stencil::GridType>();
     auto shapeOp = cast<ShapeOp>(this->getOperation());
-    if(fieldType.hasStaticShape())
+    if(!fieldType.hasDynamicShape())
       return emitOpError("expected fields to have dynamic shape");
     if(shapeOp.getRank() != fieldType.getRank())
       return emitOpError("expected op and field to have the same rank");
