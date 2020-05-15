@@ -33,6 +33,7 @@ private:
 class StencilToStdPattern : public ConversionPattern {
 public:
   StencilToStdPattern(StringRef rootOpName, StencilTypeConverter &typeConverter,
+                      DenseMap<Value, Index> &valueToLB,
                       PatternBenefit benefit = 1);
 
   /// Compute the shape of the operation
@@ -41,7 +42,7 @@ public:
   /// Compute offset, shape, strides of the subview
   std::tuple<Index, Index, Index> computeSubViewShape(FieldType fieldType,
                                                       ShapeOp accessOp,
-                                                      ShapeOp assertOp) const;
+                                                      Index assertLB) const;
 
   /// Compute the index values for a given constant offset
   SmallVector<Value, 3>
@@ -61,6 +62,9 @@ public:
 protected:
   /// Reference to the type converter
   StencilTypeConverter &typeConverter;
+
+  /// Map storing the lower bounds of the original program
+  DenseMap<Value, Index> &valueToLB;
 };
 
 /// Helper class to implement patterns that match one source operation
@@ -68,12 +72,15 @@ template <typename OpTy>
 class StencilOpToStdPattern : public StencilToStdPattern {
 public:
   StencilOpToStdPattern(StencilTypeConverter &typeConverter,
+                        DenseMap<Value, Index> &valueToLB,
                         PatternBenefit benefit = 1)
-      : StencilToStdPattern(OpTy::getOperationName(), typeConverter, benefit) {}
+      : StencilToStdPattern(OpTy::getOperationName(), typeConverter, valueToLB,
+                            benefit) {}
 };
 
 /// Helper method to populate the conversion pattern list
 void populateStencilToStdConversionPatterns(StencilTypeConverter &typeConveter,
+                                            DenseMap<Value, Index> &valueToLB,
                                             OwningRewritePatternList &patterns);
 
 } // namespace stencil
