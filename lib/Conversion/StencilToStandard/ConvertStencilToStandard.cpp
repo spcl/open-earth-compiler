@@ -6,7 +6,7 @@
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/LoopOps/LoopOps.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -38,6 +38,7 @@
 
 using namespace mlir;
 using namespace stencil;
+using namespace scf;
 
 namespace {
 
@@ -124,8 +125,9 @@ public:
       return failure();
 
     // Replace the load operation by a subview operation
+    ArrayRef<NamedAttribute> attrs;
     auto subViewOp = rewriter.create<SubViewOp>(loc, resultType.getValue(),
-                                                castOp.getResult());
+                                                castOp.getResult(), attrs);
     rewriter.replaceOp(operation, subViewOp.getResult());
     return success();
   }
@@ -155,11 +157,9 @@ public:
       newResults.push_back(allocOp.getResult());
     }
 
-    // Compute the shape of the operation
-    auto shape = computeOpShape(
-        operation,
-        applyOp.getResults()[0].getType().cast<TempType>().getAllocation());
-    if (!shape.hasValue())
+    // Get the shape
+    auto shapeOp = cast<ShapeOp>(operation);
+    if (!shapeOp.hasShape())
       return failure();
 
     // Compute the loop bounds starting from zero
@@ -168,9 +168,9 @@ public:
     SmallVector<Value, 3> ub;
     SmallVector<Value, 3> steps;
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-    for (int64_t i = 0, e = shape.getValue().size(); i != e; ++i) {
-      lb.push_back(rewriter.create<ConstantIndexOp>(loc, 0));
-      ub.push_back(rewriter.create<ConstantIndexOp>(loc, shape.getValue()[i]));
+    for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
+      lb.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getLB()[i]));
+      ub.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getUB()[i]));
       steps.push_back(rewriter.create<ConstantIndexOp>(
           loc, returnOp.unroll().hasValue() ? returnOp.getUnroll()[i] : 1));
     }
@@ -187,12 +187,12 @@ public:
     rewriter.applySignatureConversion(&applyOp.region(), result);
 
     // Replace the stencil apply operation by a parallel loop
-    auto loop = rewriter.create<loop::ParallelOp>(loc, lb, ub, steps);
+    auto loop = rewriter.create<ParallelOp>(loc, lb, ub, steps);
     loop.getBody()->erase(); // TODO find better solution
     rewriter.inlineRegionBefore(applyOp.region(), loop.region(),
                                 loop.region().begin());
     rewriter.setInsertionPointToEnd(loop.getBody());
-    rewriter.create<loop::YieldOp>(loc);
+    rewriter.create<YieldOp>(loc);
     rewriter.replaceOp(applyOp, newResults);
 
     // Deallocate the temporary storage
@@ -216,50 +216,39 @@ public:
     auto loc = operation->getLoc();
     auto returnOp = cast<stencil::ReturnOp>(operation);
 
-    // Get the parallel loop
-    if (!isa<loop::ParallelOp>(operation->getParentOp()))
+    // Get the loop operation
+    if (!isa<ParallelOp>(operation->getParentOp()))
       return failure();
-    auto loop = cast<loop::ParallelOp>(operation->getParentOp());
-    SmallVector<Value, 3> loopIVs(loop.getNumLoops());
-    llvm::transform(loop.getInductionVars(), loopIVs.begin(),
-                    [](Value blockArg) { return blockArg; });
+    auto loop = cast<ParallelOp>(operation->getParentOp());
 
-    // Get temporary buffers
-    SmallVector<Operation *, 10> allocOps;
-    Operation *currentOp = loop.getOperation();
-    // Skip the loop constants
-    while (isa<ConstantOp>(currentOp->getPrevNode())) {
-      currentOp = currentOp->getPrevNode();
-      assert(currentOp && "failed to find allocation for results");
-    }
-    // Compute the number of result temps
-    unsigned numResults =
+    // Get allocations of result buffers
+    SmallVector<Value, 10> allocVals;
+    unsigned allocCount =
         returnOp.getNumOperands() / returnOp.getUnrollFactor();
-    // assert(returnOp.getNumOperands() % returnOp.getUnrollFactor() == 0 &&
-    //        "expected number of operands to be a multiple of the unroll
-    //        factor");
-    for (unsigned i = 0, e = numResults; i != e; ++i) {
-      currentOp = currentOp->getPrevNode();
-      allocOps.push_back(currentOp);
-      assert(dyn_cast<AllocOp>(currentOp) &&
-             "failed to find allocation for results");
+    for (auto *it = loop.getOperation(); it && allocVals.size() < allocCount;
+         it = it->getPrevNode()) {
+      if (auto allocOp = dyn_cast<AllocOp>(it))
+        allocVals.insert(allocVals.begin(), allocOp.getResult());
     }
-    SmallVector<Value, 10> allocVals(allocOps.size());
-    llvm::transform(llvm::reverse(allocOps), allocVals.begin(),
-                    [](Operation *allocOp) { return allocOp->getResult(0); });
+    assert(allocVals.size() == allocCount &&
+           "expected allocation for every result of the stencil operator");
 
     // Replace the return op by store ops
     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
     auto map = AffineMap::get(2, 0, expr);
-    for (unsigned i = 0, e = numResults; i != e; ++i) {
+
+    for (unsigned i = 0, e = allocCount; i != e; ++i) {
       for (unsigned j = 0, e = returnOp.getUnrollFactor(); j != e; ++j) {
         rewriter.setInsertionPoint(returnOp);
         unsigned operandIdx = i * returnOp.getUnrollFactor() + j;
         auto definingOp = returnOp.getOperand(operandIdx).getDefiningOp();
         if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
           rewriter.setInsertionPointAfter(definingOp);
+
+        // TODO subtract the loop loop bounds
+
         // Add the unrolling offset to the loop ivs
-        SmallVector<Value, 3> storeOffset = loopIVs;
+        SmallVector<Value, 3> storeOffset = loop.getInductionVars();
         if (j > 0) {
           auto unroll = returnOp.getUnroll();
           assert(llvm::count(unroll, 1) == unroll.size() - 1 &&
@@ -269,11 +258,12 @@ public:
           });
           auto unrollDim = std::distance(unroll.begin(), it);
           auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
-          ValueRange params = {loopIVs[unrollDim], constantOp.getResult()};
+          ValueRange params = {loop.getInductionVars()[unrollDim],
+                               constantOp.getResult()};
           auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
           storeOffset[unrollDim] = affineApplyOp.getResult();
         }
-        rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(i),
+        rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(operandIdx),
                                        allocVals[i], storeOffset);
       }
     }
@@ -294,32 +284,30 @@ public:
     auto accessOp = cast<stencil::AccessOp>(operation);
 
     // Get the parallel loop
-    auto loopOp = operation->getParentOfType<loop::ParallelOp>();
+    auto loopOp = operation->getParentOfType<ParallelOp>();
     if (!loopOp)
       return failure();
     assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
-    SmallVector<Value, 3> loopIVs(loopOp.getNumLoops());
-    llvm::transform(loopOp.getInductionVars(), loopIVs.begin(),
-                    [](Value arg) { return arg; });
+
+    // Get the allocation
+    auto tempType = accessOp.temp().getType().cast<TempType>();
 
     // Compute the access offsets
     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
     auto map = AffineMap::get(2, 0, expr);
     auto offset = accessOp.getOffset();
     SmallVector<Value, 3> loadOffset;
-    for (size_t i = 0, e = offset.size(); i != e; ++i) {
-      auto constantOp = rewriter.create<ConstantIndexOp>(loc, offset[i]);
-      ValueRange params = {loopIVs[i], constantOp.getResult()};
-      auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
-      loadOffset.push_back(affineApplyOp.getResult());
+    for (auto en : llvm::enumerate(tempType.getAllocation())) {
+      if (en.value()) {
+        ValueRange params = {
+            loopOp.getInductionVars()[en.index()],
+            rewriter.create<ConstantIndexOp>(loc, offset[en.index()])
+                .getResult()};
+        auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+        loadOffset.push_back(affineApplyOp.getResult());
+      }
     }
-    // assert(loadOffset.size() ==
-    //            operands[0].getType().cast<MemRefType>().getRank() &&
-    //        "expected load offset size to match memref rank");
-
-    // accessOp.temp().getType().dump();
-    // operands[0].getType().dump();
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
@@ -354,17 +342,19 @@ public:
     if (!resultType.hasValue())
       return failure();
 
-    // Remove allocation and deallocation and insert subtemp op
+    // Replace the allocation by a subview
     auto allocOp = operands[0].getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
+    ArrayRef<NamedAttribute> attrs;
     auto subViewOp = rewriter.create<SubViewOp>(loc, resultType.getValue(),
-                                                castOp.getResult());
+                                                castOp.getResult(), attrs);
     rewriter.replaceOp(allocOp, subViewOp.getResult());
 
-    // TODO remove dealloc
-
+    // Remove the deallocation and the store operation
+    auto deallocOp = getUserOp<DeallocOp>(operands[0]);
+    assert(deallocOp && "expecte dealloc operation");
+    rewriter.eraseOp(deallocOp);
     rewriter.eraseOp(operation);
-
     return success();
   }
 };
@@ -408,7 +398,7 @@ void StencilToStandardPass::runOnOperation() {
   StencilToStdTarget target(*(module.getContext()));
   target.addLegalDialect<AffineDialect>();
   target.addLegalDialect<StandardOpsDialect>();
-  target.addLegalDialect<loop::LoopOpsDialect>();
+  target.addLegalDialect<SCFDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
   if (failed(applyFullConversion(module, target, patterns, &typeConverter))) {
