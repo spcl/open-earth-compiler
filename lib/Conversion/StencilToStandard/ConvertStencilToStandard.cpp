@@ -35,6 +35,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <bits/stdint-intn.h>
 #include <cstddef>
+#include <functional>
 #include <iterator>
 #include <tuple>
 
@@ -112,9 +113,6 @@ public:
     // Get the assert and the cast operation
     auto castOp = getUserOp<MemRefCastOp>(operands[0]);
     assert(castOp && "exepected operands[0] to point to the input field");
-    auto assertOp = getUserOp<stencil::AssertOp>(loadOp.field());
-    if (!castOp || !assertOp)
-      return failure();
 
     // Get the temp and field types
     auto fieldType = loadOp.field().getType().cast<FieldType>();
@@ -126,8 +124,8 @@ public:
       return failure();
 
     // Compute the shape of the subviw
-    auto subViewShape =
-        computeSubViewShape(fieldType, operation, assertOp.getOperation());
+    auto subViewShape = computeSubViewShape(fieldType, operation,
+                                            valueToLB.lookup(loadOp.field()));
     assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
            "expected to get result memref shape");
 
@@ -247,10 +245,9 @@ public:
         if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
           rewriter.setInsertionPointAfter(definingOp);
 
-        // TODO subtract the loop loop bounds
-
         // Compute th store offset
-        Index offset = {0, 0, 0};
+        auto offset = valueToLB[returnOp.getOperand(operandIdx)];
+        llvm::transform(offset, offset.begin(), std::negate<int64_t>());
         offset[unrollDim] += j;
 
         // Compute the index values and introduce the store operation
@@ -284,12 +281,13 @@ public:
     assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
 
-    // Compute the index values
-    // TODO include the subview offset!
+    // Add the lower bound of the temporary to the access offset
+    auto totalOffset =
+        applyFunElementWise(accessOp.getOffset(), valueToLB[accessOp.temp()],
+                            std::minus<int64_t>());
     auto tempType = accessOp.temp().getType().cast<TempType>();
-    auto loadOffset =
-        computeIndexValues(loopOp.getInductionVars(), accessOp.getOffset(),
-                           tempType.getAllocation(), rewriter);
+    auto loadOffset = computeIndexValues(loopOp.getInductionVars(), totalOffset,
+                                         tempType.getAllocation(), rewriter);
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
@@ -311,9 +309,6 @@ public:
     // Get the assert and the cast operation
     auto castOp = getUserOp<MemRefCastOp>(operands[1]);
     assert(castOp && "exepected operands[1] to point to the output field");
-    auto assertOp = getUserOp<stencil::AssertOp>(storeOp.field());
-    if (!castOp || !assertOp)
-      return failure();
 
     // Get the temp and field types
     auto fieldType = storeOp.field().getType().cast<FieldType>();
@@ -324,9 +319,9 @@ public:
     if (!shapeOp.hasShape())
       return failure();
 
-    // Compute the shape of the subviw
-    auto subViewShape =
-        computeSubViewShape(fieldType, operation, assertOp.getOperation());
+    // Compute the shape of the subview
+    auto subViewShape = computeSubViewShape(fieldType, operation,
+                                            valueToLB.lookup(storeOp.field()));
     assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
            "expected to get result memref shape");
 
@@ -381,11 +376,27 @@ void StencilToStandardPass::runOnOperation() {
   OwningRewritePatternList patterns;
   auto module = getOperation();
 
-  // TODO compute an analysis that contains the buffer shift
-  // compared to the offset zero
+  // Map that relates values to the lower bounds of to associated operations
+  DenseMap<Value, Index> valueToLB;
+  module.walk([&](stencil::AssertOp assertOp) {
+    auto shapeOp = cast<ShapeOp>(assertOp.getOperation());
+    valueToLB[assertOp.field()] = shapeOp.getLB();
+  });
+  module.walk([&](stencil::ApplyOp applyOp) {
+    // Store the lower bounds for all arguments
+    for (auto en : llvm::enumerate(applyOp.getOperands())) {
+      if (auto shapeOp = dyn_cast<ShapeOp>(en.value().getDefiningOp()))
+        valueToLB[applyOp.getBody()->getArgument(en.index())] = shapeOp.getLB();
+    }
+    // Store the lower bounds for all results
+    auto LB = cast<ShapeOp>(applyOp.getOperation()).getLB();
+    for (auto value : applyOp.getBody()->getTerminator()->getOperands()) {
+      valueToLB[value] = LB;
+    }
+  });
 
   StencilTypeConverter typeConverter(module.getContext());
-  populateStencilToStdConversionPatterns(typeConverter, patterns);
+  populateStencilToStdConversionPatterns(typeConverter, valueToLB, patterns);
 
   StencilToStdTarget target(*(module.getContext()));
   target.addLegalDialect<AffineDialect>();
@@ -405,12 +416,12 @@ namespace stencil {
 
 // Populate the conversion pattern list
 void populateStencilToStdConversionPatterns(
-    StencilTypeConverter &typeConveter,
+    StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
     mlir::OwningRewritePatternList &patterns) {
   patterns
       .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
-              ReturnOpLowering, AccessOpLowering, StoreOpLowering>(
-          typeConveter);
+              ReturnOpLowering, AccessOpLowering, StoreOpLowering>(typeConveter,
+                                                                   valueToLB);
 }
 
 //===----------------------------------------------------------------------===//
@@ -447,9 +458,10 @@ Type StencilTypeConverter::convertFieldType(FieldType fieldType,
 
 StencilToStdPattern::StencilToStdPattern(StringRef rootOpName,
                                          StencilTypeConverter &typeConverter_,
+                                         DenseMap<Value, Index> &valueToLB_,
                                          PatternBenefit benefit)
     : ConversionPattern(rootOpName, benefit, typeConverter_.getContext()),
-      typeConverter(typeConverter_) {}
+      typeConverter(typeConverter_), valueToLB(valueToLB_) {}
 
 Index StencilToStdPattern::computeShape(ShapeOp shapeOp) const {
   return applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
@@ -458,7 +470,7 @@ Index StencilToStdPattern::computeShape(ShapeOp shapeOp) const {
 
 std::tuple<Index, Index, Index>
 StencilToStdPattern::computeSubViewShape(FieldType fieldType, ShapeOp accessOp,
-                                         ShapeOp assertOp) const {
+                                         Index assertLB) const {
   auto shape = computeShape(accessOp);
   Index revShape, revOffset, revStrides;
   for (auto en : llvm::enumerate(fieldType.getAllocation())) {
@@ -466,8 +478,8 @@ StencilToStdPattern::computeSubViewShape(FieldType fieldType, ShapeOp accessOp,
     if (en.value()) {
       revShape.insert(revShape.begin(), shape[en.index()]);
       revStrides.insert(revStrides.begin(), 1);
-      revOffset.insert(revOffset.begin(), accessOp.getLB()[en.index()] -
-                                              assertOp.getLB()[en.index()]);
+      revOffset.insert(revOffset.begin(),
+                       accessOp.getLB()[en.index()] - assertLB[en.index()]);
     }
   }
   return std::make_tuple(revOffset, revShape, revStrides);
