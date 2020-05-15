@@ -21,6 +21,7 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -35,6 +36,7 @@
 #include <bits/stdint-intn.h>
 #include <cstddef>
 #include <iterator>
+#include <tuple>
 
 using namespace mlir;
 using namespace stencil;
@@ -89,10 +91,8 @@ public:
 
     // Compute the static shape of the field and cast the input memref
     auto fieldType = assertOp.field().getType().cast<FieldType>();
-    auto shape = computeOpShape(operation, fieldType.getAllocation());
-    assert(shape.hasValue() && "expected assertOp to have a shape");
-    auto resultType =
-        MemRefType::get(shape.getValue(), fieldType.getElementType());
+    auto shape = computeShape(operation);
+    auto resultType = typeConverter.convertFieldType(fieldType, shape);
     rewriter.create<MemRefCastOp>(loc, operands[0], resultType);
     rewriter.eraseOp(assertOp);
     return success();
@@ -116,18 +116,26 @@ public:
     if (!castOp || !assertOp)
       return failure();
 
-    // Compute the memref type that stores the loaded data
-    auto resultType = computeResultType(
-        castOp.getResult().getType().cast<MemRefType>(),
-        loadOp.res().getType().cast<TempType>().getAllocation(),
-        assertOp.getOperation(), operation);
-    if (!resultType.hasValue())
+    // Get the temp and field types
+    auto fieldType = loadOp.field().getType().cast<FieldType>();
+    auto tempType = loadOp.res().getType().cast<TempType>();
+
+    // Check the shape is set
+    auto shapeOp = cast<ShapeOp>(operation);
+    if (!shapeOp.hasShape())
       return failure();
 
-    // Replace the load operation by a subview operation
-    ArrayRef<NamedAttribute> attrs;
-    auto subViewOp = rewriter.create<SubViewOp>(loc, resultType.getValue(),
-                                                castOp.getResult(), attrs);
+    // Compute the shape of the subviw
+    auto subViewShape =
+        computeSubViewShape(fieldType, operation, assertOp.getOperation());
+    assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
+           "expected to get result memref shape");
+
+    // Replace the load op by a subview op
+    auto subViewOp = rewriter.create<SubViewOp>(
+        loc, castOp.getResult(), std::get<0>(subViewShape),
+        std::get<1>(subViewShape), std::get<2>(subViewShape), ValueRange(),
+        ValueRange(), ValueRange());
     rewriter.replaceOp(operation, subViewOp.getResult());
     return success();
   }
@@ -146,13 +154,8 @@ public:
     // Allocate storage for every stencil output
     SmallVector<Value, 10> newResults;
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      TempType tempType = applyOp.getResult(i).getType().cast<TempType>();
-      auto strides = computeStrides(tempType.getMemRefShape());
-      auto affineMap =
-          makeStridedLinearLayoutMap(strides, 0, applyOp.getContext());
-      auto allocType = MemRefType::get(tempType.getMemRefShape(),
-                                       tempType.getElementType(), affineMap, 0);
-
+      auto allocType = typeConverter.convertType(applyOp.getResult(i).getType())
+                           .cast<MemRefType>();
       auto allocOp = rewriter.create<AllocOp>(loc, allocType);
       newResults.push_back(allocOp.getResult());
     }
@@ -164,9 +167,7 @@ public:
 
     // Compute the loop bounds starting from zero
     // (in case of loop unrolling adjust the step of the loop)
-    SmallVector<Value, 3> lb;
-    SmallVector<Value, 3> ub;
-    SmallVector<Value, 3> steps;
+    SmallVector<Value, 3> lb, ub, steps;
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
     for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
       lb.push_back(rewriter.create<ConstantIndexOp>(loc, shapeOp.getLB()[i]));
@@ -216,53 +217,46 @@ public:
     auto loc = operation->getLoc();
     auto returnOp = cast<stencil::ReturnOp>(operation);
 
+    /// Compute unroll factor and dimension
+    auto unrollFac = returnOp.getUnrollFactor();
+    size_t unrollDim = returnOp.getUnrollDimension();
+
     // Get the loop operation
     if (!isa<ParallelOp>(operation->getParentOp()))
       return failure();
-    auto loop = cast<ParallelOp>(operation->getParentOp());
+    auto loopOp = cast<ParallelOp>(operation->getParentOp());
 
     // Get allocations of result buffers
     SmallVector<Value, 10> allocVals;
-    unsigned allocCount =
-        returnOp.getNumOperands() / returnOp.getUnrollFactor();
-    for (auto *it = loop.getOperation(); it && allocVals.size() < allocCount;
-         it = it->getPrevNode()) {
-      if (auto allocOp = dyn_cast<AllocOp>(it))
+    unsigned allocCount = returnOp.getNumOperands() / unrollFac;
+    auto *node = loopOp.getOperation();
+    while (node && allocVals.size() < allocCount) {
+      if (auto allocOp = dyn_cast<AllocOp>(node))
         allocVals.insert(allocVals.begin(), allocOp.getResult());
+      node = node->getPrevNode();
     }
     assert(allocVals.size() == allocCount &&
            "expected allocation for every result of the stencil operator");
 
-    // Replace the return op by store ops
-    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-    auto map = AffineMap::get(2, 0, expr);
-
+    // Introduce a store for every return value
     for (unsigned i = 0, e = allocCount; i != e; ++i) {
-      for (unsigned j = 0, e = returnOp.getUnrollFactor(); j != e; ++j) {
+      for (unsigned j = 0, e = unrollFac; j != e; ++j) {
         rewriter.setInsertionPoint(returnOp);
-        unsigned operandIdx = i * returnOp.getUnrollFactor() + j;
+        unsigned operandIdx = i * unrollFac + j;
         auto definingOp = returnOp.getOperand(operandIdx).getDefiningOp();
         if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
           rewriter.setInsertionPointAfter(definingOp);
 
         // TODO subtract the loop loop bounds
 
-        // Add the unrolling offset to the loop ivs
-        SmallVector<Value, 3> storeOffset = loop.getInductionVars();
-        if (j > 0) {
-          auto unroll = returnOp.getUnroll();
-          assert(llvm::count(unroll, 1) == unroll.size() - 1 &&
-                 "expected a single non-zero entry");
-          auto it = llvm::find_if(unroll, [&](int64_t x) {
-            return x == returnOp.getUnrollFactor();
-          });
-          auto unrollDim = std::distance(unroll.begin(), it);
-          auto constantOp = rewriter.create<ConstantIndexOp>(loc, j);
-          ValueRange params = {loop.getInductionVars()[unrollDim],
-                               constantOp.getResult()};
-          auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
-          storeOffset[unrollDim] = affineApplyOp.getResult();
-        }
+        // Compute th store offset
+        Index offset = {0, 0, 0};
+        offset[unrollDim] += j;
+
+        // Compute the index values and introduce the store operation
+        SmallVector<bool, 3> allocation(offset.size(), true);
+        auto storeOffset = computeIndexValues(loopOp.getInductionVars(), offset,
+                                              allocation, rewriter);
         rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(operandIdx),
                                        allocVals[i], storeOffset);
       }
@@ -290,29 +284,16 @@ public:
     assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
 
-    // Get the allocation
+    // Compute the index values
+    // TODO include the subview offset!
     auto tempType = accessOp.temp().getType().cast<TempType>();
-
-    // Compute the access offsets
-    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
-    auto map = AffineMap::get(2, 0, expr);
-    auto offset = accessOp.getOffset();
-    SmallVector<Value, 3> loadOffset;
-    for (auto en : llvm::enumerate(tempType.getAllocation())) {
-      if (en.value()) {
-        ValueRange params = {
-            loopOp.getInductionVars()[en.index()],
-            rewriter.create<ConstantIndexOp>(loc, offset[en.index()])
-                .getResult()};
-        auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
-        loadOffset.push_back(affineApplyOp.getResult());
-      }
-    }
+    auto loadOffset =
+        computeIndexValues(loopOp.getInductionVars(), accessOp.getOffset(),
+                           tempType.getAllocation(), rewriter);
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
                                               loadOffset);
-
     return success();
   }
 };
@@ -334,20 +315,28 @@ public:
     if (!castOp || !assertOp)
       return failure();
 
-    // Compute the memref type that stores the loaded data
-    auto resultType = computeResultType(
-        castOp.getResult().getType().cast<MemRefType>(),
-        storeOp.temp().getType().cast<TempType>().getAllocation(),
-        assertOp.getOperation(), operation);
-    if (!resultType.hasValue())
+    // Get the temp and field types
+    auto fieldType = storeOp.field().getType().cast<FieldType>();
+    auto tempType = storeOp.temp().getType().cast<TempType>();
+
+    // Check the shape is set
+    auto shapeOp = cast<ShapeOp>(operation);
+    if (!shapeOp.hasShape())
       return failure();
+
+    // Compute the shape of the subviw
+    auto subViewShape =
+        computeSubViewShape(fieldType, operation, assertOp.getOperation());
+    assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
+           "expected to get result memref shape");
 
     // Replace the allocation by a subview
     auto allocOp = operands[0].getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
-    ArrayRef<NamedAttribute> attrs;
-    auto subViewOp = rewriter.create<SubViewOp>(loc, resultType.getValue(),
-                                                castOp.getResult(), attrs);
+    auto subViewOp = rewriter.create<SubViewOp>(
+        loc, castOp.getResult(), std::get<0>(subViewShape),
+        std::get<1>(subViewShape), std::get<2>(subViewShape), ValueRange(),
+        ValueRange(), ValueRange());
     rewriter.replaceOp(allocOp, subViewOp.getResult());
 
     // Remove the deallocation and the store operation
@@ -392,6 +381,9 @@ void StencilToStandardPass::runOnOperation() {
   OwningRewritePatternList patterns;
   auto module = getOperation();
 
+  // TODO compute an analysis that contains the buffer shift
+  // compared to the offset zero
+
   StencilTypeConverter typeConverter(module.getContext());
   populateStencilToStdConversionPatterns(typeConverter, patterns);
 
@@ -428,14 +420,25 @@ void populateStencilToStdConversionPatterns(
 StencilTypeConverter::StencilTypeConverter(MLIRContext *context_)
     : context(context_) {
   // Add a type conversion for the stencil field type
-  addConversion([&](FieldType type) {
+  addConversion([&](GridType type) {
     return MemRefType::get(type.getMemRefShape(), type.getElementType());
   });
   addConversion([&](Type type) -> Optional<Type> {
-    if (auto fieldType = type.dyn_cast<FieldType>())
+    if (auto gridType = type.dyn_cast<GridType>())
       return llvm::None;
     return type;
   });
+}
+
+Type StencilTypeConverter::convertFieldType(FieldType fieldType,
+                                            ArrayRef<int64_t> shape) {
+  Index revShape;
+  for (auto en : llvm::enumerate(fieldType.getAllocation())) {
+    // Insert at the front to convert from column to row-major
+    if (en.value())
+      revShape.insert(revShape.begin(), shape[en.index()]);
+  }
+  return MemRefType::get(revShape, fieldType.getElementType());
 }
 
 //===----------------------------------------------------------------------===//
@@ -448,59 +451,47 @@ StencilToStdPattern::StencilToStdPattern(StringRef rootOpName,
     : ConversionPattern(rootOpName, benefit, typeConverter_.getContext()),
       typeConverter(typeConverter_) {}
 
-Index StencilToStdPattern::computeStrides(ArrayRef<int64_t> shape) const {
-  Index result(shape.size());
-  result[0] = 1;
-  for (size_t i = 1, e = result.size(); i != e; ++i)
-    result[i] = result[i - 1] * shape[i - 1];
-  return result;
+Index StencilToStdPattern::computeShape(ShapeOp shapeOp) const {
+  return applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
+                             std::minus<int64_t>());
 }
 
-Optional<MemRefType> StencilToStdPattern::computeResultType(
-    MemRefType inputType, SmallVector<bool, 3> hasAlloc, ShapeOp assertOp,
-    ShapeOp accessOp) const {
-  if (accessOp.hasShape()) {
-    // Compute strides and shape
-    auto strides = computeStrides(inputType.getShape());
-    auto shape = computeOpShape(accessOp.getOperation(), hasAlloc).getValue();
-    assert(strides.size() == shape.size() &&
-           "expected strides and shape to have the same size");
-    assert(shape.size() <= hasAlloc.size() &&
-           "expected shape to have at most allocation rank");
-
-    // Compute the stride considering only the allocated dimensions
-    int64_t offset = 0;
-    for (auto en : llvm::enumerate(hasAlloc)) {
-      if (en.value())
-        offset +=
-            (accessOp.getLB()[en.index()] - assertOp.getLB()[en.index()]) *
-            strides[en.index()];
+std::tuple<Index, Index, Index>
+StencilToStdPattern::computeSubViewShape(FieldType fieldType, ShapeOp accessOp,
+                                         ShapeOp assertOp) const {
+  auto shape = computeShape(accessOp);
+  Index revShape, revOffset, revStrides;
+  for (auto en : llvm::enumerate(fieldType.getAllocation())) {
+    // Insert values at the front to convert from column- to row-major
+    if (en.value()) {
+      revShape.insert(revShape.begin(), shape[en.index()]);
+      revStrides.insert(revStrides.begin(), 1);
+      revOffset.insert(revOffset.begin(), accessOp.getLB()[en.index()] -
+                                              assertOp.getLB()[en.index()]);
     }
-
-    // Compute the affine map and assemble the memref type
-    auto affineMap =
-        makeStridedLinearLayoutMap(strides, offset, accessOp.getContext());
-    return MemRefType::get(shape, inputType.getElementType(), affineMap, 0);
   }
-  return llvm::None;
+  return std::make_tuple(revOffset, revShape, revStrides);
 }
 
-Optional<Index>
-StencilToStdPattern::computeOpShape(Operation *operation,
-                                    SmallVector<bool, 3> hasAlloc) const {
-  if (auto shapeOp = dyn_cast<ShapeOp>(operation)) {
-    if (shapeOp.hasShape()) {
-      auto shape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
-                                       std::minus<int64_t>());
-      // Keep only the allocated dimensions
-      Index allocShape;
-      for (auto en : llvm::enumerate(shape))
-        if (hasAlloc[en.index()])
-          allocShape.push_back(en.value());
-      return allocShape;
+SmallVector<Value, 3> StencilToStdPattern::computeIndexValues(
+    ValueRange inductionVars, Index offset, ArrayRef<bool> allocation,
+    ConversionPatternRewriter &rewriter) const {
+  auto loc = rewriter.getInsertionPoint()->getLoc();
+  auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+  auto map = AffineMap::get(2, 0, expr);
+  SmallVector<Value, 3> resOffset;
+  for (auto en : llvm::enumerate(allocation)) {
+    // Insert values at the front to convert from column- to row-major
+    if (en.value()) {
+      ValueRange params = {
+          inductionVars[en.index()],
+          rewriter.create<ConstantIndexOp>(loc, offset[en.index()])
+              .getResult()};
+      auto affineApplyOp = rewriter.create<AffineApplyOp>(loc, map, params);
+      resOffset.insert(resOffset.begin(), affineApplyOp.getResult());
     }
   }
-  return llvm::None;
+  return resOffset;
 }
 
 } // namespace stencil
