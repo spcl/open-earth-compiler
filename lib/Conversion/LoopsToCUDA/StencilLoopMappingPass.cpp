@@ -3,7 +3,7 @@
 #include "PassDetail.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/ParallelLoopMapper.h"
-#include "mlir/Dialect/LoopOps/LoopOps.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -31,6 +31,7 @@
 #include <limits>
 
 using namespace mlir;
+using namespace scf;
 
 namespace {
 
@@ -82,7 +83,7 @@ int64_t getConstantValue(Value val) {
 }
 
 // Helper method setting the loop mapping attributes for a parallel loop
-void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
+void setTheGPUMappingAttributes(OpBuilder &b, ParallelOp parallelOp,
                                 MappingLevel level) {
   // TODO fix this
   SmallVector<gpu::ParallelLoopDimMapping, 3> attrs;
@@ -95,7 +96,7 @@ void setTheGPUMappingAttributes(OpBuilder &b, loop::ParallelOp parallelOp,
 }
 
 // Method tiling and mapping a parallel loop for the GPU execution
-void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
+void tileAndMapParallelLoop(ParallelOp parallelOp,
                             ArrayRef<int64_t> blockSizes) {
   // assert(parallelOp.getNumLoops() == stencil::kNumOfDimensions &&
   //        "expected parallel loop to have full dimensionality");
@@ -137,13 +138,13 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
         (newStep * ((loopBounds[i] + newStep - 1) / newStep))));
   }
   auto outerLoop =
-      b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
+      b.create<ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
                                  newUpperBound, newStepConstants);
   b.setInsertionPointToStart(outerLoop.getBody());
 
   // Create the inner loop iterating over the block
   auto innerLoop =
-      b.create<loop::ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
+      b.create<ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
                                  newStepConstants, parallelOp.step());
 
   // Sum the loop induction variables if necessary
@@ -195,7 +196,7 @@ void tileAndMapParallelLoop(loop::ParallelOp parallelOp,
       predicates.pop_back();
     }
     // Insert the guard
-    auto ifOp = b.create<loop::IfOp>(parallelOp.getLoc(), predicate, false);
+    auto ifOp = b.create<IfOp>(parallelOp.getLoc(), predicate, false);
     b.setInsertionPointToStart(&ifOp.thenRegion().front());
   }
 
@@ -224,7 +225,7 @@ struct StencilLoopMappingPass
 
 void StencilLoopMappingPass::runOnFunction() {
   auto funcOp = getOperation();
-  funcOp.walk([&](loop::ParallelOp parallelOp) {
+  funcOp.walk([&](ParallelOp parallelOp) {
     tileAndMapParallelLoop(parallelOp, blockSizes);
   });
 }
