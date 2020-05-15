@@ -6,6 +6,8 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include <bits/stdint-intn.h>
+#include <tuple>
 
 namespace mlir {
 namespace stencil {
@@ -16,6 +18,9 @@ struct StencilTypeConverter : public TypeConverter {
 
   /// Create a stencil type converter using the default conversions
   StencilTypeConverter(MLIRContext *context);
+
+  /// Convert a dynamic field to a statically sized memref
+  Type convertFieldType(FieldType fieldType, ArrayRef<int64_t> shape);
 
   /// Return the context
   MLIRContext *getContext() { return context; }
@@ -30,18 +35,19 @@ public:
   StencilToStdPattern(StringRef rootOpName, StencilTypeConverter &typeConverter,
                       PatternBenefit benefit = 1);
 
-  /// Compute the strides assuming column-major storage order
-  Index computeStrides(ArrayRef<int64_t> shape) const;
-
-  /// Compute the result type of a subview operation
-  Optional<MemRefType> computeResultType(MemRefType inputType,
-                                         SmallVector<bool, 3> hasAlloc,
-                                         ShapeOp assertOp,
-                                         ShapeOp accessOp) const;
-
   /// Compute the shape of the operation
-  Optional<Index> computeOpShape(Operation *operation,
-                                 SmallVector<bool, 3> hasAlloc) const;
+  Index computeShape(ShapeOp shapeOp) const;
+
+  /// Compute offset, shape, strides of the subview
+  std::tuple<Index, Index, Index> computeSubViewShape(FieldType fieldType,
+                                                      ShapeOp accessOp,
+                                                      ShapeOp assertOp) const;
+
+  /// Compute the index values for a given constant offset
+  SmallVector<Value, 3>
+  computeIndexValues(ValueRange inductionVars, Index offset,
+                     ArrayRef<bool> allocation,
+                     ConversionPatternRewriter &rewriter) const;
 
   /// Return operation of a specific type that uses a given value
   template <typename OpTy>

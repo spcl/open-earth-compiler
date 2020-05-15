@@ -65,9 +65,10 @@ public:
   }
 
   /// Return the compatible memref shape
+  /// (reverse shape from column-major to row-major)
   SmallVector<int64_t, 3> getMemRefShape() const {
     SmallVector<int64_t, 3> result;
-    for(auto size : getShape()) {
+    for(auto size : llvm::reverse(getShape())) {
       switch(size) {
         case(kDynamicDimension):
           result.push_back(ShapedType::kDynamicSize);
