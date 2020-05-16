@@ -95,3 +95,21 @@ func @lower(%arg0: !stencil.field<?x?x0xf64>, %arg1: !stencil.field<?x?x?xf64>) 
   return
 }
 
+// -----
+
+// CHECK-LABEL: func @twostores(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+func @twostores(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg0([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
+  stencil.assert %arg1([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
+  //  CHECK: %{{.*}}:2 = stencil.apply -> (!stencil.temp<64x66x60xf64>, !stencil.temp<64x66x60xf64>) {
+  %1,%2 = stencil.apply -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
+    %3 = constant 1.0 : f64
+    stencil.return %3, %3 : f64, f64
+  //  CHECK: } to ([0, -1, 0] : [64, 65, 60])
+  }
+  //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<?x?x?xf64>
+  stencil.store %1 to %arg0([0, 0, 0] : [64, 65, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<?x?x?xf64>
+  //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<?x?x?xf64>
+  stencil.store %2 to %arg1([0, -1, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<?x?x?xf64>
+  return
+}
