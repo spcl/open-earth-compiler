@@ -61,3 +61,109 @@ func @parallel_loop_unroll(%arg0 : f64) attributes {stencil.program} {
   } to ([0, -1, 0]:[7, 77, 777])
   return
 }
+
+// -----
+
+// CHECK-LABEL: @alloc_temp
+func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
+  // CHECK: [[TEMP:%.*]] = alloc() : memref<7x7x7xf64>
+  %0 = stencil.apply (%arg1 = %arg0 : f64) -> !stencil.temp<7x7x7xf64> {
+    // CHECK: store %{{.*}}, [[TEMP]]  
+    stencil.return %arg1 : f64
+  } to ([0, 0, 0]:[7, 7, 7]) 
+  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64> {
+    // CHECK: load [[TEMP]]  
+    %4 = stencil.access %arg1[0,0,0] : (!stencil.temp<7x7x7xf64>) -> f64
+    stencil.return %4 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  // CHECK: dealloc [[TEMP]] : memref<7x7x7xf64>
+  return
+}
+
+// -----
+
+// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+
+// CHECK-LABEL: @access_lowering
+func @access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[0, 0, 0] [10, 10, 10] [1, 1, 1]
+  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+    // CHECK-DAG: [[C0:%.*]] = constant 0 : index
+    // CHECK-DAG: [[O0:%.*]] = affine.apply [[MAP0]]([[ARG0]], [[C0]])
+    // CHECK-DAG: [[C1:%.*]] = constant 1 : index
+    // CHECK-DAG: [[O1:%.*]] = affine.apply [[MAP0]]([[ARG1]], [[C1]])
+    // CHECK-DAG: [[C2:%.*]] = constant 2 : index
+    // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP0]]([[ARG2]], [[C2]])
+    // CHECK: %{{.*}} = load [[VIEW:%.*]]{{\[}}[[O2]], [[O1]], [[O0]]{{[]]}}
+    %2 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+    stencil.return %2 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @return_lowering
+func @return_lowering(%arg0: f64) attributes {stencil.program} {
+  // CHECK: scf.parallel (%{{.*}}, %{{.*}}, %{{.*}}) =
+  %0:2 = stencil.apply (%arg1 = %arg0 : f64) -> (!stencil.temp<7x7x7xf64>, !stencil.temp<7x7x7xf64>) {
+    // CHECK-COUNT-2: store %{{.*}}, %{{.*}}{{\[}}%{{.*}}, %{{.*}}, %{{.*}} : memref<7x7x7xf64> 
+    stencil.return %arg1, %arg1 : f64, f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @load_lowering
+func @load_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg0 ([0, 0, 0]:[11, 12, 13]) : !stencil.field<?x?x?xf64>
+  // CHECK: %{{.*}} = subview %{{.*}}[3, 2, 1] [9, 9, 9] [1, 1, 1] : memref<13x12x11xf64> to memref<9x9x9xf64, #map{{[0-9]+}}>
+  %0 = stencil.load %arg0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<9x9x9xf64>
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @store_lowering
+func @store_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[3, 2, 1] [7, 7, 7] [1, 1, 1] : memref<10x10x10xf64> to memref<7x7x7xf64, #map{{[0-9]+}}>
+  %cst = constant 1.0 : f64
+  %0 = stencil.apply (%arg1 = %cst : f64) -> !stencil.temp<7x7x7xf64> {
+    // CHECK: store %{{.*}} [[VIEW]]
+    stencil.return %arg1 : f64
+  } to ([0, 0, 0]:[7, 7, 7]) 
+  stencil.store %0 to %arg0 ([1, 2, 3]:[8, 9, 10]) : !stencil.temp<7x7x7xf64> to !stencil.field<?x?x?xf64>
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @if_lowering
+func @if_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
+  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+    %2 = constant 1 : i1
+    // CHECK: [[RES:%.*]] = scf.if %{{.*}} -> (f64) {
+    %3 = scf.if %2 -> (f64) {
+      // CHECK: [[IF:%.*]] = load
+      %4 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+      // CHECK: scf.yield [[IF]] : f64
+      scf.yield %4 : f64
+    // CHECK: } else {
+    } else {
+      // CHECK: [[ELSE:%.*]] = load
+      %5 = stencil.access %arg1[0, 2, 1] : (!stencil.temp<10x10x10xf64>) -> f64
+      // CHECK: scf.yield [[ELSE]] : f64
+      scf.yield %5 : f64
+    }
+    // CHECK: store [[RES]]
+    stencil.return %3 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
