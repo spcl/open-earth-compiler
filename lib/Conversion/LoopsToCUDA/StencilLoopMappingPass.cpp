@@ -98,20 +98,15 @@ void setTheGPUMappingAttributes(OpBuilder &b, ParallelOp parallelOp,
 // Method tiling and mapping a parallel loop for the GPU execution
 void tileAndMapParallelLoop(ParallelOp parallelOp,
                             ArrayRef<int64_t> blockSizes) {
-  // assert(parallelOp.getNumLoops() == stencil::kNumOfDimensions &&
-  //        "expected parallel loop to have full dimensionality");
-  assert(llvm::all_of(parallelOp.lowerBound(),
-                      [](Value val) {
-                        return verifyIsConstant(val) &&
-                               getConstantValue(val) == 0;
-                      }) &&
-         "expected zero lower bounds");
   // Prepare the builder
   OpBuilder b(parallelOp);
 
   // Compute the block sizes assuming 1 if no config provided
   SmallVector<Value, 3> blockSizeConstants;
-  SmallVector<int64_t, 3> loopBounds;
+  SmallVector<int64_t, 3> loopLB;
+  SmallVector<int64_t, 3> loopUB;
+  SmallVector<int64_t, 3> loopLen;
+
   for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
     if (i < blockSizes.size())
       blockSizeConstants.push_back(
@@ -119,8 +114,13 @@ void tileAndMapParallelLoop(ParallelOp parallelOp,
     else
       blockSizeConstants.push_back(
           b.create<ConstantIndexOp>(parallelOp.getLoc(), 1));
-    loopBounds.push_back(getConstantValue(parallelOp.upperBound()[i]));
+
+    loopLB.push_back(getConstantValue(parallelOp.lowerBound()[i]));
+    loopUB.push_back(getConstantValue(parallelOp.upperBound()[i]));
+    loopLen.push_back(loopUB[i] - loopLB[i]);
   }
+
+  auto zero = b.create<ConstantIndexOp>(parallelOp.getLoc(), 0);
 
   // Create a parallel loop over blocks and threads.
   SmallVector<Value, 3> newStepConstants;
@@ -135,17 +135,18 @@ void tileAndMapParallelLoop(ParallelOp parallelOp,
     newSteps.push_back(newStep);
     newUpperBound.push_back(b.create<ConstantIndexOp>(
         parallelOp.getLoc(),
-        (newStep * ((loopBounds[i] + newStep - 1) / newStep))));
+        loopLB[i] + (newStep * ((loopLen[i] + newStep - 1) / newStep))));
   }
   auto outerLoop =
       b.create<ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
-                                 newUpperBound, newStepConstants);
+                           newUpperBound, newStepConstants);
   b.setInsertionPointToStart(outerLoop.getBody());
 
   // Create the inner loop iterating over the block
+  SmallVector<Value, 3> lowerBound = {zero, zero, zero};
   auto innerLoop =
-      b.create<ParallelOp>(parallelOp.getLoc(), parallelOp.lowerBound(),
-                                 newStepConstants, parallelOp.step());
+      b.create<ParallelOp>(parallelOp.getLoc(), lowerBound,
+                           newStepConstants, parallelOp.step());
 
   // Sum the loop induction variables if necessary
   b.setInsertionPointToStart(innerLoop.getBody());
@@ -174,14 +175,14 @@ void tileAndMapParallelLoop(ParallelOp parallelOp,
   }
 
   // Add a guard for out-of-bounds execution if needed
-  if (llvm::any_of(llvm::zip(loopBounds, newSteps),
+  if (llvm::any_of(llvm::zip(loopLen, newSteps),
                    [](std::tuple<int64_t, int64_t> x) {
                      return std::get<0>(x) % std::get<1>(x) != 0;
                    })) {
     // Add compare only the necessary dimensions
     SmallVector<Value, 3> predicates;
     for (size_t i = 0, end = parallelOp.upperBound().size(); i != end; ++i) {
-      if (loopBounds[i] % newSteps[i] != 0) {
+      if (loopLen[i] % newSteps[i] != 0) {
         auto cmpOp = b.create<CmpIOp>(parallelOp.getLoc(), CmpIPredicate::slt,
                                       loopIVs[i], parallelOp.upperBound()[i]);
         predicates.push_back(cmpOp);
