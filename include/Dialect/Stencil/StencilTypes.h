@@ -54,6 +54,13 @@ public:
       return size == kDynamicDimension || size == kScalarDimension;
     });
   }
+  
+  /// Return true if all dimensions have a static
+  int64_t hasStaticShape() const {
+    return llvm::none_of(getShape(), [](int64_t size) {
+      return size == kDynamicDimension;
+    });
+  }
 
   /// Return the allocated / non-scalar dimensions
   SmallVector<bool, 3> getAllocation() const {
