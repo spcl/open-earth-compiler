@@ -211,7 +211,7 @@ public:
     /// Compute unroll factor and dimension
     auto unrollFac = returnOp.getUnrollFactor();
     size_t unrollDim = returnOp.getUnrollDimension();
-
+    
     // Get the loop operation
     if (!isa<ParallelOp>(operation->getParentOp()))
       return failure();

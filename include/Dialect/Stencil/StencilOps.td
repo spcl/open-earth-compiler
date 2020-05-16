@@ -362,12 +362,13 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
     size_t getUnrollDimension() {
       size_t dimension = 0;
       if (unroll().hasValue()) {
-        auto it = llvm::find_if(getUnroll(), [&](int64_t x) {
+        auto unroll = getUnroll();
+        auto it = llvm::find_if(unroll, [&](int64_t x) {
           return x == getUnrollFactor();
         });
-        assert(it != getUnroll().end() &&
+        assert(it != unroll.end() &&
               "expected to find unroll factor");
-        dimension = std::distance(getUnroll().begin(), it);
+        dimension = std::distance(unroll.begin(), it);
       }
       return dimension;
     } 
