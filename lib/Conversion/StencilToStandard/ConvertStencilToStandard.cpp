@@ -324,7 +324,7 @@ public:
 
     // Remove the deallocation and the store operation
     auto deallocOp = getUserOp<DeallocOp>(operands[0]);
-    assert(deallocOp && "expecte dealloc operation");
+    assert(deallocOp && "expected dealloc operation");
     rewriter.eraseOp(deallocOp);
     rewriter.eraseOp(operation);
     return success();

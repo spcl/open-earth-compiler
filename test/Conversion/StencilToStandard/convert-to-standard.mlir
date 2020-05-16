@@ -167,3 +167,25 @@ func @if_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program}
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }
+
+// -----
+
+// CHECK-LABEL: @lowerdim
+// CHECK: (%{{.*}}: memref<?x?xf64>) {
+func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
+  // CHECK: %{{.*}} = memref_cast %{{.*}} : memref<?x?xf64> to memref<11x10xf64>
+  stencil.assert %arg0 ([0, 0, 0]:[10, 11, 12]) : !stencil.field<?x?x0xf64>
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[0, 0] [8, 7] [1, 1] : memref<11x10xf64> to memref<8x7xf64, #map{{[0-9]+}}>
+  %0 = stencil.load %arg0 ([0, 0, 0]:[7, 8, 9]) : (!stencil.field<?x?x0xf64>) -> !stencil.temp<7x8x0xf64>
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<7x8x0xf64>) -> !stencil.temp<7x8x9xf64> {
+    // CHECK-DAG: [[C0:%.*]] = constant 0 : index
+    // CHECK-DAG: [[O0:%.*]] = affine.apply [[MAP0]]([[ARG0]], [[C0]])
+    // CHECK-DAG: [[C1:%.*]] = constant 1 : index
+    // CHECK-DAG: [[O1:%.*]] = affine.apply [[MAP0]]([[ARG1]], [[C1]])
+    // CHECK: %{{.*}} = load [[VIEW:%.*]]{{\[}}[[O1]], [[O0]]{{[]]}}
+    %2 = stencil.access %arg1[0, 1, 2]: (!stencil.temp<7x8x0xf64>) -> f64
+    stencil.return %2 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
