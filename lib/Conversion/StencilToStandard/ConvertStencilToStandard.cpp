@@ -118,11 +118,6 @@ public:
     auto fieldType = loadOp.field().getType().cast<FieldType>();
     auto tempType = loadOp.res().getType().cast<TempType>();
 
-    // Check the shape is set
-    auto shapeOp = cast<ShapeOp>(operation);
-    if (!shapeOp.hasShape())
-      return failure();
-
     // Compute the shape of the subviw
     auto subViewShape = computeSubViewShape(fieldType, operation,
                                             valueToLB.lookup(loadOp.field()));
@@ -148,20 +143,18 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto applyOp = cast<stencil::ApplyOp>(operation);
+    auto shapeOp = cast<ShapeOp>(operation);
 
     // Allocate storage for every stencil output
     SmallVector<Value, 10> newResults;
     for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+      assert(applyOp.getResult(i).getType().cast<TempType>().hasStaticShape() &&
+             "expected the result types have a static shape");
       auto allocType = typeConverter.convertType(applyOp.getResult(i).getType())
                            .cast<MemRefType>();
       auto allocOp = rewriter.create<AllocOp>(loc, allocType);
       newResults.push_back(allocOp.getResult());
     }
-
-    // Get the shape
-    auto shapeOp = cast<ShapeOp>(operation);
-    if (!shapeOp.hasShape())
-      return failure();
 
     // Compute the loop bounds starting from zero
     // (in case of loop unrolling adjust the step of the loop)
@@ -314,11 +307,6 @@ public:
     auto fieldType = storeOp.field().getType().cast<FieldType>();
     auto tempType = storeOp.temp().getType().cast<TempType>();
 
-    // Check the shape is set
-    auto shapeOp = cast<ShapeOp>(operation);
-    if (!shapeOp.hasShape())
-      return failure();
-
     // Compute the shape of the subview
     auto subViewShape = computeSubViewShape(fieldType, operation,
                                             valueToLB.lookup(storeOp.field()));
@@ -376,7 +364,19 @@ void StencilToStandardPass::runOnOperation() {
   OwningRewritePatternList patterns;
   auto module = getOperation();
 
-  // Map that relates values to the lower bounds of to associated operations
+  // Check all shapes are set
+  bool allShapesValid = true;
+  module.walk([&](ShapeOp shapeOp) {
+    if (!shapeOp.hasShape()) {
+      allShapesValid = false;
+      shapeOp.emitOpError("expected to have a valid shape");
+      signalPassFailure();
+    }
+  });
+  if (!allShapesValid)
+    return;
+
+  // Store the lower bounds of the input stencil program
   DenseMap<Value, Index> valueToLB;
   module.walk([&](stencil::AssertOp assertOp) {
     auto shapeOp = cast<ShapeOp>(assertOp.getOperation());
@@ -385,7 +385,7 @@ void StencilToStandardPass::runOnOperation() {
   module.walk([&](stencil::ApplyOp applyOp) {
     // Store the lower bounds for all arguments
     for (auto en : llvm::enumerate(applyOp.getOperands())) {
-      if (auto shapeOp = dyn_cast<ShapeOp>(en.value().getDefiningOp()))
+      if (auto shapeOp = dyn_cast_or_null<ShapeOp>(en.value().getDefiningOp()))
         valueToLB[applyOp.getBody()->getArgument(en.index())] = shapeOp.getLB();
     }
     // Store the lower bounds for all results
