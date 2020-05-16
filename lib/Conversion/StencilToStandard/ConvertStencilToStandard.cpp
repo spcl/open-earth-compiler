@@ -245,7 +245,7 @@ public:
         if (definingOp && returnOp.getParentOp() == definingOp->getParentOp())
           rewriter.setInsertionPointAfter(definingOp);
 
-        // Compute th store offset
+        // Compute the store offset
         auto offset = valueToLB[returnOp.getOperand(operandIdx)];
         llvm::transform(offset, offset.begin(), std::negate<int64_t>());
         offset[unrollDim] += j;

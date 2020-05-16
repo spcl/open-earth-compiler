@@ -92,7 +92,6 @@ int main(int argc, char **argv) {
 
   // Register the stencil passes
   createShapeInferencePass();
-  createShapeShiftPass();
   createStencilInliningPass();
   createStencilUnrollingPass();
   createConvertStencilToStandardPass();

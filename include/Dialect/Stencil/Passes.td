@@ -24,9 +24,4 @@ def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
   let constructor = "mlir::createShapeInferencePass()";
 }
 
-def ShapeShiftPass : FunctionPass<"stencil-shape-shift"> {
-  let summary = "Shift the loop bounds and offsets to the positive range";
-  let constructor = "mlir::createShapeShiftPass()";
-}
-
 #endif // DIALECT_STENCIL_PASSES
