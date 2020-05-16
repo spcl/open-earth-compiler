@@ -213,6 +213,8 @@ def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeOp>]> 
       return emitOpError("expected exactly one assert operation");
     if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::LoadOp>(op); }) != 0)
       return emitOpError("an output cannot be an input");  
+    if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::StoreOp>(op); }) != 1)
+      return emitOpError("multiple stores to the same output");  
     return success();
   }];
 
