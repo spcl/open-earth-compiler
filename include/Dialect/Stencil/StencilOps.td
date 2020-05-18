@@ -352,7 +352,8 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
     static StringRef getUnrollAttrName() { return "unroll"; }
     Index getUnroll() {
       Index result;
-      for (auto &elem : unroll().getValue()) 
+      ArrayAttr unrollAttr = unroll().getValue();
+      for (auto &elem : unrollAttr) 
         result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
       return result;
     }
@@ -369,8 +370,9 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
       size_t dimension = 0;
       if (unroll().hasValue()) {
         auto unroll = getUnroll();
+        auto unrollFac = getUnrollFactor();
         auto it = llvm::find_if(unroll, [&](int64_t x) {
-          return x == getUnrollFactor();
+          return x == unrollFac;
         });
         assert(it != unroll.end() &&
               "expected to find unroll factor");
