@@ -63,10 +63,12 @@ public:
           cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
       if (returnOp.unroll().hasValue()) {
         for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
-          auto &positive = extents[operation][applyOp.getOperand(i)].positive;
-          positive = applyFunElementWise(
-              positive, returnOp.getUnroll(),
-              [](int64_t x, int64_t y) { return x - y + 1; });
+          if (extents[operation].count(applyOp.getOperand(i)) == 1) {
+            auto &positive = extents[operation][applyOp.getOperand(i)].positive;
+            positive = applyFunElementWise(
+                positive, returnOp.getUnroll(),
+                [](int64_t x, int64_t y) { return x - y + 1; });
+          }
         }
       }
     });

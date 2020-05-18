@@ -326,7 +326,13 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
   let verifier = [{
     auto applyOp = cast<stencil::ApplyOp>(getParentOp());
     unsigned unrollFactor = getUnrollFactor();
-    
+    size_t unrollDim = getUnrollDimension();
+
+    // Verify the size of the unroll dimension is a multiple of the unroll factor
+    auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
+    if(shapeOp.hasShape() && (shapeOp.getUB()[unrollDim] - shapeOp.getLB()[unrollDim]) % unrollFactor != 0)
+      return emitOpError("expected domain size to be a multiple of the unroll factor");
+
     // Verify the number of operands matches the number of apply results
     auto results = applyOp.res();
     if (getNumOperands() != unrollFactor * results.size())
