@@ -1,0 +1,33 @@
+diff --git a/mlir/tools/mlir-tblgen/OpFormatGen.cpp b/mlir/tools/mlir-tblgen/OpFormatGen.cpp
+index 127b6b976cd..e06624291ad 100644
+--- a/mlir/tools/mlir-tblgen/OpFormatGen.cpp
++++ b/mlir/tools/mlir-tblgen/OpFormatGen.cpp
+@@ -886,10 +886,16 @@ static void genAttrDictPrinter(OperationFormat &fmt, Operator &op,
+                                OpMethodBody &body, bool withKeyword) {
+   // Collect all of the attributes used in the format, these will be elided.
+   SmallVector<const NamedAttribute *, 1> usedAttributes;
+-  for (auto &it : fmt.elements)
++  for (auto &it : fmt.elements) {
+     if (auto *attr = dyn_cast<AttributeVariable>(it.get()))
+       usedAttributes.push_back(attr->getVar());
+-
++    // Collect the optional attributes as well
++    if (auto *opt = dyn_cast<OptionalElement>(it.get()))
++      for(auto &elem : opt->getElements())
++        if (auto *attr = dyn_cast<AttributeVariable>(&elem))
++          usedAttributes.push_back(attr->getVar());
++  }
++  
+   body << "  p.printOptionalAttrDict" << (withKeyword ? "WithKeyword" : "")
+        << "(getAttrs(), /*elidedAttrs=*/{";
+   // Elide the variadic segment size attributes if necessary.
+@@ -1293,7 +1299,8 @@ Token FormatLexer::lexIdentifier(const char *tokStart) {
+ 
+ /// Function to find an element within the given range that has the same name as
+ /// 'name'.
+-template <typename RangeT> static auto findArg(RangeT &&range, StringRef name) {
++template <typename RangeT>
++static auto findArg(RangeT &&range, StringRef name) {
+   auto it = llvm::find_if(range, [=](auto &arg) { return arg.name == name; });
+   return it != range.end() ? &*it : nullptr;
+ }
