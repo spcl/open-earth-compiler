@@ -14,6 +14,8 @@ add_mlir_dialect_library(Stencil
   DEPENDS
   MLIRStencilOpsIncGen
   MLIRStencilPassIncGen
+
+  LINK_LIBS PUBLIC
+  MLIRIR
 )
 
-target_link_libraries(Stencil PUBLIC MLIRIR)
