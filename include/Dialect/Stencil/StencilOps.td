@@ -3,7 +3,7 @@
 
 include "Dialect/Stencil/StencilBase.td"
 include "Dialect/Stencil/StencilInterfaces.td"
-include "mlir/Interfaces/SideEffects.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Concrete Operations
