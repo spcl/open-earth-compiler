@@ -167,8 +167,9 @@ void tileAndMapParallelLoop(ParallelOp parallelOp,
       continue;
     }
     // Otherwise add the loop induction variables
-    ValueRange params = {*(outerLoop.getInductionVars().begin() + i),
-                         *(innerLoop.getInductionVars().begin() + i)};
+    SmallVector<Value, 2> params = {
+        *(outerLoop.getInductionVars().begin() + i),
+        *(innerLoop.getInductionVars().begin() + i)};
     auto affineApplyOp =
         b.create<AffineApplyOp>(parallelOp.getLoc(), map, params);
     loopIVs.push_back(affineApplyOp.getResult());
