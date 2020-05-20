@@ -143,6 +143,13 @@ public:
     for (auto m :
          llvm::make_early_inc_range(getOperation().getOps<gpu::GPUModuleOp>()))
       m.erase();
+
+    // Erase the malloc and free function declarations
+    ModuleOp module = getOperation();
+    if(auto malloc = module.lookupSymbol("malloc"))
+      malloc->erase();
+    if(auto free = module.lookupSymbol("free"))
+      free->erase();
   }
 
 private:
@@ -200,22 +207,18 @@ void LaunchFuncToCUDACallsPass::declareRTFunctions(Location loc) {
             /*isVarArg=*/false));
   }
   if (!module.lookupSymbol(oecLaunchKernelName)) {
-    // Other than the CUDA api, the wrappers use uintptr_t to match the
-    // LLVM type if MLIR's index type, which the GPU dialect uses.
-    // Furthermore, they use void* instead of CUDA's opaque CUfunction and
-    // CUstream.
     builder.create<LLVM::LLVMFuncOp>(
         loc, oecLaunchKernelName,
         LLVM::LLVMType::getFunctionTy(
             getCUResultType(),
             {
                 getPointerType(),       /* void* f */
-                getIntPtrType(),        /* intptr_t gridXDim */
-                getIntPtrType(),        /* intptr_t gridyDim */
-                getIntPtrType(),        /* intptr_t gridZDim */
-                getIntPtrType(),        /* intptr_t blockXDim */
-                getIntPtrType(),        /* intptr_t blockYDim */
-                getIntPtrType(),        /* intptr_t blockZDim */
+                getInt32Type(),        /* int32_t gridXDim */
+                getInt32Type(),        /* int32_t gridyDim */
+                getInt32Type(),        /* int32_t gridZDim */
+                getInt32Type(),        /* int32_t blockXDim */
+                getInt32Type(),        /* int32_t blockYDim */
+                getInt32Type(),        /* int32_t blockZDim */
                 getPointerPointerType() /* void **kernelParams */
             },
             /*isVarArg=*/false));
@@ -252,7 +255,7 @@ void LaunchFuncToCUDACallsPass::declareRTFunctions(Location loc) {
         loc, oecAllocTemporaryName,
         LLVM::LLVMType::getFunctionTy(getPointerType(),
                                       {
-                                          getInt64Type() /* int64 size */
+                                          getInt32Type() /* int32 size */
                                       },
                                       /*isVarArg=*/false));
   }

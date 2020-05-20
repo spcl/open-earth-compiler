@@ -14,8 +14,6 @@ class Pass;
 
 std::unique_ptr<Pass> createLaunchFuncToCUDACallsPass();
 
-std::unique_ptr<Pass> createStencilIndexOptimizationPass();
-
 std::unique_ptr<OperationPass<FuncOp>> createStencilLoopMappingPass();
 
 OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,

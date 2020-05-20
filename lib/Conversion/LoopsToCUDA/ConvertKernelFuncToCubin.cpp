@@ -89,18 +89,19 @@ void registerGPUToCUBINPipeline() {
   PassPipelineRegistration<>(
       "stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
       [](OpPassManager &pm) {
+        unsigned indexBitwidth = 32;
+
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());
-        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-        kernelPm.addPass(createStencilIndexOptimizationPass());
+        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(indexBitwidth));
         kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
         // TODO set appropriate bitwidth
         LowerToLLVMOptions llvmOptions;
         llvmOptions.emitCWrappers = true;
         llvmOptions.useAlignedAlloc = false;
         llvmOptions.useBarePtrCallConv = false;
-        llvmOptions.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
+        llvmOptions.indexBitwidth = indexBitwidth;
         pm.addPass(createLowerToLLVMPass(llvmOptions));
       });
 }

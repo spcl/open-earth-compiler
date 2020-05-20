@@ -1,7 +1,6 @@
 add_mlir_dialect_library(GPUtoCUDATransforms
   ConvertLaunchFuncToCUDACalls.cpp
   ConvertKernelFuncToCubin.cpp
-  StencilIndexOptimizationPass.cpp
   StencilLoopMappingPass.cpp
 
   ADDITIONAL_HEADER_DIRS

@@ -54,7 +54,7 @@ extern "C" int32_t oecTeardown() {
   return err;
 }
 
-extern "C" void *oecAllocTemporary(int64_t size) {
+extern "C" void *oecAllocTemporary(int32_t size) {
   CUdeviceptr devPtr;
   reportError(cuMemAlloc(&devPtr, size), "MemAlloc");
   temporaryBuffer.push_back(devPtr);
@@ -83,10 +83,10 @@ extern "C" int32_t oecModuleGetFunction(void **function, void *module,
   return err;
 }
 
-extern "C" int32_t oecLaunchKernel(void *function, intptr_t gridX,
-                                   intptr_t gridY, intptr_t gridZ,
-                                   intptr_t blockX, intptr_t blockY,
-                                   intptr_t blockZ, void **params) {
+extern "C" int32_t oecLaunchKernel(void *function, int32_t gridX,
+                                   int32_t gridY, int32_t gridZ,
+                                   int32_t blockX, int32_t blockY,
+                                   int32_t blockZ, void **params) {
   return reportError(cuLaunchKernel(reinterpret_cast<CUfunction>(function),
                                     gridX, gridY, gridZ, blockX, blockY, blockZ,
                                     0, stream, params, nullptr),
