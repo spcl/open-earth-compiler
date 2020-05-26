@@ -26,3 +26,7 @@ cmake -G Ninja ../llvm -DLLVM_BUILD_EXAMPLES=OFF -DLLVM_TARGETS_TO_BUILD="host;N
 ```
 
 Do not forget to apply possible patches to llvm before compiling (patches located in stencil-dialect/patches).
+
+# AMD HACK
+
+Use llvm commit 56de738d18e and apply the the patch provide in the patch folder (D80142 and D80167) that can be found in "AMD.patch".
