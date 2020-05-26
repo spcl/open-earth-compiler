@@ -37,7 +37,7 @@ static constexpr const char *oecStoreParameterName = "oecStoreParameter";
 static constexpr const char *oecLoadParametersName = "oecLoadParameters";
 static constexpr const char *oecAllocTemporaryName = "oecAllocTemporary";
 
-static constexpr const char *kCubinAnnotation = "nvvm.cubin";
+static constexpr const char *kCubinAnnotation = "rocdl.hsaco";
 static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
 
 static constexpr const char *kInitName = "init";

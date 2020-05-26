@@ -6,57 +6,57 @@
 #include <numeric>
 #include <vector>
 
-#include "cuda.h"
-#include "cuda_runtime.h"
+#define __HIP_PLATFORM_HCC__
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime_api.h>
 
 namespace {
-int32_t reportError(CUresult result, const char *where) {
-  if (result != CUDA_SUCCESS) {
-    std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
+int32_t reportError(hipError_t result, const char *where) {
+  if (result != hipSuccess) {
+    std::cerr << "-> OEC-RT Error: HIP failed with " << result << " in "
               << where << "\n";
   }
   return result;
 }
 
-int32_t reportError(cudaError_t result, const char *where) {
-  if (result != cudaSuccess) {
-    std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
-              << where << "\n";
-  }
-  return result;
-}
+// int32_t reportError(hipError_t result, const char *where) {
+//   if (result != hipSuccess) {
+//     std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
+//               << where << "\n";
+//   }
+//   return result;
+// }
 } // anonymous namespace
 
 static std::vector<void *> paramBuffer;
-static std::vector<CUmodule> moduleBuffer;
-static std::vector<CUdeviceptr> temporaryBuffer;
-static CUstream stream;
+static std::vector<hipModule_t> moduleBuffer;
+static std::vector<void *> temporaryBuffer;
 
 extern "C" int32_t oecInit() {
-  CUcontext context;
-  CUdevice device;
-  int32_t err;
-  err = reportError(cuInit(0), "Init");
-  err = reportError(cuDeviceGet(&device, 0), "Init");
-  err = reportError(cuCtxCreate(&context, CU_CTX_SCHED_SPIN, device), "Init");
-  err = reportError(cuStreamCreate(&stream, CU_STREAM_DEFAULT), "StreamCreate");
+  // hipCtx_t context;
+  hipDevice_t device;
+  int32_t err = 0;
+  err = reportError(hipInit(0), "Init");
+  err = reportError(hipDeviceGet(&device, 0), "Init");
+  // err = reportError(hipCtxCreate(&context, hipDeviceScheduleSpin, device), "Init");
+  // err = reportError(hipStreamCreate(&stream, hipStreamDefault), "StreamCreate");
   return err;
 }
 
 extern "C" int32_t oecTeardown() {
   int32_t err;
   for (auto module : moduleBuffer)
-    err = reportError(cuModuleUnload(module), "ModuleUnload");
+    err = reportError(hipModuleUnload(module), "ModuleUnload");
   for (auto param : paramBuffer)
     free(param);
   for (auto temporary : temporaryBuffer)
-    err = reportError(cuMemFree(temporary), "MemFree");
+    err = reportError(hipFree(temporary), "MemFree");
   return err;
 }
 
 extern "C" void *oecAllocTemporary(int64_t size) {
-  CUdeviceptr devPtr;
-  reportError(cuMemAlloc(&devPtr, size), "MemAlloc");
+  void* devPtr;
+  reportError(hipMalloc(&devPtr, size), "MemAlloc");
   temporaryBuffer.push_back(devPtr);
   return reinterpret_cast<void *>(devPtr);
 }
@@ -64,9 +64,9 @@ extern "C" void *oecAllocTemporary(int64_t size) {
 extern "C" int32_t oecModuleLoad(void **module, void *data) {
   int32_t err;
   err =
-      reportError(cuModuleLoadData(reinterpret_cast<CUmodule *>(module), data),
+      reportError(hipModuleLoadData(reinterpret_cast<hipModule_t *>(module), data),
                   "ModuleLoad");
-  moduleBuffer.push_back(reinterpret_cast<CUmodule>(*module));
+  moduleBuffer.push_back(reinterpret_cast<hipModule_t>(*module));
   return err;
 }
 
@@ -74,12 +74,12 @@ extern "C" int32_t oecModuleGetFunction(void **function, void *module,
                                         const char *name) {
   int32_t err;
   err = reportError(
-      cuModuleGetFunction(reinterpret_cast<CUfunction *>(function),
-                          reinterpret_cast<CUmodule>(module), name),
+      hipModuleGetFunction(reinterpret_cast<hipFunction_t *>(function),
+                          reinterpret_cast<hipModule_t>(module), name),
       "GetFunction");
-  err = reportError(cudaFuncSetAttribute(*function,
-      cudaFuncAttributePreferredSharedMemoryCarveout,
-      cudaSharedmemCarveoutMaxL1), "SettingCarveout");
+  // err = reportError(cudaFuncSetAttribute(*function,
+  //     cudaFuncAttributePreferredSharedMemoryCarveout,
+  //     cudaSharedmemCarveoutMaxL1), "SettingCarveout");
   return err;
 }
 
@@ -87,14 +87,14 @@ extern "C" int32_t oecLaunchKernel(void *function, intptr_t gridX,
                                    intptr_t gridY, intptr_t gridZ,
                                    intptr_t blockX, intptr_t blockY,
                                    intptr_t blockZ, void **params) {
-  return reportError(cuLaunchKernel(reinterpret_cast<CUfunction>(function),
+  return reportError(hipModuleLaunchKernel(reinterpret_cast<hipFunction_t>(function),
                                     gridX, gridY, gridZ, blockX, blockY, blockZ,
-                                    0, stream, params, nullptr),
+                                    0, hipStreamDefault, params, nullptr),
                      "LaunchKernel");
 }
 
 extern "C" int32_t oecStreamSynchronize() {
-  return reportError(cuStreamSynchronize(stream), "StreamSync");
+  return reportError(hipDeviceSynchronize(), "StreamSync");
 }
 
 extern "C" void oecStoreParameter(void *paramPtr, int64_t size) {
