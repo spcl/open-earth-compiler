@@ -4,6 +4,12 @@ set(NVPTX_LIBS
   NVPTXDesc
   NVPTXInfo
 )
+set(AMDGPU_LIBS
+  MC
+  AMDGPUCodeGen
+  AMDGPUDesc
+  AMDGPUInfo
+)
 
 add_mlir_dialect_library(GPUtoCUDATransforms
   ConvertLaunchFuncToCUDACalls.cpp
@@ -16,9 +22,12 @@ add_mlir_dialect_library(GPUtoCUDATransforms
 
   LINK_COMPONENTS
   ${NVPTX_LIBS}
+  ${AMDGPU_LIBS}
 
   LINK_LIBS PUBLIC
-  MLIRTargetNVVMIR
+  MLIRROCDLIR
+  MLIRTargetROCDLIR
+  
 
   DEPENDS
   MLIRLoopsToCUDAPassIncGen
