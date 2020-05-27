@@ -18,6 +18,96 @@ index 7c2c5978c44..0cf1e8d4451 100644
  set(MLIR_CUDA_RUNNER_ENABLED 0 CACHE BOOL "Enable building the mlir CUDA runner")
  set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "Enable building the mlir Vulkan runner")
  
+diff --git a/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h b/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h
+new file mode 100644
+index 00000000000..ba2b4236f72
+--- /dev/null
++++ b/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h
+@@ -0,0 +1,84 @@
++//===- GPUCommonPass.h - MLIR GPU runtime support -------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++#ifndef MLIR_CONVERSION_GPUCOMMON_GPUCOMMONPASS_H_
++#define MLIR_CONVERSION_GPUCOMMON_GPUCOMMONPASS_H_
++
++#include "mlir/Support/LLVM.h"
++#include "llvm/IR/Module.h"
++#include <functional>
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace mlir {
++
++class Location;
++struct LogicalResult;
++class ModuleOp;
++class Operation;
++
++template <typename T>
++class OperationPass;
++
++namespace gpu {
++class GPUModuleOp;
++} // namespace gpu
++
++namespace LLVM {
++class LLVMDialect;
++} // namespace LLVM
++
++using OwnedBlob = std::unique_ptr<std::vector<char>>;
++using BlobGenerator =
++    std::function<OwnedBlob(const std::string &, Location, StringRef)>;
++using InitBackendCallback = std::function<LogicalResult()>;
++using LoweringCallback =
++    std::function<LogicalResult(Operation *, std::unique_ptr<llvm::Module> &)>;
++
++/// Creates a pass to convert a gpu.launch_func operation into a sequence of
++/// GPU runtime calls.
++///
++/// This pass does not generate code to call GPU runtime APIs directly but
++/// instead uses a small wrapper library that exports a stable and conveniently
++/// typed ABI on top of GPU runtimes such as CUDA or ROCm (HIP).
++std::unique_ptr<OperationPass<ModuleOp>>
++createConvertGpuLaunchFuncToGpuRuntimeCallsPass();
++
++/// Creates a pass to convert kernel functions into GPU target object blobs.
++///
++/// This transformation takes the body of each function that is annotated with
++/// the 'gpu.kernel' attribute, copies it to a new LLVM module, compiles the
++/// module with help of the GPU backend to targte object and then invokes
++/// the provided blobGenerator to produce a binary blob. Such blob is then
++/// attached as a string attribute to the kernel function.
++///
++/// Following callbacks are to be provided by user:
++/// - initBackendCallback : initialize corresponding LLVM backend.
++/// - loweringCallback : lower the module to an LLVM module.
++/// - blobGenerator : build a blob executable on target GPU.
++///
++/// Information wrt LLVM backend are to be supplied by user:
++/// - triple : target triple to be used.
++/// - targetChip : mcpu to be used.
++/// - features : target-specific features to be used.
++///
++/// Information about result attribute is to be specified by user:
++/// - gpuBinaryAnnotation : the name of the attribute which contains the blob.
++///
++/// After the transformation, the body of the kernel function is removed (i.e.,
++/// it is turned into a declaration).
++std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
++createConvertGPUKernelToBlobPass(InitBackendCallback initBackendCallback,
++                                 LoweringCallback loweringCallback,
++                                 BlobGenerator blobGenerator, StringRef triple,
++                                 StringRef targetChip, StringRef features,
++                                 StringRef gpuBinaryAnnotation);
++
++} // namespace mlir
++
++#endif // MLIR_CONVERSION_GPUCOMMON_GPUCOMMONPASS_H_
 diff --git a/mlir/include/mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h b/mlir/include/mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h
 deleted file mode 100644
 index 6e21483c672..00000000000
@@ -135,6 +225,625 @@ index d78fb892051..8b70e652310 100644
  add_subdirectory(GPUToNVVM)
  add_subdirectory(GPUToROCDL)
  add_subdirectory(GPUToSPIRV)
+diff --git a/mlir/lib/Conversion/GPUCommon/CMakeLists.txt b/mlir/lib/Conversion/GPUCommon/CMakeLists.txt
+new file mode 100644
+index 00000000000..eb7d21f66f7
+--- /dev/null
++++ b/mlir/lib/Conversion/GPUCommon/CMakeLists.txt
+@@ -0,0 +1,18 @@
++add_mlir_conversion_library(MLIRGPUtoGPURuntimeTransforms
++  ConvertLaunchFuncToRuntimeCalls.cpp
++  ConvertKernelFuncToBlob.cpp
++
++  DEPENDS
++  MLIRConversionPassIncGen
++  intrinsics_gen
++
++  LINK_COMPONENTS
++  Core
++
++  LINK_LIBS PUBLIC
++  MLIRGPU
++  MLIRIR
++  MLIRLLVMIR
++  MLIRPass
++  MLIRSupport
++)
+diff --git a/mlir/lib/Conversion/GPUCommon/ConvertKernelFuncToBlob.cpp b/mlir/lib/Conversion/GPUCommon/ConvertKernelFuncToBlob.cpp
+new file mode 100644
+index 00000000000..32f98e33c98
+--- /dev/null
++++ b/mlir/lib/Conversion/GPUCommon/ConvertKernelFuncToBlob.cpp
+@@ -0,0 +1,176 @@
++//===- ConvertKernelFuncToBlob.cpp - MLIR GPU lowering passes -------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file implements a pass to convert gpu kernel functions into a
++// corresponding binary blob that can be executed on a GPU. Currently
++// only translates the function itself but no dependencies.
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
++
++#include "mlir/Dialect/GPU/GPUDialect.h"
++#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
++#include "mlir/IR/Attributes.h"
++#include "mlir/IR/Builders.h"
++#include "mlir/IR/Function.h"
++#include "mlir/IR/Module.h"
++#include "mlir/Pass/Pass.h"
++#include "mlir/Pass/PassRegistry.h"
++#include "mlir/Support/LogicalResult.h"
++
++#include "llvm/ADT/Optional.h"
++#include "llvm/ADT/Twine.h"
++#include "llvm/IR/Constants.h"
++#include "llvm/IR/LegacyPassManager.h"
++#include "llvm/IR/Module.h"
++#include "llvm/Support/Error.h"
++#include "llvm/Support/Mutex.h"
++#include "llvm/Support/TargetRegistry.h"
++#include "llvm/Support/TargetSelect.h"
++#include "llvm/Target/TargetMachine.h"
++
++using namespace mlir;
++
++namespace {
++
++/// A pass converting tagged kernel modules to a blob with target instructions.
++///
++/// If tagged as a kernel module, each contained function is translated to
++/// user-specified IR. A user provided BlobGenerator then compiles the IR to
++/// GPU binary code, which is then attached as an attribute to the function.
++/// The function body is erased.
++class GpuKernelToBlobPass
++    : public PassWrapper<GpuKernelToBlobPass, OperationPass<gpu::GPUModuleOp>> {
++public:
++  GpuKernelToBlobPass(InitBackendCallback initBackendCallback,
++                      LoweringCallback loweringCallback,
++                      BlobGenerator blobGenerator, StringRef triple,
++                      StringRef targetChip, StringRef features,
++                      StringRef gpuBinaryAnnotation)
++      : initBackendCallback(initBackendCallback),
++        loweringCallback(loweringCallback), blobGenerator(blobGenerator),
++        triple(triple), targetChip(targetChip), features(features),
++        blobAnnotation(gpuBinaryAnnotation) {}
++
++  void runOnOperation() override {
++    gpu::GPUModuleOp module = getOperation();
++
++    // Lock access to the llvm context.
++    llvm::sys::SmartScopedLock<true> scopedLock(
++        module.getContext()
++            ->getRegisteredDialect<LLVM::LLVMDialect>()
++            ->getLLVMContextMutex());
++
++    // Initialize LLVM backend.
++    if (!succeeded(initBackendCallback()))
++      return signalPassFailure();
++
++    // Lower the module to a llvm module.
++    std::unique_ptr<llvm::Module> llvmModule = nullptr;
++    if (!succeeded(loweringCallback(module, llvmModule)))
++      return signalPassFailure();
++
++    // Translate the llvm module to a target blob and attach the result as
++    // attribute to the module.
++    if (auto blobAttr = translateGPUModuleToBinaryAnnotation(
++            *llvmModule, module.getLoc(), module.getName()))
++      module.setAttr(blobAnnotation, blobAttr);
++    else
++      signalPassFailure();
++  }
++
++private:
++  std::string translateModuleToISA(llvm::Module &module,
++                                   llvm::TargetMachine &targetMachine);
++
++  /// Converts llvmModule to a lob with target instructions using the
++  /// user-provided generator. Location is used for error reporting and name is
++  /// forwarded to the blob generator to use in its logging mechanisms.
++  OwnedBlob convertModuleToBlob(llvm::Module &llvmModule, Location loc,
++                                StringRef name);
++
++  /// Translates llvmModule to a blob with target instructions and returns the
++  /// result as attribute.
++  StringAttr translateGPUModuleToBinaryAnnotation(llvm::Module &llvmModule,
++                                                  Location loc, StringRef name);
++
++  InitBackendCallback initBackendCallback;
++  LoweringCallback loweringCallback;
++  BlobGenerator blobGenerator;
++  llvm::Triple triple;
++  StringRef targetChip;
++  StringRef features;
++  StringRef blobAnnotation;
++};
++
++} // anonymous namespace
++
++std::string
++GpuKernelToBlobPass::translateModuleToISA(llvm::Module &module,
++                                          llvm::TargetMachine &targetMachine) {
++  std::string targetISA;
++  {
++    // Clone the llvm module into a new context to enable concurrent compilation
++    // with multiple threads.
++    llvm::LLVMContext llvmContext;
++    auto clone = LLVM::cloneModuleIntoNewContext(&llvmContext, &module);
++
++    llvm::raw_string_ostream stream(targetISA);
++    llvm::buffer_ostream pstream(stream);
++    llvm::legacy::PassManager codegenPasses;
++    targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
++                                      llvm::CGFT_AssemblyFile);
++    codegenPasses.run(*clone);
++  }
++
++  return targetISA;
++}
++
++OwnedBlob GpuKernelToBlobPass::convertModuleToBlob(llvm::Module &llvmModule,
++                                                   Location loc,
++                                                   StringRef name) {
++  std::unique_ptr<llvm::TargetMachine> targetMachine;
++  {
++    std::string error;
++    const llvm::Target *target =
++        llvm::TargetRegistry::lookupTarget("", triple, error);
++    if (target == nullptr) {
++      emitError(loc, "cannot initialize target triple");
++      return {};
++    }
++    targetMachine.reset(target->createTargetMachine(triple.str(), targetChip,
++                                                    features, {}, {}));
++  }
++
++  llvmModule.setDataLayout(targetMachine->createDataLayout());
++
++  auto targetISA = translateModuleToISA(llvmModule, *targetMachine);
++
++  return blobGenerator(targetISA, loc, name);
++}
++
++StringAttr GpuKernelToBlobPass::translateGPUModuleToBinaryAnnotation(
++    llvm::Module &llvmModule, Location loc, StringRef name) {
++  auto blob = convertModuleToBlob(llvmModule, loc, name);
++  if (!blob)
++    return {};
++  return StringAttr::get({blob->data(), blob->size()}, loc->getContext());
++}
++
++std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
++mlir::createConvertGPUKernelToBlobPass(InitBackendCallback initBackendCallback,
++                                       LoweringCallback loweringCallback,
++                                       BlobGenerator blobGenerator,
++                                       StringRef triple, StringRef targetChip,
++                                       StringRef features,
++                                       StringRef gpuBinaryAnnotation) {
++  return std::make_unique<GpuKernelToBlobPass>(
++      initBackendCallback, loweringCallback, blobGenerator, triple, targetChip,
++      features, gpuBinaryAnnotation);
++}
+diff --git a/mlir/lib/Conversion/GPUToCUDA/ConvertLaunchFuncToCudaCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
+similarity index 68%
+rename from mlir/lib/Conversion/GPUToCUDA/ConvertLaunchFuncToCudaCalls.cpp
+rename to mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
+index cfdcb0f98ad..7bd388803d9 100644
+--- a/mlir/lib/Conversion/GPUToCUDA/ConvertLaunchFuncToCudaCalls.cpp
++++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
+@@ -1,4 +1,4 @@
+-//===- ConvertLaunchFuncToCudaCalls.cpp - MLIR CUDA lowering passes -------===//
++//===- ConvertLaunchFuncToGpuRuntimeCalls.cpp - MLIR GPU lowering passes --===//
+ //
+ // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+ // See https://llvm.org/LICENSE.txt for license information.
+@@ -7,13 +7,13 @@
+ //===----------------------------------------------------------------------===//
+ //
+ // This file implements a pass to convert gpu.launch_func op into a sequence of
+-// CUDA runtime calls. As the CUDA runtime does not have a stable published ABI,
+-// this pass uses a slim runtime layer that builds on top of the public API from
+-// the CUDA headers.
++// GPU runtime calls. As most of GPU runtimes does not have a stable published
++// ABI, this pass uses a slim runtime layer that builds on top of the public
++// API from GPU runtime headers.
+ //
+ //===----------------------------------------------------------------------===//
+ 
+-#include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
++#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
+ 
+ #include "../PassDetail.h"
+ #include "mlir/Dialect/GPU/GPUDialect.h"
+@@ -35,33 +35,34 @@
+ using namespace mlir;
+ 
+ // To avoid name mangling, these are defined in the mini-runtime file.
+-static constexpr const char *cuModuleLoadName = "mcuModuleLoad";
+-static constexpr const char *cuModuleGetFunctionName = "mcuModuleGetFunction";
+-static constexpr const char *cuLaunchKernelName = "mcuLaunchKernel";
+-static constexpr const char *cuGetStreamHelperName = "mcuGetStreamHelper";
+-static constexpr const char *cuStreamSynchronizeName = "mcuStreamSynchronize";
+-static constexpr const char *kMcuMemHostRegister = "mcuMemHostRegister";
+-
+-static constexpr const char *kCubinAnnotation = "nvvm.cubin";
+-static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
++static constexpr const char *kGpuModuleLoadName = "mgpuModuleLoad";
++static constexpr const char *kGpuModuleGetFunctionName =
++    "mgpuModuleGetFunction";
++static constexpr const char *kGpuLaunchKernelName = "mgpuLaunchKernel";
++static constexpr const char *kGpuGetStreamHelperName = "mgpuGetStreamHelper";
++static constexpr const char *kGpuStreamSynchronizeName =
++    "mgpuStreamSynchronize";
++static constexpr const char *kGpuMemHostRegisterName = "mgpuMemHostRegister";
++static constexpr const char *kGpuBinaryStorageSuffix = "_gpubin_cst";
+ 
+ namespace {
+ 
+-/// A pass to convert gpu.launch_func operations into a sequence of CUDA
+-/// runtime calls.
++/// A pass to convert gpu.launch_func operations into a sequence of GPU
++/// runtime calls. Currently it supports CUDA and ROCm (HIP).
+ ///
+ /// In essence, a gpu.launch_func operations gets compiled into the following
+ /// sequence of runtime calls:
+ ///
+-/// * mcuModuleLoad        -- loads the module given the cubin data
+-/// * mcuModuleGetFunction -- gets a handle to the actual kernel function
+-/// * mcuGetStreamHelper   -- initializes a new CUDA stream
+-/// * mcuLaunchKernelName  -- launches the kernel on a stream
+-/// * mcuStreamSynchronize -- waits for operations on the stream to finish
++/// * moduleLoad        -- loads the module given the cubin / hsaco data
++/// * moduleGetFunction -- gets a handle to the actual kernel function
++/// * getStreamHelper   -- initializes a new compute stream on GPU
++/// * launchKernel      -- launches the kernel on a stream
++/// * streamSynchronize -- waits for operations on the stream to finish
+ ///
+ /// Intermediate data structures are allocated on the stack.
+-class GpuLaunchFuncToCudaCallsPass
+-    : public ConvertGpuLaunchFuncToCudaCallsBase<GpuLaunchFuncToCudaCallsPass> {
++class GpuLaunchFuncToGpuRuntimeCallsPass
++    : public ConvertGpuLaunchFuncToGpuRuntimeCallsBase<
++          GpuLaunchFuncToGpuRuntimeCallsPass> {
+ private:
+   LLVM::LLVMDialect *getLLVMDialect() { return llvmDialect; }
+ 
+@@ -99,8 +100,9 @@ private:
+         getLLVMDialect(), module.getDataLayout().getPointerSizeInBits());
+   }
+ 
+-  LLVM::LLVMType getCUResultType() {
+-    // This is declared as an enum in CUDA but helpers use i32.
++  LLVM::LLVMType getGpuRuntimeResultType() {
++    // This is declared as an enum in both CUDA and ROCm (HIP), but helpers
++    // use i32.
+     return getInt32Type();
+   }
+ 
+@@ -112,7 +114,7 @@ private:
+                                           /*alignment=*/0);
+   }
+ 
+-  void declareCudaFunctions(Location loc);
++  void declareGpuRuntimeFunctions(Location loc);
+   void addParamToList(OpBuilder &builder, Location loc, Value param, Value list,
+                       unsigned pos, Value one);
+   Value setupParamsArray(gpu::LaunchFuncOp launchOp, OpBuilder &builder);
+@@ -132,7 +134,7 @@ public:
+         [this](mlir::gpu::LaunchFuncOp op) { translateGpuLaunchCalls(op); });
+ 
+     // GPU kernel modules are no longer necessary since we have a global
+-    // constant with the CUBIN data.
++    // constant with the CUBIN, or HSACO data.
+     for (auto m :
+          llvm::make_early_inc_range(getOperation().getOps<gpu::GPUModuleOp>()))
+       m.erase();
+@@ -151,30 +153,31 @@ private:
+ 
+ } // anonymous namespace
+ 
+-// Adds declarations for the needed helper functions from the CUDA wrapper.
++// Adds declarations for the needed helper functions from the runtime wrappers.
+ // The types in comments give the actual types expected/returned but the API
+ // uses void pointers. This is fine as they have the same linkage in C.
+-void GpuLaunchFuncToCudaCallsPass::declareCudaFunctions(Location loc) {
++void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
++    Location loc) {
+   ModuleOp module = getOperation();
+   OpBuilder builder(module.getBody()->getTerminator());
+-  if (!module.lookupSymbol(cuModuleLoadName)) {
++  if (!module.lookupSymbol(kGpuModuleLoadName)) {
+     builder.create<LLVM::LLVMFuncOp>(
+-        loc, cuModuleLoadName,
++        loc, kGpuModuleLoadName,
+         LLVM::LLVMType::getFunctionTy(
+-            getCUResultType(),
++            getGpuRuntimeResultType(),
+             {
+                 getPointerPointerType(), /* CUmodule *module */
+                 getPointerType()         /* void *cubin */
+             },
+             /*isVarArg=*/false));
+   }
+-  if (!module.lookupSymbol(cuModuleGetFunctionName)) {
++  if (!module.lookupSymbol(kGpuModuleGetFunctionName)) {
+     // The helper uses void* instead of CUDA's opaque CUmodule and
+-    // CUfunction.
++    // CUfunction, or ROCm (HIP)'s opaque hipModule_t and hipFunction_t.
+     builder.create<LLVM::LLVMFuncOp>(
+-        loc, cuModuleGetFunctionName,
++        loc, kGpuModuleGetFunctionName,
+         LLVM::LLVMType::getFunctionTy(
+-            getCUResultType(),
++            getGpuRuntimeResultType(),
+             {
+                 getPointerPointerType(), /* void **function */
+                 getPointerType(),        /* void *module */
+@@ -182,15 +185,15 @@ void GpuLaunchFuncToCudaCallsPass::declareCudaFunctions(Location loc) {
+             },
+             /*isVarArg=*/false));
+   }
+-  if (!module.lookupSymbol(cuLaunchKernelName)) {
+-    // Other than the CUDA api, the wrappers use uintptr_t to match the
+-    // LLVM type if MLIR's index type, which the GPU dialect uses.
++  if (!module.lookupSymbol(kGpuLaunchKernelName)) {
++    // Other than the CUDA or ROCm (HIP) api, the wrappers use uintptr_t to
++    // match the LLVM type if MLIR's index type, which the GPU dialect uses.
+     // Furthermore, they use void* instead of CUDA's opaque CUfunction and
+-    // CUstream.
++    // CUstream, or ROCm (HIP)'s opaque hipFunction_t and hipStream_t.
+     builder.create<LLVM::LLVMFuncOp>(
+-        loc, cuLaunchKernelName,
++        loc, kGpuLaunchKernelName,
+         LLVM::LLVMType::getFunctionTy(
+-            getCUResultType(),
++            getGpuRuntimeResultType(),
+             {
+                 getPointerType(),        /* void* f */
+                 getIntPtrType(),         /* intptr_t gridXDim */
+@@ -206,23 +209,23 @@ void GpuLaunchFuncToCudaCallsPass::declareCudaFunctions(Location loc) {
+             },
+             /*isVarArg=*/false));
+   }
+-  if (!module.lookupSymbol(cuGetStreamHelperName)) {
+-    // Helper function to get the current CUDA stream. Uses void* instead of
+-    // CUDAs opaque CUstream.
++  if (!module.lookupSymbol(kGpuGetStreamHelperName)) {
++    // Helper function to get the current GPU compute stream. Uses void*
++    // instead of CUDA's opaque CUstream, or ROCm (HIP)'s opaque hipStream_t.
+     builder.create<LLVM::LLVMFuncOp>(
+-        loc, cuGetStreamHelperName,
++        loc, kGpuGetStreamHelperName,
+         LLVM::LLVMType::getFunctionTy(getPointerType(), /*isVarArg=*/false));
+   }
+-  if (!module.lookupSymbol(cuStreamSynchronizeName)) {
++  if (!module.lookupSymbol(kGpuStreamSynchronizeName)) {
+     builder.create<LLVM::LLVMFuncOp>(
+-        loc, cuStreamSynchronizeName,
+-        LLVM::LLVMType::getFunctionTy(getCUResultType(),
++        loc, kGpuStreamSynchronizeName,
++        LLVM::LLVMType::getFunctionTy(getGpuRuntimeResultType(),
+                                       getPointerType() /* CUstream stream */,
+                                       /*isVarArg=*/false));
+   }
+-  if (!module.lookupSymbol(kMcuMemHostRegister)) {
++  if (!module.lookupSymbol(kGpuMemHostRegisterName)) {
+     builder.create<LLVM::LLVMFuncOp>(
+-        loc, kMcuMemHostRegister,
++        loc, kGpuMemHostRegisterName,
+         LLVM::LLVMType::getFunctionTy(getVoidType(),
+                                       {
+                                           getPointerType(), /* void *ptr */
+@@ -243,10 +246,11 @@ void GpuLaunchFuncToCudaCallsPass::declareCudaFunctions(Location loc) {
+ /// This is necessary to construct the list of arguments passed to the kernel
+ /// function as accepted by cuLaunchKernel, i.e. as a void** that points to list
+ /// of stack-allocated type-erased pointers to the actual arguments.
+-void GpuLaunchFuncToCudaCallsPass::addParamToList(OpBuilder &builder,
+-                                                  Location loc, Value param,
+-                                                  Value list, unsigned pos,
+-                                                  Value one) {
++void GpuLaunchFuncToGpuRuntimeCallsPass::addParamToList(OpBuilder &builder,
++                                                        Location loc,
++                                                        Value param, Value list,
++                                                        unsigned pos,
++                                                        Value one) {
+   auto memLocation = builder.create<LLVM::AllocaOp>(
+       loc, param.getType().cast<LLVM::LLVMType>().getPointerTo(), one,
+       /*alignment=*/1);
+@@ -261,16 +265,16 @@ void GpuLaunchFuncToCudaCallsPass::addParamToList(OpBuilder &builder,
+   builder.create<LLVM::StoreOp>(loc, casted, gep);
+ }
+ 
+-// Generates a parameters array to be used with a CUDA kernel launch call. The
+-// arguments are extracted from the launchOp.
++// Generates a parameters array to be used with a CUDA / ROCm (HIP) kernel
++// launch call. The arguments are extracted from the launchOp.
+ // The generated code is essentially as follows:
+ //
+ // %array = alloca(numparams * sizeof(void *))
+ // for (i : [0, NumKernelOperands))
+ //   %array[i] = cast<void*>(KernelOperand[i])
+ // return %array
+-Value GpuLaunchFuncToCudaCallsPass::setupParamsArray(gpu::LaunchFuncOp launchOp,
+-                                                     OpBuilder &builder) {
++Value GpuLaunchFuncToGpuRuntimeCallsPass::setupParamsArray(
++    gpu::LaunchFuncOp launchOp, OpBuilder &builder) {
+ 
+   // Get the launch target.
+   auto gpuFunc = SymbolTable::lookupNearestSymbolFrom<LLVM::LLVMFuncOp>(
+@@ -338,7 +342,7 @@ Value GpuLaunchFuncToCudaCallsPass::setupParamsArray(gpu::LaunchFuncOp launchOp,
+ //   %1 = llvm.constant (0 : index)
+ //   %2 = llvm.getelementptr %0[%1, %1] : !llvm<"i8*">
+ // }
+-Value GpuLaunchFuncToCudaCallsPass::generateKernelNameConstant(
++Value GpuLaunchFuncToGpuRuntimeCallsPass::generateKernelNameConstant(
+     StringRef moduleName, StringRef name, Location loc, OpBuilder &builder) {
+   // Make sure the trailing zero is included in the constant.
+   std::vector<char> kernelName(name.begin(), name.end());
+@@ -352,30 +356,26 @@ Value GpuLaunchFuncToCudaCallsPass::generateKernelNameConstant(
+ }
+ 
+ // Emits LLVM IR to launch a kernel function. Expects the module that contains
+-// the compiled kernel function as a cubin in the 'nvvm.cubin' attribute of the
+-// kernel function in the IR.
+-// While MLIR has no global constants, also expects a cubin getter function in
+-// an 'nvvm.cubingetter' attribute. Such function is expected to return a
+-// pointer to the cubin blob when invoked.
+-// With these given, the generated code in essence is
++// the compiled kernel function as a cubin in the 'nvvm.cubin' attribute, or a
++// hsaco in the 'rocdl.hsaco' attribute of the kernel function in the IR.
+ //
+-// %0 = call %cubingetter
++// %0 = call %binarygetter
+ // %1 = alloca sizeof(void*)
+-// call %mcuModuleLoad(%2, %1)
++// call %moduleLoad(%2, %1)
+ // %2 = alloca sizeof(void*)
+ // %3 = load %1
+ // %4 = <see generateKernelNameConstant>
+-// call %mcuModuleGetFunction(%2, %3, %4)
+-// %5 = call %mcuGetStreamHelper()
++// call %moduleGetFunction(%2, %3, %4)
++// %5 = call %getStreamHelper()
+ // %6 = load %2
+ // %7 = <see setupParamsArray>
+-// call %mcuLaunchKernel(%6, <launchOp operands 0..5>, 0, %5, %7, nullptr)
+-// call %mcuStreamSynchronize(%5)
+-void GpuLaunchFuncToCudaCallsPass::translateGpuLaunchCalls(
++// call %launchKernel(%6, <launchOp operands 0..5>, 0, %5, %7, nullptr)
++// call %streamSynchronize(%5)
++void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+     mlir::gpu::LaunchFuncOp launchOp) {
+   OpBuilder builder(launchOp);
+   Location loc = launchOp.getLoc();
+-  declareCudaFunctions(loc);
++  declareGpuRuntimeFunctions(loc);
+ 
+   auto zero = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
+                                                builder.getI32IntegerAttr(0));
+@@ -385,51 +385,51 @@ void GpuLaunchFuncToCudaCallsPass::translateGpuLaunchCalls(
+       launchOp.getKernelModuleName());
+   assert(kernelModule && "expected a kernel module");
+ 
+-  auto cubinAttr = kernelModule.getAttrOfType<StringAttr>(kCubinAnnotation);
+-  if (!cubinAttr) {
++  auto binaryAttr = kernelModule.getAttrOfType<StringAttr>(gpuBinaryAnnotation);
++  if (!binaryAttr) {
+     kernelModule.emitOpError()
+-        << "missing " << kCubinAnnotation << " attribute";
++        << "missing " << gpuBinaryAnnotation << " attribute";
+     return signalPassFailure();
+   }
+ 
+   SmallString<128> nameBuffer(kernelModule.getName());
+-  nameBuffer.append(kCubinStorageSuffix);
++  nameBuffer.append(kGpuBinaryStorageSuffix);
+   Value data = LLVM::createGlobalString(
+-      loc, builder, nameBuffer.str(), cubinAttr.getValue(),
++      loc, builder, nameBuffer.str(), binaryAttr.getValue(),
+       LLVM::Linkage::Internal, getLLVMDialect());
+ 
+   // Emit the load module call to load the module data. Error checking is done
+   // in the called helper function.
+-  auto cuModule = allocatePointer(builder, loc);
+-  auto cuModuleLoad =
+-      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleLoadName);
+-  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
+-                               builder.getSymbolRefAttr(cuModuleLoad),
+-                               ArrayRef<Value>{cuModule, data});
++  auto gpuModule = allocatePointer(builder, loc);
++  auto gpuModuleLoad =
++      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuModuleLoadName);
++  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
++                               builder.getSymbolRefAttr(gpuModuleLoad),
++                               ArrayRef<Value>{gpuModule, data});
+   // Get the function from the module. The name corresponds to the name of
+   // the kernel function.
+-  auto cuOwningModuleRef =
+-      builder.create<LLVM::LoadOp>(loc, getPointerType(), cuModule);
++  auto gpuOwningModuleRef =
++      builder.create<LLVM::LoadOp>(loc, getPointerType(), gpuModule);
+   auto kernelName = generateKernelNameConstant(
+       launchOp.getKernelModuleName(), launchOp.getKernelName(), loc, builder);
+-  auto cuFunction = allocatePointer(builder, loc);
+-  auto cuModuleGetFunction =
+-      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleGetFunctionName);
++  auto gpuFunction = allocatePointer(builder, loc);
++  auto gpuModuleGetFunction =
++      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuModuleGetFunctionName);
+   builder.create<LLVM::CallOp>(
+-      loc, ArrayRef<Type>{getCUResultType()},
+-      builder.getSymbolRefAttr(cuModuleGetFunction),
+-      ArrayRef<Value>{cuFunction, cuOwningModuleRef, kernelName});
++      loc, ArrayRef<Type>{getGpuRuntimeResultType()},
++      builder.getSymbolRefAttr(gpuModuleGetFunction),
++      ArrayRef<Value>{gpuFunction, gpuOwningModuleRef, kernelName});
+   // Grab the global stream needed for execution.
+-  auto cuGetStreamHelper =
+-      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuGetStreamHelperName);
+-  auto cuStream = builder.create<LLVM::CallOp>(
++  auto gpuGetStreamHelper =
++      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuGetStreamHelperName);
++  auto gpuStream = builder.create<LLVM::CallOp>(
+       loc, ArrayRef<Type>{getPointerType()},
+-      builder.getSymbolRefAttr(cuGetStreamHelper), ArrayRef<Value>{});
++      builder.getSymbolRefAttr(gpuGetStreamHelper), ArrayRef<Value>{});
+   // Invoke the function with required arguments.
+-  auto cuLaunchKernel =
+-      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuLaunchKernelName);
+-  auto cuFunctionRef =
+-      builder.create<LLVM::LoadOp>(loc, getPointerType(), cuFunction);
++  auto gpuLaunchKernel =
++      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuLaunchKernelName);
++  auto gpuFunctionRef =
++      builder.create<LLVM::LoadOp>(loc, getPointerType(), gpuFunction);
+   auto paramsArray = setupParamsArray(launchOp, builder);
+   if (!paramsArray) {
+     launchOp.emitOpError() << "cannot pass given parameters to the kernel";
+@@ -438,25 +438,25 @@ void GpuLaunchFuncToCudaCallsPass::translateGpuLaunchCalls(
+   auto nullpointer =
+       builder.create<LLVM::IntToPtrOp>(loc, getPointerPointerType(), zero);
+   builder.create<LLVM::CallOp>(
+-      loc, ArrayRef<Type>{getCUResultType()},
+-      builder.getSymbolRefAttr(cuLaunchKernel),
+-      ArrayRef<Value>{cuFunctionRef, launchOp.getOperand(0),
++      loc, ArrayRef<Type>{getGpuRuntimeResultType()},
++      builder.getSymbolRefAttr(gpuLaunchKernel),
++      ArrayRef<Value>{gpuFunctionRef, launchOp.getOperand(0),
+                       launchOp.getOperand(1), launchOp.getOperand(2),
+                       launchOp.getOperand(3), launchOp.getOperand(4),
+                       launchOp.getOperand(5), zero, /* sharedMemBytes */
+-                      cuStream.getResult(0),        /* stream */
++                      gpuStream.getResult(0),       /* stream */
+                       paramsArray,                  /* kernel params */
+                       nullpointer /* extra */});
+   // Sync on the stream to make it synchronous.
+-  auto cuStreamSync =
+-      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuStreamSynchronizeName);
+-  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
+-                               builder.getSymbolRefAttr(cuStreamSync),
+-                               ArrayRef<Value>(cuStream.getResult(0)));
++  auto gpuStreamSync =
++      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuStreamSynchronizeName);
++  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
++                               builder.getSymbolRefAttr(gpuStreamSync),
++                               ArrayRef<Value>(gpuStream.getResult(0)));
+   launchOp.erase();
+ }
+ 
+ std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+-mlir::createConvertGpuLaunchFuncToCudaCallsPass() {
+-  return std::make_unique<GpuLaunchFuncToCudaCallsPass>();
++mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass() {
++  return std::make_unique<GpuLaunchFuncToGpuRuntimeCallsPass>();
+ }
 diff --git a/mlir/lib/Conversion/GPUToCUDA/CMakeLists.txt b/mlir/lib/Conversion/GPUToCUDA/CMakeLists.txt
 deleted file mode 100644
 index 4696dd65fa6..00000000000
@@ -351,516 +1060,91 @@ index 3f99c56c471..00000000000
 -mlir::createConvertGPUKernelToCubinPass(CubinGenerator cubinGenerator) {
 -  return std::make_unique<GpuKernelToCubinPass>(cubinGenerator);
 -}
-diff --git a/mlir/lib/Conversion/GPUToCUDA/ConvertLaunchFuncToCudaCalls.cpp b/mlir/lib/Conversion/GPUToCUDA/ConvertLaunchFuncToCudaCalls.cpp
-deleted file mode 100644
-index cfdcb0f98ad..00000000000
---- a/mlir/lib/Conversion/GPUToCUDA/ConvertLaunchFuncToCudaCalls.cpp
-+++ /dev/null
-@@ -1,462 +0,0 @@
--//===- ConvertLaunchFuncToCudaCalls.cpp - MLIR CUDA lowering passes -------===//
--//
--// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
--// See https://llvm.org/LICENSE.txt for license information.
--// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
--//
--//===----------------------------------------------------------------------===//
--//
--// This file implements a pass to convert gpu.launch_func op into a sequence of
--// CUDA runtime calls. As the CUDA runtime does not have a stable published ABI,
--// this pass uses a slim runtime layer that builds on top of the public API from
--// the CUDA headers.
--//
--//===----------------------------------------------------------------------===//
--
--#include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
--
--#include "../PassDetail.h"
--#include "mlir/Dialect/GPU/GPUDialect.h"
--#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
--#include "mlir/IR/Attributes.h"
--#include "mlir/IR/Builders.h"
--#include "mlir/IR/Function.h"
--#include "mlir/IR/Module.h"
--#include "mlir/IR/StandardTypes.h"
--
--#include "llvm/ADT/STLExtras.h"
--#include "llvm/IR/DataLayout.h"
--#include "llvm/IR/DerivedTypes.h"
--#include "llvm/IR/Module.h"
--#include "llvm/IR/Type.h"
--#include "llvm/Support/Error.h"
--#include "llvm/Support/FormatVariadic.h"
--
--using namespace mlir;
--
--// To avoid name mangling, these are defined in the mini-runtime file.
--static constexpr const char *cuModuleLoadName = "mcuModuleLoad";
--static constexpr const char *cuModuleGetFunctionName = "mcuModuleGetFunction";
--static constexpr const char *cuLaunchKernelName = "mcuLaunchKernel";
--static constexpr const char *cuGetStreamHelperName = "mcuGetStreamHelper";
--static constexpr const char *cuStreamSynchronizeName = "mcuStreamSynchronize";
--static constexpr const char *kMcuMemHostRegister = "mcuMemHostRegister";
--
--static constexpr const char *kCubinAnnotation = "nvvm.cubin";
--static constexpr const char *kCubinStorageSuffix = "_cubin_cst";
--
--namespace {
--
--/// A pass to convert gpu.launch_func operations into a sequence of CUDA
--/// runtime calls.
--///
--/// In essence, a gpu.launch_func operations gets compiled into the following
--/// sequence of runtime calls:
--///
--/// * mcuModuleLoad        -- loads the module given the cubin data
--/// * mcuModuleGetFunction -- gets a handle to the actual kernel function
--/// * mcuGetStreamHelper   -- initializes a new CUDA stream
--/// * mcuLaunchKernelName  -- launches the kernel on a stream
--/// * mcuStreamSynchronize -- waits for operations on the stream to finish
--///
--/// Intermediate data structures are allocated on the stack.
--class GpuLaunchFuncToCudaCallsPass
--    : public ConvertGpuLaunchFuncToCudaCallsBase<GpuLaunchFuncToCudaCallsPass> {
--private:
--  LLVM::LLVMDialect *getLLVMDialect() { return llvmDialect; }
--
--  llvm::LLVMContext &getLLVMContext() {
--    return getLLVMDialect()->getLLVMContext();
--  }
--
--  void initializeCachedTypes() {
--    const llvm::Module &module = llvmDialect->getLLVMModule();
--    llvmVoidType = LLVM::LLVMType::getVoidTy(llvmDialect);
--    llvmPointerType = LLVM::LLVMType::getInt8PtrTy(llvmDialect);
--    llvmPointerPointerType = llvmPointerType.getPointerTo();
--    llvmInt8Type = LLVM::LLVMType::getInt8Ty(llvmDialect);
--    llvmInt32Type = LLVM::LLVMType::getInt32Ty(llvmDialect);
--    llvmInt64Type = LLVM::LLVMType::getInt64Ty(llvmDialect);
--    llvmIntPtrType = LLVM::LLVMType::getIntNTy(
--        llvmDialect, module.getDataLayout().getPointerSizeInBits());
--  }
--
--  LLVM::LLVMType getVoidType() { return llvmVoidType; }
--
--  LLVM::LLVMType getPointerType() { return llvmPointerType; }
--
--  LLVM::LLVMType getPointerPointerType() { return llvmPointerPointerType; }
--
--  LLVM::LLVMType getInt8Type() { return llvmInt8Type; }
--
--  LLVM::LLVMType getInt32Type() { return llvmInt32Type; }
--
--  LLVM::LLVMType getInt64Type() { return llvmInt64Type; }
--
--  LLVM::LLVMType getIntPtrType() {
--    const llvm::Module &module = getLLVMDialect()->getLLVMModule();
--    return LLVM::LLVMType::getIntNTy(
--        getLLVMDialect(), module.getDataLayout().getPointerSizeInBits());
--  }
--
--  LLVM::LLVMType getCUResultType() {
--    // This is declared as an enum in CUDA but helpers use i32.
--    return getInt32Type();
--  }
--
--  // Allocate a void pointer on the stack.
--  Value allocatePointer(OpBuilder &builder, Location loc) {
--    auto one = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
--                                                builder.getI32IntegerAttr(1));
--    return builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(), one,
--                                          /*alignment=*/0);
--  }
--
--  void declareCudaFunctions(Location loc);
--  void addParamToList(OpBuilder &builder, Location loc, Value param, Value list,
--                      unsigned pos, Value one);
--  Value setupParamsArray(gpu::LaunchFuncOp launchOp, OpBuilder &builder);
--  Value generateKernelNameConstant(StringRef moduleName, StringRef name,
--                                   Location loc, OpBuilder &builder);
--  void translateGpuLaunchCalls(mlir::gpu::LaunchFuncOp launchOp);
--
--public:
--  // Run the dialect converter on the module.
--  void runOnOperation() override {
--    // Cache the LLVMDialect for the current module.
--    llvmDialect = getContext().getRegisteredDialect<LLVM::LLVMDialect>();
--    // Cache the used LLVM types.
--    initializeCachedTypes();
--
--    getOperation().walk(
--        [this](mlir::gpu::LaunchFuncOp op) { translateGpuLaunchCalls(op); });
--
--    // GPU kernel modules are no longer necessary since we have a global
--    // constant with the CUBIN data.
--    for (auto m :
--         llvm::make_early_inc_range(getOperation().getOps<gpu::GPUModuleOp>()))
--      m.erase();
--  }
--
--private:
--  LLVM::LLVMDialect *llvmDialect;
--  LLVM::LLVMType llvmVoidType;
--  LLVM::LLVMType llvmPointerType;
--  LLVM::LLVMType llvmPointerPointerType;
--  LLVM::LLVMType llvmInt8Type;
--  LLVM::LLVMType llvmInt32Type;
--  LLVM::LLVMType llvmInt64Type;
--  LLVM::LLVMType llvmIntPtrType;
--};
--
--} // anonymous namespace
--
--// Adds declarations for the needed helper functions from the CUDA wrapper.
--// The types in comments give the actual types expected/returned but the API
--// uses void pointers. This is fine as they have the same linkage in C.
--void GpuLaunchFuncToCudaCallsPass::declareCudaFunctions(Location loc) {
--  ModuleOp module = getOperation();
--  OpBuilder builder(module.getBody()->getTerminator());
--  if (!module.lookupSymbol(cuModuleLoadName)) {
--    builder.create<LLVM::LLVMFuncOp>(
--        loc, cuModuleLoadName,
--        LLVM::LLVMType::getFunctionTy(
--            getCUResultType(),
--            {
--                getPointerPointerType(), /* CUmodule *module */
--                getPointerType()         /* void *cubin */
--            },
--            /*isVarArg=*/false));
--  }
--  if (!module.lookupSymbol(cuModuleGetFunctionName)) {
--    // The helper uses void* instead of CUDA's opaque CUmodule and
--    // CUfunction.
--    builder.create<LLVM::LLVMFuncOp>(
--        loc, cuModuleGetFunctionName,
--        LLVM::LLVMType::getFunctionTy(
--            getCUResultType(),
--            {
--                getPointerPointerType(), /* void **function */
--                getPointerType(),        /* void *module */
--                getPointerType()         /* char *name */
--            },
--            /*isVarArg=*/false));
--  }
--  if (!module.lookupSymbol(cuLaunchKernelName)) {
--    // Other than the CUDA api, the wrappers use uintptr_t to match the
--    // LLVM type if MLIR's index type, which the GPU dialect uses.
--    // Furthermore, they use void* instead of CUDA's opaque CUfunction and
--    // CUstream.
--    builder.create<LLVM::LLVMFuncOp>(
--        loc, cuLaunchKernelName,
--        LLVM::LLVMType::getFunctionTy(
--            getCUResultType(),
--            {
--                getPointerType(),        /* void* f */
--                getIntPtrType(),         /* intptr_t gridXDim */
--                getIntPtrType(),         /* intptr_t gridyDim */
--                getIntPtrType(),         /* intptr_t gridZDim */
--                getIntPtrType(),         /* intptr_t blockXDim */
--                getIntPtrType(),         /* intptr_t blockYDim */
--                getIntPtrType(),         /* intptr_t blockZDim */
--                getInt32Type(),          /* unsigned int sharedMemBytes */
--                getPointerType(),        /* void *hstream */
--                getPointerPointerType(), /* void **kernelParams */
--                getPointerPointerType()  /* void **extra */
--            },
--            /*isVarArg=*/false));
--  }
--  if (!module.lookupSymbol(cuGetStreamHelperName)) {
--    // Helper function to get the current CUDA stream. Uses void* instead of
--    // CUDAs opaque CUstream.
--    builder.create<LLVM::LLVMFuncOp>(
--        loc, cuGetStreamHelperName,
--        LLVM::LLVMType::getFunctionTy(getPointerType(), /*isVarArg=*/false));
--  }
--  if (!module.lookupSymbol(cuStreamSynchronizeName)) {
--    builder.create<LLVM::LLVMFuncOp>(
--        loc, cuStreamSynchronizeName,
--        LLVM::LLVMType::getFunctionTy(getCUResultType(),
--                                      getPointerType() /* CUstream stream */,
--                                      /*isVarArg=*/false));
--  }
--  if (!module.lookupSymbol(kMcuMemHostRegister)) {
--    builder.create<LLVM::LLVMFuncOp>(
--        loc, kMcuMemHostRegister,
--        LLVM::LLVMType::getFunctionTy(getVoidType(),
--                                      {
--                                          getPointerType(), /* void *ptr */
--                                          getInt64Type()    /* int64 sizeBytes*/
--                                      },
--                                      /*isVarArg=*/false));
--  }
--}
--
--/// Emits the IR with the following structure:
--///
--///   %data = llvm.alloca 1 x type-of(<param>)
--///   llvm.store <param>, %data
--///   %typeErased = llvm.bitcast %data to !llvm<"i8*">
--///   %addr = llvm.getelementptr <list>[<pos>]
--///   llvm.store %typeErased, %addr
--///
--/// This is necessary to construct the list of arguments passed to the kernel
--/// function as accepted by cuLaunchKernel, i.e. as a void** that points to list
--/// of stack-allocated type-erased pointers to the actual arguments.
--void GpuLaunchFuncToCudaCallsPass::addParamToList(OpBuilder &builder,
--                                                  Location loc, Value param,
--                                                  Value list, unsigned pos,
--                                                  Value one) {
--  auto memLocation = builder.create<LLVM::AllocaOp>(
--      loc, param.getType().cast<LLVM::LLVMType>().getPointerTo(), one,
--      /*alignment=*/1);
--  builder.create<LLVM::StoreOp>(loc, param, memLocation);
--  auto casted =
--      builder.create<LLVM::BitcastOp>(loc, getPointerType(), memLocation);
--
--  auto index = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
--                                                builder.getI32IntegerAttr(pos));
--  auto gep = builder.create<LLVM::GEPOp>(loc, getPointerPointerType(), list,
--                                         ArrayRef<Value>{index});
--  builder.create<LLVM::StoreOp>(loc, casted, gep);
--}
--
--// Generates a parameters array to be used with a CUDA kernel launch call. The
--// arguments are extracted from the launchOp.
--// The generated code is essentially as follows:
--//
--// %array = alloca(numparams * sizeof(void *))
--// for (i : [0, NumKernelOperands))
--//   %array[i] = cast<void*>(KernelOperand[i])
--// return %array
--Value GpuLaunchFuncToCudaCallsPass::setupParamsArray(gpu::LaunchFuncOp launchOp,
--                                                     OpBuilder &builder) {
--
--  // Get the launch target.
--  auto gpuFunc = SymbolTable::lookupNearestSymbolFrom<LLVM::LLVMFuncOp>(
--      launchOp, launchOp.kernel());
--  if (!gpuFunc)
--    return {};
--
--  unsigned numArgs = gpuFunc.getNumArguments();
--
--  auto numKernelOperands = launchOp.getNumKernelOperands();
--  Location loc = launchOp.getLoc();
--  auto one = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
--                                              builder.getI32IntegerAttr(1));
--  auto arraySize = builder.create<LLVM::ConstantOp>(
--      loc, getInt32Type(), builder.getI32IntegerAttr(numArgs));
--  auto array = builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(),
--                                              arraySize, /*alignment=*/0);
--
--  unsigned pos = 0;
--  for (unsigned idx = 0; idx < numKernelOperands; ++idx) {
--    auto operand = launchOp.getKernelOperand(idx);
--    auto llvmType = operand.getType().cast<LLVM::LLVMType>();
--
--    // Assume all struct arguments come from MemRef. If this assumption does not
--    // hold anymore then we `launchOp` to lower from MemRefType and not after
--    // LLVMConversion has taken place and the MemRef information is lost.
--    if (!llvmType.isStructTy()) {
--      addParamToList(builder, loc, operand, array, pos++, one);
--      continue;
--    }
--
--    // Put individual components of a memref descriptor into the flat argument
--    // list. We cannot use unpackMemref from LLVM lowering here because we have
--    // no access to MemRefType that had been lowered away.
--    for (int32_t j = 0, ej = llvmType.getStructNumElements(); j < ej; ++j) {
--      auto elemType = llvmType.getStructElementType(j);
--      if (elemType.isArrayTy()) {
--        for (int32_t k = 0, ek = elemType.getArrayNumElements(); k < ek; ++k) {
--          Value elem = builder.create<LLVM::ExtractValueOp>(
--              loc, elemType.getArrayElementType(), operand,
--              builder.getI32ArrayAttr({j, k}));
--          addParamToList(builder, loc, elem, array, pos++, one);
--        }
--      } else {
--        assert((elemType.isIntegerTy() || elemType.isFloatTy() ||
--                elemType.isDoubleTy() || elemType.isPointerTy()) &&
--               "expected scalar type");
--        Value strct = builder.create<LLVM::ExtractValueOp>(
--            loc, elemType, operand, builder.getI32ArrayAttr(j));
--        addParamToList(builder, loc, strct, array, pos++, one);
--      }
--    }
--  }
--
--  return array;
--}
--
--// Generates an LLVM IR dialect global that contains the name of the given
--// kernel function as a C string, and returns a pointer to its beginning.
--// The code is essentially:
--//
--// llvm.global constant @kernel_name("function_name\00")
--// func(...) {
--//   %0 = llvm.addressof @kernel_name
--//   %1 = llvm.constant (0 : index)
--//   %2 = llvm.getelementptr %0[%1, %1] : !llvm<"i8*">
--// }
--Value GpuLaunchFuncToCudaCallsPass::generateKernelNameConstant(
--    StringRef moduleName, StringRef name, Location loc, OpBuilder &builder) {
--  // Make sure the trailing zero is included in the constant.
--  std::vector<char> kernelName(name.begin(), name.end());
--  kernelName.push_back('\0');
--
--  std::string globalName =
--      std::string(llvm::formatv("{0}_{1}_kernel_name", moduleName, name));
--  return LLVM::createGlobalString(
--      loc, builder, globalName, StringRef(kernelName.data(), kernelName.size()),
--      LLVM::Linkage::Internal, llvmDialect);
--}
--
--// Emits LLVM IR to launch a kernel function. Expects the module that contains
--// the compiled kernel function as a cubin in the 'nvvm.cubin' attribute of the
--// kernel function in the IR.
--// While MLIR has no global constants, also expects a cubin getter function in
--// an 'nvvm.cubingetter' attribute. Such function is expected to return a
--// pointer to the cubin blob when invoked.
--// With these given, the generated code in essence is
--//
--// %0 = call %cubingetter
--// %1 = alloca sizeof(void*)
--// call %mcuModuleLoad(%2, %1)
--// %2 = alloca sizeof(void*)
--// %3 = load %1
--// %4 = <see generateKernelNameConstant>
--// call %mcuModuleGetFunction(%2, %3, %4)
--// %5 = call %mcuGetStreamHelper()
--// %6 = load %2
--// %7 = <see setupParamsArray>
--// call %mcuLaunchKernel(%6, <launchOp operands 0..5>, 0, %5, %7, nullptr)
--// call %mcuStreamSynchronize(%5)
--void GpuLaunchFuncToCudaCallsPass::translateGpuLaunchCalls(
--    mlir::gpu::LaunchFuncOp launchOp) {
--  OpBuilder builder(launchOp);
--  Location loc = launchOp.getLoc();
--  declareCudaFunctions(loc);
--
--  auto zero = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
--                                               builder.getI32IntegerAttr(0));
--  // Create an LLVM global with CUBIN extracted from the kernel annotation and
--  // obtain a pointer to the first byte in it.
--  auto kernelModule = getOperation().lookupSymbol<gpu::GPUModuleOp>(
--      launchOp.getKernelModuleName());
--  assert(kernelModule && "expected a kernel module");
--
--  auto cubinAttr = kernelModule.getAttrOfType<StringAttr>(kCubinAnnotation);
--  if (!cubinAttr) {
--    kernelModule.emitOpError()
--        << "missing " << kCubinAnnotation << " attribute";
--    return signalPassFailure();
--  }
--
--  SmallString<128> nameBuffer(kernelModule.getName());
--  nameBuffer.append(kCubinStorageSuffix);
--  Value data = LLVM::createGlobalString(
--      loc, builder, nameBuffer.str(), cubinAttr.getValue(),
--      LLVM::Linkage::Internal, getLLVMDialect());
--
--  // Emit the load module call to load the module data. Error checking is done
--  // in the called helper function.
--  auto cuModule = allocatePointer(builder, loc);
--  auto cuModuleLoad =
--      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleLoadName);
--  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
--                               builder.getSymbolRefAttr(cuModuleLoad),
--                               ArrayRef<Value>{cuModule, data});
--  // Get the function from the module. The name corresponds to the name of
--  // the kernel function.
--  auto cuOwningModuleRef =
--      builder.create<LLVM::LoadOp>(loc, getPointerType(), cuModule);
--  auto kernelName = generateKernelNameConstant(
--      launchOp.getKernelModuleName(), launchOp.getKernelName(), loc, builder);
--  auto cuFunction = allocatePointer(builder, loc);
--  auto cuModuleGetFunction =
--      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuModuleGetFunctionName);
--  builder.create<LLVM::CallOp>(
--      loc, ArrayRef<Type>{getCUResultType()},
--      builder.getSymbolRefAttr(cuModuleGetFunction),
--      ArrayRef<Value>{cuFunction, cuOwningModuleRef, kernelName});
--  // Grab the global stream needed for execution.
--  auto cuGetStreamHelper =
--      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuGetStreamHelperName);
--  auto cuStream = builder.create<LLVM::CallOp>(
--      loc, ArrayRef<Type>{getPointerType()},
--      builder.getSymbolRefAttr(cuGetStreamHelper), ArrayRef<Value>{});
--  // Invoke the function with required arguments.
--  auto cuLaunchKernel =
--      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuLaunchKernelName);
--  auto cuFunctionRef =
--      builder.create<LLVM::LoadOp>(loc, getPointerType(), cuFunction);
--  auto paramsArray = setupParamsArray(launchOp, builder);
--  if (!paramsArray) {
--    launchOp.emitOpError() << "cannot pass given parameters to the kernel";
--    return signalPassFailure();
--  }
--  auto nullpointer =
--      builder.create<LLVM::IntToPtrOp>(loc, getPointerPointerType(), zero);
--  builder.create<LLVM::CallOp>(
--      loc, ArrayRef<Type>{getCUResultType()},
--      builder.getSymbolRefAttr(cuLaunchKernel),
--      ArrayRef<Value>{cuFunctionRef, launchOp.getOperand(0),
--                      launchOp.getOperand(1), launchOp.getOperand(2),
--                      launchOp.getOperand(3), launchOp.getOperand(4),
--                      launchOp.getOperand(5), zero, /* sharedMemBytes */
--                      cuStream.getResult(0),        /* stream */
--                      paramsArray,                  /* kernel params */
--                      nullpointer /* extra */});
--  // Sync on the stream to make it synchronous.
--  auto cuStreamSync =
--      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(cuStreamSynchronizeName);
--  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getCUResultType()},
--                               builder.getSymbolRefAttr(cuStreamSync),
--                               ArrayRef<Value>(cuStream.getResult(0)));
--  launchOp.erase();
--}
--
--std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
--mlir::createConvertGpuLaunchFuncToCudaCallsPass() {
--  return std::make_unique<GpuLaunchFuncToCudaCallsPass>();
--}
-diff --git a/mlir/test/Conversion/GPUToCUDA/lower-launch-func-to-cuda.mlir b/mlir/test/Conversion/GPUToCUDA/lower-launch-func-to-cuda.mlir
-deleted file mode 100644
-index 20b76a2e3a2..00000000000
+diff --git a/mlir/test/Conversion/GPUToCUDA/lower-launch-func-to-cuda.mlir b/mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir
+similarity index 57%
+rename from mlir/test/Conversion/GPUToCUDA/lower-launch-func-to-cuda.mlir
+rename to mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir
+index 20b76a2e3a2..a3381465ebf 100644
 --- a/mlir/test/Conversion/GPUToCUDA/lower-launch-func-to-cuda.mlir
-+++ /dev/null
-@@ -1,36 +0,0 @@
++++ b/mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir
+@@ -1,11 +1,13 @@
 -// RUN: mlir-opt -allow-unregistered-dialect %s --launch-func-to-cuda | FileCheck %s
--
--module attributes {gpu.container_module} {
--
--  // CHECK: llvm.mlir.global internal constant @[[kernel_name:.*]]("kernel\00")
--  // CHECK: llvm.mlir.global internal constant @[[global:.*]]("CUBIN")
--
++// RUN: mlir-opt -allow-unregistered-dialect %s --launch-func-to-gpu-runtime="gpu-binary-annotation=nvvm.cubin" | FileCheck %s
++// RUN: mlir-opt -allow-unregistered-dialect %s --launch-func-to-gpu-runtime="gpu-binary-annotation=rocdl.hsaco" | FileCheck %s --check-prefix=ROCDL
+ 
+ module attributes {gpu.container_module} {
+ 
+   // CHECK: llvm.mlir.global internal constant @[[kernel_name:.*]]("kernel\00")
+   // CHECK: llvm.mlir.global internal constant @[[global:.*]]("CUBIN")
++  // ROCDL: llvm.mlir.global internal constant @[[global:.*]]("HSACO")
+ 
 -  gpu.module @kernel_module attributes {nvvm.cubin = "CUBIN"} {
--    llvm.func @kernel(%arg0: !llvm.float, %arg1: !llvm<"float*">) attributes {gpu.kernel} {
--      llvm.return
--    }
--  }
--
--  llvm.func @foo() {
--    %0 = "op"() : () -> (!llvm.float)
--    %1 = "op"() : () -> (!llvm<"float*">)
--    %cst = llvm.mlir.constant(8 : index) : !llvm.i64
--
--    // CHECK: %[[addressof:.*]] = llvm.mlir.addressof @[[global]]
--    // CHECK: %[[c0:.*]] = llvm.mlir.constant(0 : index)
++  gpu.module @kernel_module attributes {nvvm.cubin = "CUBIN", rocdl.hsaco = "HSACO"} {
+     llvm.func @kernel(%arg0: !llvm.float, %arg1: !llvm<"float*">) attributes {gpu.kernel} {
+       llvm.return
+     }
+@@ -18,15 +20,15 @@ module attributes {gpu.container_module} {
+ 
+     // CHECK: %[[addressof:.*]] = llvm.mlir.addressof @[[global]]
+     // CHECK: %[[c0:.*]] = llvm.mlir.constant(0 : index)
 -    // CHECK: %[[cubin_ptr:.*]] = llvm.getelementptr %[[addressof]][%[[c0]], %[[c0]]]
--    // CHECK-SAME: -> !llvm<"i8*">
--    // CHECK: %[[module_ptr:.*]] = llvm.alloca {{.*}} x !llvm<"i8*"> : (!llvm.i32) -> !llvm<"i8**">
++    // CHECK: %[[binary_ptr:.*]] = llvm.getelementptr %[[addressof]][%[[c0]], %[[c0]]]
+     // CHECK-SAME: -> !llvm<"i8*">
+     // CHECK: %[[module_ptr:.*]] = llvm.alloca {{.*}} x !llvm<"i8*"> : (!llvm.i32) -> !llvm<"i8**">
 -    // CHECK: llvm.call @mcuModuleLoad(%[[module_ptr]], %[[cubin_ptr]]) : (!llvm<"i8**">, !llvm<"i8*">) -> !llvm.i32
--    // CHECK: %[[func_ptr:.*]] = llvm.alloca {{.*}} x !llvm<"i8*"> : (!llvm.i32) -> !llvm<"i8**">
++    // CHECK: llvm.call @mgpuModuleLoad(%[[module_ptr]], %[[binary_ptr]]) : (!llvm<"i8**">, !llvm<"i8*">) -> !llvm.i32
+     // CHECK: %[[func_ptr:.*]] = llvm.alloca {{.*}} x !llvm<"i8*"> : (!llvm.i32) -> !llvm<"i8**">
 -    // CHECK: llvm.call @mcuModuleGetFunction(%[[func_ptr]], {{.*}}, {{.*}}) : (!llvm<"i8**">, !llvm<"i8*">, !llvm<"i8*">) -> !llvm.i32
 -    // CHECK: llvm.call @mcuGetStreamHelper
 -    // CHECK: llvm.call @mcuLaunchKernel
 -    // CHECK: llvm.call @mcuStreamSynchronize
--    "gpu.launch_func"(%cst, %cst, %cst, %cst, %cst, %cst, %0, %1) { kernel = @kernel_module::@kernel }
--        : (!llvm.i64, !llvm.i64, !llvm.i64, !llvm.i64, !llvm.i64, !llvm.i64, !llvm.float, !llvm<"float*">) -> ()
--
--    llvm.return
--  }
--
--}
++    // CHECK: llvm.call @mgpuModuleGetFunction(%[[func_ptr]], {{.*}}, {{.*}}) : (!llvm<"i8**">, !llvm<"i8*">, !llvm<"i8*">) -> !llvm.i32
++    // CHECK: llvm.call @mgpuGetStreamHelper
++    // CHECK: llvm.call @mgpuLaunchKernel
++    // CHECK: llvm.call @mgpuStreamSynchronize
+     "gpu.launch_func"(%cst, %cst, %cst, %cst, %cst, %cst, %0, %1) { kernel = @kernel_module::@kernel }
+         : (!llvm.i64, !llvm.i64, !llvm.i64, !llvm.i64, !llvm.i64, !llvm.i64, !llvm.float, !llvm<"float*">) -> ()
+ 
+diff --git a/mlir/test/Conversion/GPUToROCm/lit.local.cfg b/mlir/test/Conversion/GPUToROCm/lit.local.cfg
+new file mode 100644
+index 00000000000..6eb561783b3
+--- /dev/null
++++ b/mlir/test/Conversion/GPUToROCm/lit.local.cfg
+@@ -0,0 +1,2 @@
++if not config.run_rocm_tests:
++  config.unsupported = True
+diff --git a/mlir/test/Conversion/GPUToROCm/lower-rocdl-kernel-to-hsaco.mlir b/mlir/test/Conversion/GPUToROCm/lower-rocdl-kernel-to-hsaco.mlir
+new file mode 100644
+index 00000000000..5ee3bb21aa9
+--- /dev/null
++++ b/mlir/test/Conversion/GPUToROCm/lower-rocdl-kernel-to-hsaco.mlir
+@@ -0,0 +1,26 @@
++// RUN: mlir-opt %s --test-kernel-to-hsaco -split-input-file | FileCheck %s
++
++// CHECK: attributes {rocdl.hsaco = "HSACO"}
++gpu.module @foo {
++  llvm.func @kernel(%arg0 : !llvm.float, %arg1 : !llvm<"float*">)
++    // CHECK: attributes  {gpu.kernel}
++    attributes  { gpu.kernel } {
++    llvm.return
++  }
++}
++
++// -----
++
++gpu.module @bar {
++  // CHECK: func @kernel_a
++  llvm.func @kernel_a()
++    attributes  { gpu.kernel } {
++    llvm.return
++  }
++
++  // CHECK: func @kernel_b
++  llvm.func @kernel_b()
++    attributes  { gpu.kernel } {
++    llvm.return
++  }
++}
 diff --git a/mlir/test/lib/Transforms/CMakeLists.txt b/mlir/test/lib/Transforms/CMakeLists.txt
 index d040cdf97ab..55bf84cb163 100644
 --- a/mlir/test/lib/Transforms/CMakeLists.txt
@@ -984,6 +1268,65 @@ index e0c4c1907c4..84dbef56885 100644
  }
  } // namespace mlir
  #endif
+diff --git a/mlir/test/lib/Transforms/TestConvertGPUKernelToHsaco.cpp b/mlir/test/lib/Transforms/TestConvertGPUKernelToHsaco.cpp
+new file mode 100644
+index 00000000000..f19ea7de0cb
+--- /dev/null
++++ b/mlir/test/lib/Transforms/TestConvertGPUKernelToHsaco.cpp
+@@ -0,0 +1,53 @@
++//===- TestConvertGPUKernelToHsaco.cpp - Test gpu kernel hsaco lowering ---===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
++#include "mlir/Pass/Pass.h"
++#include "mlir/Pass/PassManager.h"
++#include "mlir/Target/ROCDLIR.h"
++#include "llvm/Support/TargetSelect.h"
++using namespace mlir;
++
++#if MLIR_ROCM_CONVERSIONS_ENABLED
++static LogicalResult initAMDGPUBackendCallback() {
++  LLVMInitializeAMDGPUTarget();
++  LLVMInitializeAMDGPUTargetInfo();
++  LLVMInitializeAMDGPUTargetMC();
++  LLVMInitializeAMDGPUAsmPrinter();
++  return success();
++}
++
++static LogicalResult
++compileModuleToROCDLIR(Operation *m,
++                       std::unique_ptr<llvm::Module> &llvmModule) {
++  llvmModule = translateModuleToROCDLIR(m);
++  if (llvmModule)
++    return success();
++  return failure();
++}
++
++static OwnedBlob compileIsaToHsacoForTesting(const std::string &, Location,
++                                             StringRef) {
++  const char data[] = "HSACO";
++  return std::make_unique<std::vector<char>>(data, data + sizeof(data) - 1);
++}
++
++namespace mlir {
++void registerTestConvertGPUKernelToHsacoPass() {
++  PassPipelineRegistration<>(
++      "test-kernel-to-hsaco",
++      "Convert all kernel functions to ROCm hsaco blobs",
++      [](OpPassManager &pm) {
++        pm.addPass(createConvertGPUKernelToBlobPass(
++            initAMDGPUBackendCallback, compileModuleToROCDLIR,
++            compileIsaToHsacoForTesting, "amdgcn-amd-amdhsa", "gfx900",
++            "-code-object-v3", "rocdl.hsaco"));
++      });
++}
++} // namespace mlir
++#endif
 diff --git a/mlir/test/lit.site.cfg.py.in b/mlir/test/lit.site.cfg.py.in
 index dc6286a827b..e07acf4d21a 100644
 --- a/mlir/test/lit.site.cfg.py.in
