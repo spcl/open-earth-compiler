@@ -14,7 +14,6 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/Support/TargetSelect.h"
 
-#include "cuda.h"
 
 using namespace mlir;
 

@@ -5,14 +5,6 @@ cmake_minimum_required(VERSION 3.10)
 project(oec-opt LANGUAGES CXX C)
 include(CheckLanguage)
 
-check_language(CUDA)
-if (CMAKE_CUDA_COMPILER)
-  enable_language(CUDA)
-else()
-  message(SEND_ERROR
-    "Building the GPU lowering of oec-opt requires CUDA")
-endif()
-find_library(CUDA_RUNTIME_LIBRARY cuda)
 
 # setup llvm lit
 set(LLVM_LIT_ARGS "-sv" CACHE STRING "lit default options")
