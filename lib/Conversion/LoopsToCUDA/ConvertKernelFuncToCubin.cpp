@@ -52,7 +52,7 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createStencilIndexOptimizationPass());
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             initAMDGPUBackendCallback, compileModuleToROCDLIR,
-            compileIsaToHsaco, "amdgcn-amd-amdhsa", "gfx1010",
+            compileIsaToHsaco, "amdgcn-amd-amdhsa", "gfx900",
             "-code-object-v3", "rocdl.hsaco"));
         LowerToLLVMOptions llvmOptions;
         llvmOptions.emitCWrappers = true;
