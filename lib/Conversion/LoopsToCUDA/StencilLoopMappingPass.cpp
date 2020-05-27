@@ -25,7 +25,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
-#include <bits/stdint-intn.h>
+ 
 #include <cstddef>
 #include <iterator>
 #include <limits>

@@ -9,7 +9,7 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
-#include <bits/stdint-intn.h>
+ 
 #include <numeric>
 
 namespace mlir {

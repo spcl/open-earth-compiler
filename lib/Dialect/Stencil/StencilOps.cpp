@@ -22,7 +22,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <bits/stdint-intn.h>
+ 
 #include <cstddef>
 #include <functional>
 #include <iterator>

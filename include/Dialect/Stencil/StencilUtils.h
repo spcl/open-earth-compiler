@@ -8,7 +8,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLExtras.h"
-#include <bits/stdint-intn.h>
+ 
 #include <functional>
 
 namespace mlir {
