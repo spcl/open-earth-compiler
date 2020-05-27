@@ -495,7 +495,7 @@ SmallVector<Value, 3> StencilToStdPattern::computeIndexValues(
   for (auto en : llvm::enumerate(allocation)) {
     // Insert values at the front to convert from column- to row-major
     if (en.value()) {
-      ValueRange params = {
+      SmallVector<Value, 2> params = {
           inductionVars[en.index()],
           rewriter.create<ConstantIndexOp>(loc, offset[en.index()])
               .getResult()};

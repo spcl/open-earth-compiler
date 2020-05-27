@@ -95,7 +95,7 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer << stencil::ApplyOp::getOperationName() << ' ';
 
   // Print the region arguments
-  ValueRange operands = applyOp.getOperands();
+  auto operands = applyOp.getOperands();
   if (!applyOp.region().empty() && !operands.empty()) {
     Block *body = applyOp.getBody();
     printer << "(";
