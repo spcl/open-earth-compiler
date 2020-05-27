@@ -211,7 +211,7 @@ public:
     /// Compute unroll factor and dimension
     auto unrollFac = returnOp.getUnrollFactor();
     size_t unrollDim = returnOp.getUnrollDimension();
-    
+
     // Get the loop operation
     if (!isa<ParallelOp>(operation->getParentOp()))
       return failure();
@@ -495,7 +495,7 @@ SmallVector<Value, 3> StencilToStdPattern::computeIndexValues(
   for (auto en : llvm::enumerate(allocation)) {
     // Insert values at the front to convert from column- to row-major
     if (en.value()) {
-      ValueRange params = {
+      SmallVector<Value, 2> params = {
           inductionVars[en.index()],
           rewriter.create<ConstantIndexOp>(loc, offset[en.index()])
               .getResult()};
