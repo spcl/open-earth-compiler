@@ -35,8 +35,10 @@ compileModuleToROCDLIR(Operation *m,
 }
 
 static OwnedBlob compileIsaToHsaco(const std::string &input, Location,
-                                             StringRef) {
-  return std::make_unique<std::vector<char>>(input.begin(), input.end());
+                                             StringRef) {      
+  std::vector<char> buffer(input.begin(), input.end());
+  buffer.push_back(0); // add terminator
+  return std::make_unique<std::vector<char>>(buffer.begin(), buffer.end());
 }
 
 namespace mlir {
@@ -51,7 +53,7 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createStencilIndexOptimizationPass());
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             initAMDGPUBackendCallback, compileModuleToROCDLIR,
-            compileIsaToHsaco, "amdgcn-amd-amdhsa", "gfx900",
+            compileIsaToHsaco, "amdgcn-amd-amdhsa", "gfx906",
             "-code-object-v3", "rocdl.hsaco"));
         LowerToLLVMOptions llvmOptions;
         llvmOptions.emitCWrappers = true;
