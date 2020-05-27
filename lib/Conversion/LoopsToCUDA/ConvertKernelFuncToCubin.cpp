@@ -35,10 +35,8 @@ compileModuleToROCDLIR(Operation *m,
 }
 
 static OwnedBlob compileIsaToHsaco(const std::string &input, Location,
-                                             StringRef) {      
-  std::vector<char> buffer(input.begin(), input.end());
-  buffer.push_back(0); // add terminator
-  return std::make_unique<std::vector<char>>(buffer.begin(), buffer.end());
+                                             StringRef) { 
+  return std::make_unique<std::vector<char>>(input.begin(), input.end());
 }
 
 namespace mlir {
