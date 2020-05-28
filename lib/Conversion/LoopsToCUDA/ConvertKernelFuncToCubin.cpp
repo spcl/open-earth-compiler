@@ -125,9 +125,6 @@ static OwnedBlob compileIsaToHsaco(const std::string &input, Location loc,
     emitError(loc, "failed to assemble the stuff");
     return {};
   }
-
-  llvm::errs() << "this is our result" << OS.str() << "\n";
-
   return std::make_unique<std::vector<char>>(Storage.begin(), Storage.end());
 }
 
