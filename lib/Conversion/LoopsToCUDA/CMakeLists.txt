@@ -6,6 +6,7 @@ set(NVPTX_LIBS
 )
 set(AMDGPU_LIBS
   MC
+  AllTargetsAsmParsers
   AMDGPUCodeGen
   AMDGPUDesc
   AMDGPUInfo
