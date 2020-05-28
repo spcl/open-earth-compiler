@@ -35,6 +35,10 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 
+#include "llvm/Support/ToolOutputFile.h"
+
+#include <cstdlib>
+
 using namespace mlir;
 
 static LogicalResult initAMDGPUBackendCallback() {
@@ -55,10 +59,9 @@ compileModuleToROCDLIR(Operation *m,
   return failure();
 }
 
+
 static OwnedBlob compileIsaToHsaco(const std::string &input, Location loc,
                                    StringRef) {
-
-
   // Initialize the target
   std::string tripleName = "amdgcn-amd-amdhsa";
   std::string mCPU = "gfx906";
@@ -100,14 +103,20 @@ static OwnedBlob compileIsaToHsaco(const std::string &input, Location loc,
   llvm::MCAsmBackend *MAB =
       TheTarget->createMCAsmBackend(*STI, *MRI, MCOptions);
 
-  SmallString<0> Storage;
-  Storage.clear();
-  llvm::raw_svector_ostream OS(Storage);
+  // Write assembler to file
+  std::error_code EC;
+  auto Out = std::make_unique<llvm::ToolOutputFile>("/tmp/kernel.o", EC, llvm::sys::fs::OF_None);
+  if (EC) {
+    llvm::errs() << EC.message() << '\n';
+    return nullptr;
+  }
+
+  llvm::raw_pwrite_stream *OS = &Out->os();
   std::unique_ptr<llvm::MCStreamer> Str;
 
   Str.reset(TheTarget->createMCObjectStreamer(
       triple, Ctx, std::unique_ptr<llvm::MCAsmBackend>(MAB),
-      MAB->createObjectWriter(OS), std::unique_ptr<llvm::MCCodeEmitter>(CE),
+      MAB->createObjectWriter(*OS), std::unique_ptr<llvm::MCCodeEmitter>(CE),
       *STI, MCOptions.MCRelaxAll, MCOptions.MCIncrementalLinkerCompatible,
       /*DWARFMustBeAtTheEnd*/ false));
 
@@ -127,7 +136,19 @@ static OwnedBlob compileIsaToHsaco(const std::string &input, Location loc,
     emitError(loc, "failed to assemble the stuff");
     return {};
   }
-  return std::make_unique<std::vector<char>>(Storage.begin(), Storage.end());
+
+  // Call the rocm linker to generate the hsaco
+  // /opt/rocm-3.3.0/hcc/bin/ld64.lld -shared llvm_code.isabin -o test.hsaco
+
+  std::system("/opt/rocm-3.3.0/hcc/bin/ld.lld -shared /tmp/kernel.o -o /tmp/kernel.hsaco");
+  Out->keep();
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferPtr =
+      llvm::MemoryBuffer::getFileOrSTDIN("/tmp/kernel.hsaco");
+  if (std::error_code EC = BufferPtr.getError()) {
+    llvm::errs() << "/tmp/kernel.hsaco" << ": " << EC.message() << '\n';
+    return {};
+  }
+  return std::make_unique<std::vector<char>>(BufferPtr->get()->getBuffer().begin(), BufferPtr->get()->getBuffer().end());
 }
 
 namespace mlir {
