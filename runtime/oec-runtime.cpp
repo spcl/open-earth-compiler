@@ -37,7 +37,7 @@ extern "C" int32_t oecInit() {
   hipDevice_t device;
   int32_t err = 0;
   err = reportError(hipInit(0), "Init");
-  err = reportError(hipDeviceGet(&device, 0), "Init");
+  //err = reportError(hipDeviceGet(&device, 0), "Init");
   // err = reportError(hipCtxCreate(&context, hipDeviceScheduleSpin, device), "Init");
   // err = reportError(hipStreamCreate(&stream, hipStreamDefault), "StreamCreate");
   return err;
@@ -89,7 +89,7 @@ extern "C" int32_t oecLaunchKernel(void *function, intptr_t gridX,
                                    intptr_t blockZ, void **params) {
   return reportError(hipModuleLaunchKernel(reinterpret_cast<hipFunction_t>(function),
                                     gridX, gridY, gridZ, blockX, blockY, blockZ,
-                                    0, hipStreamDefault, params, nullptr),
+                                    0, 0, params, nullptr),
                      "LaunchKernel");
 }
 
