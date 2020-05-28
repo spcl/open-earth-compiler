@@ -62,7 +62,7 @@ static OwnedBlob compileIsaToHsaco(const std::string &input, Location loc,
   // Initialize the target
   std::string tripleName = "amdgcn-amd-amdhsa";
   std::string mCPU = "gfx906";
-  std::string featureStr = "+code-object-v3,+sram-ecc"; 
+  std::string featureStr = "-code-object-v3,+sram-ecc"; 
   llvm::Triple triple(tripleName);
   std::unique_ptr<llvm::TargetMachine> targetMachine;
   std::string error;
@@ -142,7 +142,7 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createStencilIndexOptimizationPass());
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             initAMDGPUBackendCallback, compileModuleToROCDLIR,
-            compileIsaToHsaco, "amdgcn-amd-amdhsa", "gfx906", "+code-object-v3,+sram-ecc",
+            compileIsaToHsaco, "amdgcn-amd-amdhsa", "gfx906", "-code-object-v3,+sram-ecc",
             "rocdl.hsaco"));
         LowerToLLVMOptions llvmOptions;
         llvmOptions.emitCWrappers = true;
