@@ -168,7 +168,7 @@ public:
     }
 
     // Convert the signature of the apply op body
-    // (access the apply op oparands directly and introduce the loop indicies)
+    // (access the apply op operands directly and introduce the loop indicies)
     TypeConverter::SignatureConversion result(applyOp.getNumOperands());
     for (auto &en : llvm::enumerate(applyOp.getOperands())) {
       result.remapInput(en.index(), operands[en.index()]);
@@ -179,13 +179,14 @@ public:
     rewriter.applySignatureConversion(&applyOp.region(), result);
 
     // Replace the stencil apply operation by a parallel loop
-    auto loop = rewriter.create<ParallelOp>(loc, lb, ub, steps);
-    loop.getBody()->erase(); // TODO find better solution
-    rewriter.inlineRegionBefore(applyOp.region(), loop.region(),
-                                loop.region().begin());
-    rewriter.setInsertionPointToEnd(loop.getBody());
+    auto loopOp = rewriter.create<ParallelOp>(loc, lb, ub, steps);
+    auto clonedOp = rewriter.cloneWithoutRegions(loopOp);
+    rewriter.inlineRegionBefore(applyOp.region(), clonedOp.region(),
+                                clonedOp.region().begin());
+    rewriter.setInsertionPointToEnd(clonedOp.getBody());
     rewriter.create<YieldOp>(loc);
     rewriter.replaceOp(applyOp, newResults);
+    rewriter.eraseOp(loopOp);
 
     // Deallocate the temporary storage
     rewriter.setInsertionPoint(

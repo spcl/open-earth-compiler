@@ -205,7 +205,6 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     auto loc = consumerOp.getLoc();
     auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
                                                    consumerOp.getResults());
-    newOp.getBody()->erase(); // TODO find better solution           
     rewriter.cloneRegionBefore(consumerOp.region(), newOp.region(),
                                newOp.region().begin(), mapper);
 
