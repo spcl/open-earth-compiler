@@ -3,7 +3,7 @@
 
 #include "mlir/IR/Function.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
 #include <string>
@@ -16,7 +16,7 @@ std::unique_ptr<Pass> createLaunchFuncToCUDACallsPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createStencilLoopMappingPass();
 
-OwnedCubin compilePtxToCubin(const std::string &ptx, Location loc,
+OwnedBlob compilePtxToCubin(const std::string &ptx, Location loc,
                              StringRef name);
 
 void registerGPUToCUBINPipeline();
