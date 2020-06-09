@@ -9,8 +9,9 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
-#include "mlir/Transforms/Passes.h"
 #include "mlir/Target/NVVMIR.h"
+#include "mlir/Transforms/Passes.h"
+#include "llvm/Support/TargetSelect.h"
 
 #include "cuda.h"
 
@@ -37,7 +38,7 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
   }
 
 OwnedBlob mlir::compilePtxToCubin(const std::string &ptx, Location loc,
-                                   StringRef name) {
+                                  StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
   RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
@@ -90,6 +91,12 @@ void registerGPUToCUBINPipeline() {
   PassPipelineRegistration<>(
       "stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
       [](OpPassManager &pm) {
+        // Initialize LLVM NVPTX backend.
+        LLVMInitializeNVPTXTarget();
+        LLVMInitializeNVPTXTargetInfo();
+        LLVMInitializeNVPTXTargetMC();
+        LLVMInitializeNVPTXAsmPrinter();
+
         unsigned indexBitwidth = 32;
 
         pm.addPass(createGpuKernelOutliningPass());
@@ -97,9 +104,8 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createStripDebugInfoPass());
         kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(indexBitwidth));
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
-            translateModuleToNVVMIR, compilePtxToCubin,
-            "nvptx64-nvidia-cuda", "sm_35", "+ptx60", "nvvm.cubin"));
-        // TODO set appropriate bitwidth
+            translateModuleToNVVMIR, compilePtxToCubin, "nvptx64-nvidia-cuda",
+            "sm_35", "+ptx60", "nvvm.cubin"));
         LowerToLLVMOptions llvmOptions;
         llvmOptions.emitCWrappers = true;
         llvmOptions.useAlignedAlloc = false;

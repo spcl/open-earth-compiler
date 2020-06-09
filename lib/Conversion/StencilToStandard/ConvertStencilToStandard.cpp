@@ -179,6 +179,7 @@ public:
     rewriter.applySignatureConversion(&applyOp.region(), result);
 
     // Replace the stencil apply operation by a parallel loop
+    // (we clone the loop op to remove the existing body)
     auto loopOp = rewriter.create<ParallelOp>(loc, lb, ub, steps);
     auto clonedOp = rewriter.cloneWithoutRegions(loopOp);
     rewriter.inlineRegionBefore(applyOp.region(), clonedOp.region(),
