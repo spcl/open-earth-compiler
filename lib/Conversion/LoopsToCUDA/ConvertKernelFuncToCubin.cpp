@@ -90,29 +90,27 @@ OwnedBlob mlir::compilePtxToCubin(const std::string &ptx, Location loc,
 namespace mlir {
 void registerGPUToCUBINPipeline() {
   PassPipelineRegistration<>(
-      "stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
+      "stencil-kernel-to-cubin", "Lower kernels to cubin",
       [](OpPassManager &pm) {
         // Initialize LLVM NVPTX backend.
         LLVMInitializeNVPTXTarget();
         LLVMInitializeNVPTXTargetInfo();
         LLVMInitializeNVPTXTargetMC();
         LLVMInitializeNVPTXAsmPrinter();
-
-        unsigned indexBitwidth = 32;
-
+        // Define the bitwidth
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());
-        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(indexBitwidth));
+        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(32));
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToNVVMIR, compilePtxToCubin, "nvptx64-nvidia-cuda",
             "sm_35", "+ptx60", "nvvm.cubin"));
-        LowerToLLVMOptions llvmOptions;
-        llvmOptions.emitCWrappers = true;
-        llvmOptions.useAlignedAlloc = false;
-        llvmOptions.useBarePtrCallConv = false;
-        llvmOptions.indexBitwidth = indexBitwidth;
-        pm.addPass(createLowerToLLVMPass(llvmOptions));
+        pm.addPass(createLowerToLLVMPass({
+          /* useBarePtrCallConv */ false,
+          /* emitCWrappers */ true,
+          /* indexBitwidth */ 32,
+          /* useAlignedAlloc */ false
+        }));
       });
 }
 } // namespace mlir
