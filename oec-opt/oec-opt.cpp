@@ -91,6 +91,9 @@ int main(int argc, char **argv) {
 #ifdef OEC_CUDA_BACKEND_ENABLED
   registerGPUToCUBINPipeline();
 #endif 
+#ifdef OEC_ROCM_BACKEND_ENABLED
+  registerGPUToHSACOPipeline();
+#endif 
 
   // Register the stencil passes
   createShapeInferencePass();

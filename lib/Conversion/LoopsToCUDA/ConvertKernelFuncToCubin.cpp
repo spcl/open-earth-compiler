@@ -105,12 +105,10 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToNVVMIR, compilePtxToCubin, "nvptx64-nvidia-cuda",
             "sm_35", "+ptx60", "nvvm.cubin"));
-        pm.addPass(createLowerToLLVMPass({
-          /* useBarePtrCallConv */ false,
-          /* emitCWrappers */ true,
-          /* indexBitwidth */ 32,
-          /* useAlignedAlloc */ false
-        }));
+        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv */ false,
+                                          /* emitCWrappers */ true,
+                                          /* indexBitwidth */ 32,
+                                          /* useAlignedAlloc */ false}));
       });
 }
 } // namespace mlir

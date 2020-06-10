@@ -20,6 +20,7 @@ OwnedBlob compilePtxToCubin(const std::string &ptx, Location loc,
                              StringRef name);
 
 void registerGPUToCUBINPipeline();
+void registerGPUToHSACOPipeline();
 
 } // namespace mlir
 
