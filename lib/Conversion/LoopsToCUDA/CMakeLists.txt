@@ -1,15 +1,16 @@
-set(NVPTX_LIB
-  NVPTXCodeGen
-  NVPTXDesc
-  NVPTXInfo
-)
-#set(AMDGPU_LIBS
-#  AMDGPUCodeGen
-#  AMDGPUDesc
-#  AMDGPUInfo
-#)
+if(OEC_CUDA_BACKEND_ENABLED)
+  set(NVPTX_LIB
+    NVPTXCodeGen
+    NVPTXDesc
+    NVPTXInfo
+  )
+  set(NVVMIR_LIB
+    MLIRNVVMIR
+    MLIRTargetNVVMIR
+  )
+endif()
 
-add_mlir_dialect_library(GPUtoCUDATransforms
+add_mlir_dialect_library(GPUToKernelAndRuntimeCalls
   ConvertLaunchFuncToCUDACalls.cpp
   ConvertKernelFuncToCubin.cpp
   StencilLoopMappingPass.cpp
@@ -21,16 +22,12 @@ add_mlir_dialect_library(GPUtoCUDATransforms
   Core
   MC
   ${NVPTX_LIBS}
-  #${AMDGPU_LIBS}
 
   LINK_LIBS PUBLIC
-  MLIRNVVMIR
-  MLIRTargetNVVMIR
-  #MLIRROCDLIR
-  #MLIRTargetROCDLIR
+  ${NVVMIR_LIB}
 
   DEPENDS
   MLIRLoopsToCUDAPassIncGen
 )
 
-target_link_libraries(GPUtoCUDATransforms PUBLIC MLIRIR)
+target_link_libraries(GPUToKernelAndRuntimeCalls PUBLIC MLIRIR)
