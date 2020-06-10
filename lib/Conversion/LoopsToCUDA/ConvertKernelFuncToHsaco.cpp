@@ -206,7 +206,7 @@ void registerGPUToHSACOPipeline() {
                                           /* emitCWrappers */ true,
                                           /* indexBitwidth */ 32,
                                           /* useAlignedAlloc */ false}));
-        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
+        pm.addPass(createLaunchFuncToRuntimeCallsPass(
             /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
       });
 }
