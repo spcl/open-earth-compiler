@@ -109,6 +109,7 @@ void registerGPUToCUBINPipeline() {
                                           /* emitCWrappers */ true,
                                           /* indexBitwidth */ 32,
                                           /* useAlignedAlloc */ false}));
+        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass());
       });
 }
 } // namespace mlir

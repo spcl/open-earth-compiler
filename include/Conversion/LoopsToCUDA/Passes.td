@@ -3,9 +3,14 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LaunchFuncToCUDACallsPass : Pass<"stencil-gpu-to-cuda", "ModuleOp"> {
-  let summary = "Convert all kernel launches to CUDA runtime calls";
-  let constructor = "mlir::createLaunchFuncToCUDACallsPass()";
+def LaunchFuncToRuntimeCallsPass : Pass<"stencil-gpu-to-runtime", "ModuleOp"> {
+  let summary = "Convert all kernel launches to GPU runtime calls";
+  let constructor = "mlir::createLaunchFuncToRuntimeCallsPass()";
+  let options = [
+    Option<"gpuBinaryAnnotation", "gpu-binary-annotation", "std::string",
+           "\"nvvm.cubin\"",
+           "Annotation attribute string for GPU binary">,
+  ];
 }
 
 def StencilLoopMappingPass : FunctionPass<"stencil-loop-mapping"> {

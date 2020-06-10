@@ -26,7 +26,7 @@ if(OEC_ROCM_BACKEND_ENABLED)
 endif()
 
 add_mlir_dialect_library(GPUToKernelAndRuntimeCalls
-  ConvertLaunchFuncToCUDACalls.cpp
+  ConvertLaunchFuncToRuntimeCalls.cpp
   ConvertKernelFuncToCubin.cpp
   ConvertKernelFuncToHsaco.cpp
   StencilLoopMappingPass.cpp

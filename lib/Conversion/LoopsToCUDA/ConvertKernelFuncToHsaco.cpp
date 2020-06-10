@@ -76,7 +76,7 @@ static LogicalResult assembleIsa(const std::string isa, StringRef name,
   SmallString<128> cwd;
   if (!sys::fs::current_path(cwd))
     ctx.setCompilationDir(cwd);
-  
+
   std::unique_ptr<MCStreamer> mcStreamer;
   std::unique_ptr<MCInstrInfo> mcii(theTarget->createMCInstrInfo());
   std::unique_ptr<MCSubtargetInfo> sti(
@@ -192,7 +192,7 @@ void registerGPUToHSACOPipeline() {
         LLVMInitializeAMDGPUTargetMC();
         LLVMInitializeAMDGPUAsmPrinter();
         LLVMInitializeAMDGPUAsmParser();
-        
+
         // Define the bitwidth
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
@@ -206,6 +206,8 @@ void registerGPUToHSACOPipeline() {
                                           /* emitCWrappers */ true,
                                           /* indexBitwidth */ 32,
                                           /* useAlignedAlloc */ false}));
+        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
+            /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
       });
 }
 } // namespace mlir
