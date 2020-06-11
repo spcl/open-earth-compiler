@@ -13,7 +13,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/Support/TargetSelect.h"
 
-#ifdef OEC_CUDA_BACKEND_ENABLED
+#ifdef CUDA_BACKEND_ENABLED
 #include "cuda.h"
 
 using namespace mlir;

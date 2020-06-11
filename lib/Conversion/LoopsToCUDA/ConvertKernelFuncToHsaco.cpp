@@ -18,7 +18,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 
-#ifdef OEC_ROCM_BACKEND_ENABLED
+#ifdef ROCM_BACKEND_ENABLED
 
 // MC headers.
 #include "llvm/MC/MCAsmBackend.h"

@@ -88,10 +88,10 @@ int main(int argc, char **argv) {
   registerDialect<stencil::StencilDialect>();
 
   // Register the stencil pipelines
-#ifdef OEC_CUDA_BACKEND_ENABLED
+#ifdef CUDA_BACKEND_ENABLED
   registerGPUToCUBINPipeline();
 #endif 
-#ifdef OEC_ROCM_BACKEND_ENABLED
+#ifdef ROCM_BACKEND_ENABLED
   registerGPUToHSACOPipeline();
 #endif 
 
