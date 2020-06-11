@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 
-
-
 project(oec-opt LANGUAGES CXX C)
 include(CheckLanguage)
 
@@ -39,6 +37,9 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_BINARY_DIR}/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
+
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
+include(sanitizers)
 
 add_subdirectory(include)
 add_subdirectory(lib)
