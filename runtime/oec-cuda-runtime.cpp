@@ -1,4 +1,3 @@
-#include <bits/stdint-intn.h>
 #include <cassert>
 #include <cstddef>
 #include <cstring>
