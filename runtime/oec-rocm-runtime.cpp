@@ -12,33 +12,23 @@
 namespace {
 int32_t reportError(hipError_t result, const char *where) {
   if (result != hipSuccess) {
-    std::cerr << "-> OEC-RT Error: HIP failed with " << result << " in "
+    std::cerr << "-> OEC-RT Error: HIP failed with " << result << ") in "
               << where << "\n";
   }
   return result;
 }
-
-// int32_t reportError(hipError_t result, const char *where) {
-//   if (result != hipSuccess) {
-//     std::cerr << "-> OEC-RT Error: CUDA failed with " << result << " in "
-//               << where << "\n";
-//   }
-//   return result;
-// }
 } // anonymous namespace
 
 static std::vector<void *> paramBuffer;
 static std::vector<hipModule_t> moduleBuffer;
 static std::vector<void *> temporaryBuffer;
+static hipStream_t stream;
 
 extern "C" int32_t oecInit() {
-  // hipCtx_t context;
   hipDevice_t device;
   int32_t err = 0;
   err = reportError(hipInit(0), "Init");
-  //err = reportError(hipDeviceGet(&device, 0), "Init");
-  // err = reportError(hipCtxCreate(&context, hipDeviceScheduleSpin, device), "Init");
-  // err = reportError(hipStreamCreate(&stream, hipStreamDefault), "StreamCreate");
+  err = reportError(hipStreamCreate(&stream), "Init");
   return err;
 }
 
@@ -50,6 +40,7 @@ extern "C" int32_t oecTeardown() {
     free(param);
   for (auto temporary : temporaryBuffer)
     err = reportError(hipFree(temporary), "MemFree");
+  err = reportError(hipStreamDestroy(stream), "StreamDestroy");
   return err;
 }
 
@@ -76,9 +67,6 @@ extern "C" int32_t oecModuleGetFunction(void **function, void *module,
       hipModuleGetFunction(reinterpret_cast<hipFunction_t *>(function),
                           reinterpret_cast<hipModule_t>(module), name),
       "GetFunction");
-  // err = reportError(cudaFuncSetAttribute(*function,
-  //     cudaFuncAttributePreferredSharedMemoryCarveout,
-  //     cudaSharedmemCarveoutMaxL1), "SettingCarveout");
   return err;
 }
 
@@ -88,12 +76,12 @@ extern "C" int32_t oecLaunchKernel(void *function, intptr_t gridX,
                                    intptr_t blockZ, void **params) {
   return reportError(hipModuleLaunchKernel(reinterpret_cast<hipFunction_t>(function),
                                     gridX, gridY, gridZ, blockX, blockY, blockZ,
-                                    0, 0, params, nullptr),
+                                    0, stream, params, nullptr),
                      "LaunchKernel");
 }
 
 extern "C" int32_t oecStreamSynchronize() {
-  return reportError(hipDeviceSynchronize(), "StreamSync");
+  return reportError(hipStreamSynchronize(stream), "StreamSync");
 }
 
 extern "C" void oecStoreParameter(void *paramPtr, int64_t size) {
