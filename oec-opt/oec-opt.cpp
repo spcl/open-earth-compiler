@@ -73,9 +73,15 @@ static llvm::cl::opt<bool>
                  llvm::cl::desc("Print the list of registered dialects"),
                  llvm::cl::init(false));
 
+// Register the parallel loop gpu mapping pass
+namespace mlir {
+void registerTestGpuParallelLoopMappingPass();
+}
+
 int main(int argc, char **argv) {
   registerAllDialects();
   registerAllPasses();
+  registerTestGpuParallelLoopMappingPass();
 
   // Register the stencil passes
 #define GEN_PASS_REGISTRATION
