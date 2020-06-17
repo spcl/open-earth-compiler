@@ -220,13 +220,14 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Walk accesses of producer results and replace them by computation
     newOp.walk([&](stencil::AccessOp accessOp) {
       if (llvm::count(newOp.getBody()->getArguments(), accessOp.temp()) == 0) {
-        Index offset = accessOp.getOffset();
+        auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
+        Index offset = offsetOp.getOffset();
         // Copy the operations in after the access op
         rewriter.setInsertionPoint(accessOp);
         for (auto &op : producerOp.getBody()->getOperations()) {
           auto clonedOp = rewriter.clone(op, mapper);
-          clonedOp->walk([&](stencil::AccessOp accessOp) {
-            accessOp.setOffset(applyFunElementWise(accessOp.getOffset(), offset,
+          clonedOp->walk([&](stencil::OffsetOp offsetOp) {
+            offsetOp.setOffset(applyFunElementWise(offsetOp.getOffset(), offset,
                                                    std::plus<int64_t>()));
           });
         }

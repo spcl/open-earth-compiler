@@ -66,26 +66,32 @@ def ShapeOp : OpInterface<"ShapeOp"> {
   ];
 }
 
-// def ShapeInference : OpInterface<"ShapeInference"> {
-//   let description = [{
-//     Interface to set the operation bounds and result types.
-//   }];
+def OffsetOp : OpInterface<"OffsetOp"> {
+  let description = [{
+    Interface to get and set offsets.
+  }];
 
-//   let methods = [
-//     InterfaceMethod<"/*Method to get the bounds of the operation.*/",
-//       "void", "setOpShape", (ins "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), [{
-//         assert(lb.size() == ub.size() && 
-//                "expected bounds to have the same size");
-//         SmallVector<Attribute, kIndexSize> lbAttr;
-//         SmallVector<Attribute, kIndexSize> ubAttr;
-//         for (size_t i = 0, e = lb.size(); i != e; ++i) { 
-//           lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), lb[i]));
-//           ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), ub[i]));
-//         }
-//         op.lbAttr(ArrayAttr::get(lbAttr, op.getContext()));
-//         op.ubAttr(ArrayAttr::get(ubAttr, op.getContext()));
-//     }]>
-//   ];
-// }
+  let methods = [
+    InterfaceMethod<"/*Get the offset of the operation*/",
+      "Index", "getOffset", (ins), [{
+        Index result;
+        ArrayAttr offset = op.offset();
+        for (auto &elem : offset.getValue())
+          result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
+        return result;
+    }]>,
+    InterfaceMethod<"/*Set the offset of the operation*/",
+      "void", "setOffset", (ins "ArrayRef<int64_t>":$index), [{
+        SmallVector<Attribute, kIndexSize> offsetAttr;
+        for(auto value : index)
+          offsetAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), value));
+        op.offsetAttr(ArrayAttr::get(offsetAttr, op.getContext()));
+    }]>,
+    InterfaceMethod<"/*Set the operand type*/",
+      "void", "setOperandShape", (ins  "Value":$operand, "TempType":$newType), /*methodBody=*/[{}], [{
+        // empty default implementation
+    }]>,
+  ];
+}
 
 #endif // Stencil_INTERFACES

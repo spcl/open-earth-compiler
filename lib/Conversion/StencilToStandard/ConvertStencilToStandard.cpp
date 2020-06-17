@@ -268,17 +268,18 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
     auto accessOp = cast<stencil::AccessOp>(operation);
+    auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
 
     // Get the parallel loop
     auto loopOp = operation->getParentOfType<ParallelOp>();
     if (!loopOp)
       return failure();
-    assert(loopOp.getNumLoops() == accessOp.getOffset().size() &&
+    assert(loopOp.getNumLoops() == offsetOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
 
     // Add the lower bound of the temporary to the access offset
     auto totalOffset =
-        applyFunElementWise(accessOp.getOffset(), valueToLB[accessOp.temp()],
+        applyFunElementWise(offsetOp.getOffset(), valueToLB[accessOp.temp()],
                             std::minus<int64_t>());
     auto tempType = accessOp.temp().getType().cast<TempType>();
     auto loadOffset = computeIndexValues(loopOp.getInductionVars(), totalOffset,
@@ -287,6 +288,42 @@ public:
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
                                               loadOffset);
+    return success();
+  }
+};
+
+class IndexOpLowering : public StencilOpToStdPattern<stencil::IndexOp> {
+public:
+  using StencilOpToStdPattern<stencil::IndexOp>::StencilOpToStdPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto indexOp = cast<stencil::IndexOp>(operation);
+    auto offsetOp = cast<OffsetOp>(indexOp.getOperation());
+
+    // Get the parallel loop
+    auto loopOp = operation->getParentOfType<ParallelOp>();
+    if (!loopOp)
+      return failure();
+    assert(loopOp.getNumLoops() == offsetOp.getOffset().size() &&
+        "expected loop nest and access offset to have the same size");
+
+    auto inductionVars = loopOp.getInductionVars();
+    auto dim = indexOp.getDim();
+
+    auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
+    auto map = AffineMap::get(2, 0, expr);
+
+    SmallVector<Value, 2> params = {
+        inductionVars[dim],
+        rewriter.create<ConstantIndexOp>(loc, offsetOp.getOffset()[dim])
+            .getResult()};
+
+    // replace the index ob by an affine apply op
+    rewriter.replaceOpWithNewOp<mlir::AffineApplyOp>(operation, map, params);
+
     return success();
   }
 };
@@ -422,8 +459,8 @@ void populateStencilToStdConversionPatterns(
     mlir::OwningRewritePatternList &patterns) {
   patterns
       .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
-              ReturnOpLowering, AccessOpLowering, StoreOpLowering>(typeConveter,
-                                                                   valueToLB);
+              ReturnOpLowering, AccessOpLowering, IndexOpLowering,
+              StoreOpLowering>(typeConveter, valueToLB);
 }
 
 //===----------------------------------------------------------------------===//
