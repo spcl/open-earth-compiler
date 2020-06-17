@@ -13,14 +13,4 @@ def LaunchFuncToRuntimeCallsPass : Pass<"stencil-gpu-to-runtime", "ModuleOp"> {
   ];
 }
 
-def StencilLoopMappingPass : FunctionPass<"stencil-loop-mapping"> {
-  let summary = "Map parallel loops to blocks and threads";
-  let constructor = "mlir::createStencilLoopMappingPass()";
-  let options = [
-    ListOption<"blockSizes", "block-sizes", "int64_t",
-           "Block sizes used for the mapping",
-           "llvm::cl::OneOrMore, llvm::cl::MiscFlags::CommaSeparated">,
-  ];
-}
-
 #endif // CONVERSION_LOOPSTOCUDA_PASSES

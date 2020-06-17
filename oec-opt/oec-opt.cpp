@@ -106,7 +106,6 @@ int main(int argc, char **argv) {
   createStencilInliningPass();
   createStencilUnrollingPass();
   createConvertStencilToStandardPass();
-  createStencilLoopMappingPass();
   createLaunchFuncToRuntimeCallsPass();
 
   llvm::InitLLVM y(argc, argv);
