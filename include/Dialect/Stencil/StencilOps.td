@@ -63,7 +63,42 @@ def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeOp>]
   }];
 }
 
-def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
+def Stencil_IndexOp : Stencil_Op<"index", [DeclareOpInterfaceMethods<OffsetOp>,
+    NoSideEffect]> {
+  let summary = "stencil index operation";
+  let description = [{
+    This operation returns the index of the current loop iteration for the
+    chosen direction (0, 1, or 2).
+    The offset is specified relative to the current position.
+
+    Example:
+      %0 = stencil.index 0 [-1, 0, 0] : index
+  }];
+
+  let arguments = (ins I64Attr:$dim, Stencil_Index:$offset);
+  let results = (outs Index:$idx);
+
+  let assemblyFormat = [{
+    $dim $offset attr-dict-with-keyword `:` type($idx)
+  }];
+
+  let verifier = [{
+    if (getDim() > 2)
+      return emitOpError("dim not valid, needs to be 0, 1, or 2 ");
+    return success();
+  }];
+
+  let extraClassDeclaration = [{
+    static StringRef getOffsetAttrName() { return "offset"; }
+    static StringRef getDimAttrName() { return "dim";}
+    int64_t getDim() {
+      return dim().getSExtValue();
+    }
+  }];
+}
+
+def Stencil_AccessOp : Stencil_Op<"access", [DeclareOpInterfaceMethods<OffsetOp>,
+    NoSideEffect]> {
   let summary = "stencil access operation";
   let description = [{
     This operation accesses a temporary element given a constant 
@@ -101,18 +136,6 @@ def Stencil_AccessOp : Stencil_Op<"access", [NoSideEffect]> {
 
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
-    Index getOffset() {
-      Index result;
-      for (auto &elem : offset().getValue()) 
-        result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
-      return result;
-    }
-    void setOffset(ArrayRef<int64_t> index) {
-      SmallVector<Attribute, kIndexSize> offsetAttr;
-      for(auto value : index)
-        offsetAttr.push_back(IntegerAttr::get(IntegerType::get(64, getContext()), value));
-      setAttr(stencil::AccessOp::getOffsetAttrName(), ArrayAttr::get(offsetAttr, getContext()));
-    }
   }];
 }
 
@@ -300,7 +323,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
     by the stencil apply operation. The types and the number of operands
     must match the results of the stencil apply operation.
 
-    The optional unroll attribute enables the implementation of loop 
+    The optional unroll attribute enables the implementation of loop
     unrolling at the stencil dialect level.
 
     Examples:

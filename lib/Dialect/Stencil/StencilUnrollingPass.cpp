@@ -50,11 +50,10 @@ void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
   }
   for (unsigned i = 1, e = unrollFactor; i != e; ++i) {
     // Update offsets on function clone
-    clonedOp.getBody()->walk([&](stencil::AccessOp accessOp) {
-      Index current = accessOp.getOffset();
+    clonedOp.getBody()->walk([&](stencil::OffsetOp offsetOp) {
+      Index current = offsetOp.getOffset();
       current[unrollIndex]++;
-      ArrayAttr sum = b.getI64ArrayAttr(current);
-      accessOp.setAttr(accessOp.getOffsetAttrName(), sum);
+      offsetOp.setOffset(current);
     });
     // Clone the body except of the shifted apply op
     for (auto &op : clonedOp.getBody()->getOperations()) {
