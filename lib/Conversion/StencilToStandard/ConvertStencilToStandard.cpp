@@ -406,7 +406,7 @@ void StencilToStandardPass::runOnOperation() {
   target.addLegalDialect<SCFDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
-  if (failed(applyFullConversion(module, target, patterns, &typeConverter))) {
+  if (failed(applyFullConversion(module, target, patterns))) {
     signalPassFailure();
   }
 }
