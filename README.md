@@ -1,6 +1,6 @@
 # The Stencil Dialect
 
-Development repository for the open earth compiler. The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit c9f63297e24. 
+Development repository for the open earth compiler. The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit 16cc759ebd5. 
 
 
 ## Build Instructions
