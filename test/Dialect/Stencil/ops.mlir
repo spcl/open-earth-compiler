@@ -11,8 +11,8 @@ func @access(%in1 : !stencil.temp<1x2x3xf64>, %in2 : !stencil.temp<1x2x0xf32>) {
 
 // -----
 
-// CHECK-LABEL: func @access() {
-func @access() {
+// CHECK-LABEL: func @index() {
+func @index() {
   //  CHECK-NEXT: %{{.*}} = stencil.index 2 [3, -2, 1] : index
   %0 = "stencil.index"() {offset = [3, -2, 1], dim = 2} : () -> (index)
   return
