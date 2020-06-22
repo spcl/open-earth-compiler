@@ -30,6 +30,31 @@ func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>)
 
 // -----
 
+//  CHECK-LABEL: func @simple_index(%{{.*}}: f64, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
+//  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
+//  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : f64) -> !stencil.temp<?x?x?xf64> {
+//   CHECK: %{{.*}} = stencil.index 2 [3, 1, 4] : index
+func @simple_index(%arg0: f64, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg1([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.apply (%arg2 = %arg0 : f64) -> !stencil.temp<?x?x?xf64> {
+    %1 = stencil.index 2 [2, -1, 1] : index
+    %2 = constant 20 : index
+    %3 = constant 0.0 : f64
+    %4 = cmpi "slt", %1, %2 : index
+    %5 = select %4, %arg2, %3 : f64
+    stencil.return %5 : f64
+  }
+  %1 = stencil.apply (%arg3 = %arg0 : f64, %arg4 = %0 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %2 = stencil.access %arg4 [1, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
+    %3 = addf %2, %arg3 : f64
+    stencil.return %3 : f64
+  }
+  stencil.store %1 to %arg1([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<?x?x?xf64>
+  return
+}
+
+// -----
+
 // CHECK-LABEL: func @multiple_edges(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 //  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
 //  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>

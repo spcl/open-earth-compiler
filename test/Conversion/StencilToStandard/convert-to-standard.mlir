@@ -106,6 +106,26 @@ func @access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.prog
 
 // -----
 
+// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+
+// CHECK-LABEL: @index_lowering
+func @index_lowering(%arg0 : f64) attributes {stencil.program} {
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  %0 = stencil.apply (%arg1 = %arg0 : f64) -> !stencil.temp<7x7x7xf64> {
+    // CHECK-DAG: [[C0:%.*]] = constant 2 : index
+    // CHECK-DAG: [[O0:%.*]] = affine.apply [[MAP0]]([[ARG2]], [[C0]])
+    %1 = stencil.index 2 [0, 1, 2] : index
+    %2 = constant 0 : index
+    %3 = constant 0.0 : f64
+    %4 = cmpi "slt", %1, %2 : index
+    %5 = select %4, %arg1, %3 : f64
+    stencil.return %5 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
+
+// -----
+
 // CHECK-LABEL: @return_lowering
 func @return_lowering(%arg0: f64) attributes {stencil.program} {
   // CHECK: scf.parallel (%{{.*}}, %{{.*}}, %{{.*}}) =
@@ -169,6 +189,8 @@ func @if_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 }
 
 // -----
+
+// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @lowerdim
 // CHECK: (%{{.*}}: memref<?x?xf64>) {

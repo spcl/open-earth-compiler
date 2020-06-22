@@ -11,6 +11,15 @@ func @access(%in1 : !stencil.temp<1x2x3xf64>, %in2 : !stencil.temp<1x2x0xf32>) {
 
 // -----
 
+// CHECK-LABEL: func @index() {
+func @index() {
+  //  CHECK-NEXT: %{{.*}} = stencil.index 2 [3, -2, 1] : index
+  %0 = "stencil.index"() {offset = [3, -2, 1], dim = 2} : () -> (index)
+  return
+}
+
+// -----
+
 // CHECK-LABEL: func @assert(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) {
 func @assert(%in : !stencil.field<?x?x?xf64>, %out : !stencil.field<?x?x?xf64>) {
   //  CHECK-NEXT: stencil.assert %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
