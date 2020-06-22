@@ -16,14 +16,7 @@ endif()
 project(oec-opt LANGUAGES CXX C)
 include(CheckLanguage)
 
-check_language(CUDA)
-if (CMAKE_CUDA_COMPILER)
-  enable_language(CUDA)
-else()
-  message(SEND_ERROR
-    "Building the GPU lowering of oec-opt requires CUDA")
-endif()
-find_library(CUDA_RUNTIME_LIBRARY cuda)
+set(CMAKE_CXX_STANDARD 14 CACHE STRING "C++ standard to conform to")
 
 # setup llvm lit
 set(LLVM_LIT_ARGS "-sv" CACHE STRING "lit default options")
@@ -42,6 +35,7 @@ list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
+
 include(HandleLLVMOptions)
 
 include_directories(${LLVM_INCLUDE_DIRS})
@@ -53,6 +47,36 @@ add_definitions(${LLVM_DEFINITIONS})
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
 include(sanitizers)
+
+set(CUDA_BACKEND_ENABLED 1 CACHE BOOL "Enable building the oec CUDA backend")
+set(ROCM_BACKEND_ENABLED 0 CACHE BOOL "Enable building the oec ROCM backend")
+if(CUDA_BACKEND_ENABLED)
+  add_definitions(-DCUDA_BACKEND_ENABLED)
+endif()
+if(ROCM_BACKEND_ENABLED)
+  add_definitions(-DROCM_BACKEND_ENABLED)
+endif()
+
+if (CUDA_BACKEND_ENABLED)
+  if (NOT ("NVPTX" IN_LIST LLVM_TARGETS_TO_BUILD))
+    message(SEND_ERROR "Building the oec CUDA backend requires NVPTX")
+  endif()
+
+  check_language(CUDA)
+  if (CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+  else()
+    message(SEND_ERROR "Building the oec CUDA backend requires CUDA")
+  endif()
+  find_library(CUDA_RUNTIME_LIBRARY cuda)
+endif()
+if (ROCM_BACKEND_ENABLED)
+  if (NOT ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD))
+    message(SEND_ERROR "Building the oec ROCM backend requires AMDGPU")
+  endif()
+
+  find_package(LLD REQUIRED CONFIG)
+endif()
 
 add_subdirectory(include)
 add_subdirectory(lib)

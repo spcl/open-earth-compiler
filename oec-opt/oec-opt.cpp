@@ -73,9 +73,15 @@ static llvm::cl::opt<bool>
                  llvm::cl::desc("Print the list of registered dialects"),
                  llvm::cl::init(false));
 
+// Register the parallel loop gpu mapping pass
+namespace mlir {
+void registerTestGpuParallelLoopMappingPass();
+}
+
 int main(int argc, char **argv) {
   registerAllDialects();
   registerAllPasses();
+  registerTestGpuParallelLoopMappingPass();
 
   // Register the stencil passes
 #define GEN_PASS_REGISTRATION
@@ -88,15 +94,19 @@ int main(int argc, char **argv) {
   registerDialect<stencil::StencilDialect>();
 
   // Register the stencil pipelines
+#ifdef CUDA_BACKEND_ENABLED
   registerGPUToCUBINPipeline();
+#endif 
+#ifdef ROCM_BACKEND_ENABLED
+  registerGPUToHSACOPipeline();
+#endif 
 
   // Register the stencil passes
   createShapeInferencePass();
   createStencilInliningPass();
   createStencilUnrollingPass();
   createConvertStencilToStandardPass();
-  createStencilLoopMappingPass();
-  createLaunchFuncToCUDACallsPass();
+  createLaunchFuncToRuntimeCallsPass();
 
   llvm::InitLLVM y(argc, argv);
 

@@ -1,5 +1,5 @@
 #include "Conversion/LoopsToCUDA/Passes.h"
-#include "mlir/Conversion/GPUToCUDA/GPUToCUDAPass.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
@@ -9,8 +9,11 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "mlir/Target/NVVMIR.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/Support/TargetSelect.h"
 
+#ifdef CUDA_BACKEND_ENABLED
 #include "cuda.h"
 
 using namespace mlir;
@@ -35,8 +38,8 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
     }                                                                          \
   }
 
-OwnedCubin mlir::compilePtxToCubin(const std::string &ptx, Location loc,
-                                   StringRef name) {
+static OwnedBlob compilePtxToCubin(const std::string &ptx, Location loc,
+                                  StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
   RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
@@ -75,7 +78,7 @@ OwnedCubin mlir::compilePtxToCubin(const std::string &ptx, Location loc,
                        "cuLinkComplete");
 
   char *cubinAsChar = static_cast<char *>(cubinData);
-  OwnedCubin result =
+  OwnedBlob result =
       std::make_unique<std::vector<char>>(cubinAsChar, cubinAsChar + cubinSize);
 
   // This will also destroy the cubin data.
@@ -87,21 +90,27 @@ OwnedCubin mlir::compilePtxToCubin(const std::string &ptx, Location loc,
 namespace mlir {
 void registerGPUToCUBINPipeline() {
   PassPipelineRegistration<>(
-      "stencil-gpu-to-cubin", "Lowering of stencil kernels to cubins",
+      "stencil-kernel-to-cubin", "Lower kernels to cubin",
       [](OpPassManager &pm) {
+        // Initialize LLVM NVPTX backend.
+        LLVMInitializeNVPTXTarget();
+        LLVMInitializeNVPTXTargetInfo();
+        LLVMInitializeNVPTXTargetMC();
+        LLVMInitializeNVPTXAsmPrinter();
+        // Define the bitwidth
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());
-        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass());
-        kernelPm.addPass(createStencilIndexOptimizationPass());
-        kernelPm.addPass(createConvertGPUKernelToCubinPass(&compilePtxToCubin));
-        // TODO set appropriate bitwidth
-        LowerToLLVMOptions llvmOptions;
-        llvmOptions.emitCWrappers = true;
-        llvmOptions.useAlignedAlloc = false;
-        llvmOptions.useBarePtrCallConv = false;
-        llvmOptions.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
-        pm.addPass(createLowerToLLVMPass(llvmOptions));
+        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(32));
+        kernelPm.addPass(createConvertGPUKernelToBlobPass(
+            translateModuleToNVVMIR, compilePtxToCubin, "nvptx64-nvidia-cuda",
+            "sm_35", "+ptx60", "nvvm.cubin"));
+        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv */ false,
+                                          /* emitCWrappers */ true,
+                                          /* indexBitwidth */ 32,
+                                          /* useAlignedAlloc */ false}));
+        pm.addPass(createLaunchFuncToRuntimeCallsPass());
       });
 }
 } // namespace mlir
+#endif
