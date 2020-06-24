@@ -75,7 +75,8 @@ def Stencil_IndexOp : Stencil_Op<"index", [DeclareOpInterfaceMethods<OffsetOp>,
       %0 = stencil.index 0 [-1, 0, 0] : index
   }];
 
-  let arguments = (ins I64Attr:$dim, Stencil_Index:$offset);
+  let arguments = (ins Confined<I64Attr, [IntMinValue<0>, IntMaxValue<2>]>:$dim,
+                     Stencil_Index:$offset);
   let results = (outs Index:$idx);
 
   let assemblyFormat = [{
@@ -83,8 +84,6 @@ def Stencil_IndexOp : Stencil_Op<"index", [DeclareOpInterfaceMethods<OffsetOp>,
   }];
 
   let verifier = [{
-    if (getDim() > 2)
-      return emitOpError("dim not valid, needs to be 0, 1, or 2 ");
     return success();
   }];
 
