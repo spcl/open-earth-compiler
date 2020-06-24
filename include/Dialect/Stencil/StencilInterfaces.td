@@ -87,10 +87,6 @@ def OffsetOp : OpInterface<"OffsetOp"> {
           offsetAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), value));
         op.offsetAttr(ArrayAttr::get(offsetAttr, op.getContext()));
     }]>,
-    InterfaceMethod<"/*Set the operand type*/",
-      "void", "setOperandShape", (ins  "Value":$operand, "TempType":$newType), /*methodBody=*/[{}], [{
-        // empty default implementation
-    }]>,
   ];
 }
 

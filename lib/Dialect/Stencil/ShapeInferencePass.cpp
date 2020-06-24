@@ -43,8 +43,7 @@ public:
       }
       // Walk the access ops and update the extent
       applyOp.walk([&](stencil::AccessOp accessOp) {
-        auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
-        Index offset = offsetOp.getOffset();
+        Index offset = cast<OffsetOp>(accessOp.getOperation()).getOffset();
         auto argument = accessOp.getOperand();
         if (extents[operation].count(argToOperand[argument]) == 0) {
           // Initialize the extents with the current offset
