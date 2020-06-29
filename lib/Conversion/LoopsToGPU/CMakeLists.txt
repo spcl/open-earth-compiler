@@ -26,12 +26,11 @@ if(ROCM_BACKEND_ENABLED)
 endif()
 
 add_mlir_dialect_library(GPUToKernelAndRuntimeCalls
-  ConvertLaunchFuncToRuntimeCalls.cpp
   ConvertKernelFuncToCubin.cpp
   ConvertKernelFuncToHsaco.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${PROJECT_SOURCE_DIR}/include/Conversion/LoopsToCUDA
+  ${PROJECT_SOURCE_DIR}/include/Conversion/LoopsToGPU
 
   LINK_COMPONENTS
   Core
@@ -43,9 +42,6 @@ add_mlir_dialect_library(GPUToKernelAndRuntimeCalls
   LINK_LIBS PUBLIC
   ${NVVMIR_LIB}
   ${ROCDLIR_LIB}
-
-  DEPENDS
-  MLIRLoopsToCUDAPassIncGen
 )
 
 target_link_libraries(GPUToKernelAndRuntimeCalls PUBLIC MLIRIR)

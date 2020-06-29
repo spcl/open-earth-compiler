@@ -1,4 +1,4 @@
-#include "Conversion/LoopsToCUDA/Passes.h"
+#include "Conversion/LoopsToGPU/Passes.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -206,7 +206,7 @@ void registerGPUToHSACOPipeline() {
                                           /* emitCWrappers */ true,
                                           /* indexBitwidth */ 32,
                                           /* useAlignedAlloc */ false}));
-        pm.addPass(createLaunchFuncToRuntimeCallsPass(
+        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
             /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
       });
 }

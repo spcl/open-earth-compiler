@@ -19,7 +19,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Conversion/LoopsToCUDA/Passes.h"
+#include "Conversion/LoopsToGPU/Passes.h"
 #include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
@@ -85,8 +85,6 @@ int main(int argc, char **argv) {
 
   // Register the stencil passes
 #define GEN_PASS_REGISTRATION
-#include "Conversion/LoopsToCUDA/Passes.h.inc"
-#define GEN_PASS_REGISTRATION
 #include "Conversion/StencilToStandard/Passes.h.inc"
 #define GEN_PASS_REGISTRATION
 #include "Dialect/Stencil/Passes.h.inc"
@@ -106,7 +104,6 @@ int main(int argc, char **argv) {
   createStencilInliningPass();
   createStencilUnrollingPass();
   createConvertStencilToStandardPass();
-  createLaunchFuncToRuntimeCallsPass();
 
   llvm::InitLLVM y(argc, argv);
 
