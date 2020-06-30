@@ -202,10 +202,17 @@ void registerGPUToHSACOPipeline() {
             compileModuleToROCDLIR, compileISAToHsaco, tripleName, targetChip,
             features,
             /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+<<<<<<< HEAD:lib/Conversion/LoopsToGPU/ConvertKernelFuncToHsaco.cpp
         pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
                                           /* emitCWrappers = */ true,
                                           /* indexBitwidth = */ 32,
                                           /* useAlignedAlloc = */ false}));
+=======
+        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv */ false,
+                                          /* emitCWrappers */ true,
+                                          /* indexBitwidth */ 32,
+                                          /* useAlignedAlloc */ false}));
+>>>>>>> 5af35a85e7c315ca17ad1cf9cdf12d5b4df796f7:lib/Conversion/LoopsToCUDA/ConvertKernelFuncToHsaco.cpp
         pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
             /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
       });
