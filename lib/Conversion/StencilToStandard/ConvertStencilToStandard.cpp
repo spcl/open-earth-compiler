@@ -67,7 +67,7 @@ public:
         FunctionType::get(result.getConvertedTypes(),
                           funcOp.getType().getResults(), funcOp.getContext());
 
-    // Replace the function by a function with an upadate signature
+    // Replace the function by a function with an updated signature
     auto newFuncOp =
         rewriter.create<FuncOp>(loc, funcOp.getName(), funcType, llvm::None);
     rewriter.inlineRegionBefore(funcOp.getBody(), newFuncOp.getBody(),
@@ -118,7 +118,7 @@ public:
     auto fieldType = loadOp.field().getType().cast<FieldType>();
     auto tempType = loadOp.res().getType().cast<TempType>();
 
-    // Compute the shape of the subviw
+    // Compute the shape of the subview
     auto subViewShape = computeSubViewShape(fieldType, operation,
                                             valueToLB.lookup(loadOp.field()));
     assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
