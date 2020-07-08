@@ -33,7 +33,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
-#include <bits/stdint-intn.h>
+#include <cstdint>
 #include <cstddef>
 #include <functional>
 #include <iterator>

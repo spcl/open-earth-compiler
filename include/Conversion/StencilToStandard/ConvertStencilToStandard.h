@@ -6,8 +6,8 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include <bits/stdint-intn.h>
 #include <tuple>
+#include <cstdint>
 
 namespace mlir {
 namespace stencil {

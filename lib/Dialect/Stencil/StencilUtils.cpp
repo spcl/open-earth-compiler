@@ -2,7 +2,7 @@
 #include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
-#include <bits/stdint-intn.h>
+#include <cstdint>
 #include <functional>
 
 namespace mlir {
