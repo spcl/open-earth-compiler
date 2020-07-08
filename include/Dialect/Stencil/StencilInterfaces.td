@@ -16,7 +16,7 @@ def ShapeOp : OpInterface<"ShapeOp"> {
     InterfaceMethod<"/*Get the lower bound of the operation*/",
       "Index", "getLB", (ins), [{
         Index result;
-        Optional<ArrayAttr> lb = op.lb();
+        Optional<ArrayAttr> lb = $_op.lb();
         for (auto &elem : lb.getValue()) 
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
@@ -24,7 +24,7 @@ def ShapeOp : OpInterface<"ShapeOp"> {
     InterfaceMethod<"/*Get the upper bound of the operation*/",
       "Index", "getUB", (ins), [{
         Index result;
-        Optional<ArrayAttr> ub = op.ub();
+        Optional<ArrayAttr> ub = $_op.ub();
         for (auto &elem : ub.getValue()) 
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
@@ -33,28 +33,28 @@ def ShapeOp : OpInterface<"ShapeOp"> {
       "void", "setLB", (ins "ArrayRef<int64_t>":$lb), [{
         SmallVector<Attribute, kIndexSize> lbAttr;
         for (size_t i = 0, e = lb.size(); i != e; ++i) { 
-          lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), lb[i]));
+          lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, $_op.getContext()), lb[i]));
         }
-        op.lbAttr(ArrayAttr::get(lbAttr, op.getContext()));
+        $_op.lbAttr(ArrayAttr::get(lbAttr, $_op.getContext()));
     }]>,
     InterfaceMethod<"/*Set the upper bound of the operation*/",
       "void", "setUB", (ins "ArrayRef<int64_t>":$ub), [{
         SmallVector<Attribute, kIndexSize> ubAttr;
         for (size_t i = 0, e = ub.size(); i != e; ++i) { 
-          ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), ub[i]));
+          ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, $_op.getContext()), ub[i]));
         }
-        op.ubAttr(ArrayAttr::get(ubAttr, op.getContext()));
+        $_op.ubAttr(ArrayAttr::get(ubAttr, $_op.getContext()));
     }]>,
     InterfaceMethod<"/*Verify if the operation has valid bounds*/",
        "bool", "hasShape", (ins), [{
-        Optional<ArrayAttr> lb = op.lb();
-        Optional<ArrayAttr> ub = op.ub();
+        Optional<ArrayAttr> lb = $_op.lb();
+        Optional<ArrayAttr> ub = $_op.ub();
         return lb.hasValue() && ub.hasValue();
     }]>,   
     InterfaceMethod<"/*Get the rank of the operation*/",
       "int64_t", "getRank", (ins), [{
-        Optional<ArrayAttr> lb = op.lb();
-        Optional<ArrayAttr> ub = op.ub();
+        Optional<ArrayAttr> lb = $_op.lb();
+        Optional<ArrayAttr> ub = $_op.ub();
         assert(lb.getValue().size() == ub.getValue().size() && 
                "expected lower and upper bound to have the same rank");
         return lb.getValue().size();
@@ -75,7 +75,7 @@ def OffsetOp : OpInterface<"OffsetOp"> {
     InterfaceMethod<"/*Get the offset of the operation*/",
       "Index", "getOffset", (ins), [{
         Index result;
-        ArrayAttr offset = op.offset();
+        ArrayAttr offset = $_op.offset();
         for (auto &elem : offset.getValue())
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
@@ -84,8 +84,8 @@ def OffsetOp : OpInterface<"OffsetOp"> {
       "void", "setOffset", (ins "ArrayRef<int64_t>":$index), [{
         SmallVector<Attribute, kIndexSize> offsetAttr;
         for(auto value : index)
-          offsetAttr.push_back(IntegerAttr::get(IntegerType::get(64, op.getContext()), value));
-        op.offsetAttr(ArrayAttr::get(offsetAttr, op.getContext()));
+          offsetAttr.push_back(IntegerAttr::get(IntegerType::get(64, $_op.getContext()), value));
+        $_op.offsetAttr(ArrayAttr::get(offsetAttr, $_op.getContext()));
     }]>,
   ];
 }
