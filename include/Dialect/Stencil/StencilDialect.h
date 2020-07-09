@@ -3,7 +3,7 @@
 
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Function.h"
-#include <bits/stdint-intn.h>
+#include <cstdint>
 
 namespace mlir {
 namespace stencil {

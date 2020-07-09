@@ -24,7 +24,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <bits/stdint-intn.h>
+#include <cstdint>
 #include <cstddef>
 #include <iterator>
 

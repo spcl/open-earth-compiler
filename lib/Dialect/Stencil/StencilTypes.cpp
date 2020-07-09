@@ -2,7 +2,7 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
-#include <bits/stdint-intn.h>
+#include <cstdint>
 
 using namespace mlir;
 using namespace stencil;

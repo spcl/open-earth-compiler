@@ -12,7 +12,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
-#include <bits/stdint-intn.h>
+#include <cstdint>
 #include <cstddef>
 #include <string>
 

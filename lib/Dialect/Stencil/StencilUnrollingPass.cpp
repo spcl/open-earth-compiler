@@ -18,7 +18,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <bits/stdint-intn.h>
+#include <cstdint>
 #include <cstddef>
 
 using namespace mlir;
