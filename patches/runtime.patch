@@ -280,21 +280,21 @@ index 705fa9f0093..2d6ec2a9fe6 100644
 +    if(streamList.empty()) {
 +      CUstream stream;
 +      err = reportErrorIfAny(
-+        cuStreamCreate(&stream, CU_STREAM_DEFAULT), 
++        cuStreamCreate(&stream, CU_STREAM_DEFAULT),
 +        "StreamCreate");
 +      streamList.push_back(stream);
 +    }
-+    *stream = streamList.back(); 
++    *stream = streamList.back();
 +    return err;
 +  }
-+ 
++
 +  // Allocate GPU device memory.
 +  int32_t allocMem(void** ptr, size_t size) {
 +    int32_t err = CUDA_SUCCESS;
 +    // Allocate storage if free list contains no matching allocation.
 +    if(tempList.count(size) == 0 || tempList[size].empty()) {
 +      err = reportErrorIfAny(
-+        cuMemAlloc(reinterpret_cast<CUdeviceptr*>(ptr), size), 
++        cuMemAlloc(reinterpret_cast<CUdeviceptr*>(ptr), size),
 +        "Alloc");
 +      return err;
 +    }
@@ -314,7 +314,7 @@ index 705fa9f0093..2d6ec2a9fe6 100644
 +        cuMemGetAddressRange(&allocPtr, &allocSize, reinterpret_cast<CUdeviceptr>(ptr)),
 +        "GetAddressRange");
 +    tempList[allocSize].push_back(ptr);
-+    return err; 
++    return err;
 +  }
 +
 +  static Runtime &getInstance() {
@@ -428,21 +428,21 @@ index f49e6c91ea6..b82e705e796 100644
 +    if(streamList.empty()) {
 +      hipStream_t stream;
 +      err = reportErrorIfAny(
-+        hipStreamCreate(&stream), 
++        hipStreamCreate(&stream),
 +        "StreamCreate");
 +      streamList.push_back(stream);
 +    }
-+    *stream = streamList.back(); 
++    *stream = streamList.back();
 +    return err;
 +  }
-+ 
++
 +  // Allocate GPU device memory.
 +  int32_t allocMem(void** ptr, size_t size) {
 +    int32_t err = hipSuccess;
 +    // Allocate storage if free list contains no matching allocation.
 +    if(tempList.count(size) == 0 || tempList[size].empty()) {
 +      err = reportErrorIfAny(
-+        hipMalloc(ptr, size), 
++        hipMalloc(ptr, size),
 +        "Alloc");
 +      return err;
 +    }
@@ -462,7 +462,7 @@ index f49e6c91ea6..b82e705e796 100644
 +        hipMemGetAddressRange(&allocPtr, &allocSize, ptr),
 +        "GetAddressRange");
 +    tempList[allocSize].push_back(ptr);
-+    return err; 
++    return err;
 +  }
 +
 +  static Runtime &getInstance() {
