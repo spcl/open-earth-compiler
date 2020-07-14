@@ -228,7 +228,7 @@ index 37b056263ab..4b4cf7ca38c 100644
  mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
      StringRef gpuBinaryAnnotation) {
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 705fa9f0093..1482b80430d 100644
+index 705fa9f0093..2d6ec2a9fe6 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 @@ -17,6 +17,7 @@
@@ -294,7 +294,7 @@ index 705fa9f0093..1482b80430d 100644
 +    // Allocate storage if free list contains no matching allocation.
 +    if(tempList.count(size) == 0 || tempList[size].empty()) {
 +      err = reportErrorIfAny(
-+        cuMemAlloc(ptr, size), 
++        cuMemAlloc(reinterpret_cast<CUdeviceptr*>(ptr), size), 
 +        "Alloc");
 +      return err;
 +    }
@@ -311,7 +311,7 @@ index 705fa9f0093..1482b80430d 100644
 +    size_t allocSize = 0;
 +    // Get the size of the allocation.
 +    err = reportErrorIfAny(
-+        cuMemGetAddressRange(&allocPtr, &allocSize, ptr),
++        cuMemGetAddressRange(&allocPtr, &allocSize, reinterpret_cast<CUdeviceptr>(ptr)),
 +        "GetAddressRange");
 +    tempList[allocSize].push_back(ptr);
 +    return err; 
