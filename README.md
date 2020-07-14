@@ -33,8 +33,26 @@ The repository depends on a build of llvm including mlir. The OEC build has been
 cmake -G Ninja ../llvm -DLLVM_BUILD_EXAMPLES=OFF -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" -DCMAKE_INSTALL_PREFIX=<install_root> -DLLVM_ENABLE_PROJECTS='mlir;lld' -DLLVM_OPTIMIZED_TABLEGEN=ON -DLLVM_ENABLE_OCAMLDOC=OFF -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INSTALL_UTILS=ON -DCMAKE_LINKER=<path_to_lld> -DLLVM_PARALLEL_LINK_JOBS=2
 ```
 **Note**: Apply all patches found in the patch folder using git apply:
-
 ```
 git apply ../stencil-dialect/patches/runtime.patch
+```
+
+## Compiling an Example Stencil Program
+
+The following command lowers the laplace stencil to NVIDIA GPU code:
+```
+oec-opt --stencil-shape-inference --convert-stencil-to-std --cse --parallel-loop-tiling='parallel-loop-tile-sizes=128,1,1' --canonicalize --test-gpu-greedy-parallel-loop-mapping --convert-parallel-loops-to-gpu --canonicalize --lower-affine --convert-scf-to-std --stencil-kernel-to-cubin ../test/Examples/laplace.mlir > laplace_lowered.mlir
+```
+**NOTE**: Use the command line flag --stencil-kernel-to-hsaco for AMD GPUs.
+
+The tools mlir-translate and llc then convert the lowered code to an assembly file and/or object file:
+```
+mlir-translate --mlir-to-llvmir laplace_lowered.mlir > laplace.bc
+llc -O3 laplace.bc -o laplace.s
+clang -c laplace.s -o laplace.o
+```
+The generated object then exports the following method:
+```
+void _mlir_ciface_laplace(MemRefType3D *input, MemRefType3D *output);
 ```
 
