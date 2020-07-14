@@ -1,4 +1,4 @@
-#include "Conversion/LoopsToCUDA/Passes.h"
+#include "Conversion/LoopsToGPU/Passes.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -39,7 +39,7 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
   }
 
 static OwnedBlob compilePtxToCubin(const std::string &ptx, Location loc,
-                                  StringRef name) {
+                                   StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
   RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
@@ -105,11 +105,11 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToNVVMIR, compilePtxToCubin, "nvptx64-nvidia-cuda",
             "sm_35", "+ptx60", "nvvm.cubin"));
-        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv */ false,
-                                          /* emitCWrappers */ true,
-                                          /* indexBitwidth */ 32,
-                                          /* useAlignedAlloc */ false}));
-        pm.addPass(createLaunchFuncToRuntimeCallsPass());
+        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
+                                          /* emitCWrappers = */ true,
+                                          /* indexBitwidth = */ 32,
+                                          /* useAlignedAlloc = */ false}));
+        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass());
       });
 }
 } // namespace mlir

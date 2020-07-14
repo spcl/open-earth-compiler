@@ -1,4 +1,4 @@
-#include "Conversion/LoopsToCUDA/Passes.h"
+#include "Conversion/LoopsToGPU/Passes.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -202,11 +202,11 @@ void registerGPUToHSACOPipeline() {
             compileModuleToROCDLIR, compileISAToHsaco, tripleName, targetChip,
             features,
             /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
-        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv */ false,
-                                          /* emitCWrappers */ true,
-                                          /* indexBitwidth */ 32,
-                                          /* useAlignedAlloc */ false}));
-        pm.addPass(createLaunchFuncToRuntimeCallsPass(
+        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
+                                          /* emitCWrappers = */ true,
+                                          /* indexBitwidth = */ 32,
+                                          /* useAlignedAlloc = */ false}));
+        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
             /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
       });
 }
