@@ -1,5 +1,5 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 37b056263ab..4b4cf7ca38c 100644
+index 37b056263ab..1f5d1cdfd51 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 @@ -42,6 +42,8 @@ static constexpr const char *kGpuLaunchKernelName = "mgpuLaunchKernel";
@@ -36,26 +36,15 @@ index 37b056263ab..4b4cf7ca38c 100644
    void declareGpuRuntimeFunctions(Location loc);
    void addParamToList(OpBuilder &builder, Location loc, Value param, Value list,
                        unsigned pos, Value one);
-@@ -121,6 +141,8 @@ private:
+@@ -121,6 +141,7 @@ private:
    Value generateKernelNameConstant(StringRef moduleName, StringRef name,
                                     Location loc, OpBuilder &builder);
    void translateGpuLaunchCalls(mlir::gpu::LaunchFuncOp launchOp);
-+  void introduceDeviceSync(LLVM::LLVMFuncOp funcOp);
 +  void replaceMallocAndFreeCalls(LLVM::CallOp callOp);
  
  public:
    GpuLaunchFuncToGpuRuntimeCallsPass() = default;
-@@ -135,9 +157,32 @@ public:
-     // Cache the used LLVM types.
-     initializeCachedTypes();
- 
-+    // Declare the runtime functions
-+    declareGpuRuntimeFunctions(getOperation().getLoc());
-+
-+    // Sync the device at the end of every device function
-+    getOperation().walk(
-+        [this](LLVM::LLVMFuncOp op) { introduceDeviceSync(op); });
-+
+@@ -138,6 +159,22 @@ public:
      getOperation().walk(
          [this](mlir::gpu::LaunchFuncOp op) { translateGpuLaunchCalls(op); });
  
@@ -78,7 +67,7 @@ index 37b056263ab..4b4cf7ca38c 100644
      // GPU kernel modules are no longer necessary since we have a global
      // constant with the CUBIN, or HSACO data.
      for (auto m :
-@@ -201,12 +246,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
+@@ -201,12 +238,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
              getGpuRuntimeResultType(),
              {
                  getPointerType(),        /* void* f */
@@ -97,7 +86,7 @@ index 37b056263ab..4b4cf7ca38c 100644
                  getInt32Type(),          /* unsigned int sharedMemBytes */
                  getPointerType(),        /* void *hstream */
                  getPointerPointerType(), /* void **kernelParams */
-@@ -228,6 +273,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
+@@ -228,6 +265,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
                                        getPointerType() /* CUstream stream */,
                                        /*isVarArg=*/false));
    }
@@ -122,15 +111,7 @@ index 37b056263ab..4b4cf7ca38c 100644
    if (!module.lookupSymbol(kGpuMemHostRegisterName)) {
      builder.create<LLVM::LLVMFuncOp>(
          loc, kGpuMemHostRegisterName,
-@@ -380,7 +443,6 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
-     mlir::gpu::LaunchFuncOp launchOp) {
-   OpBuilder builder(launchOp);
-   Location loc = launchOp.getLoc();
--  declareGpuRuntimeFunctions(loc);
- 
-   auto zero = builder.create<LLVM::ConstantOp>(loc, getInt32Type(),
-                                                builder.getI32IntegerAttr(0));
-@@ -435,6 +497,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+@@ -435,6 +490,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
        getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuLaunchKernelName);
    auto gpuFunctionRef =
        builder.create<LLVM::LoadOp>(loc, getPointerType(), gpuFunction);
@@ -143,7 +124,7 @@ index 37b056263ab..4b4cf7ca38c 100644
    auto paramsArray = setupParamsArray(launchOp, builder);
    if (!paramsArray) {
      launchOp.emitOpError() << "cannot pass given parameters to the kernel";
-@@ -445,22 +513,70 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+@@ -445,14 +506,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
    builder.create<LLVM::CallOp>(
        loc, ArrayRef<Type>{getGpuRuntimeResultType()},
        builder.getSymbolRefAttr(gpuLaunchKernel),
@@ -155,17 +136,16 @@ index 37b056263ab..4b4cf7ca38c 100644
 -                      paramsArray,                  /* kernel params */
 -                      nullpointer /* extra */});
 -  // Sync on the stream to make it synchronous.
--  auto gpuStreamSync =
--      getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuStreamSynchronizeName);
--  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
--                               builder.getSymbolRefAttr(gpuStreamSync),
--                               ArrayRef<Value>(gpuStream.getResult(0)));
 +      ArrayRef<Value>{gpuFunctionRef, gridSizeX, gridSizeY, gridSizeZ,
 +                      blockSizeX, blockSizeY, blockSizeZ,
 +                      zero,                   /* sharedMemBytes */
 +                      gpuStream.getResult(0), /* stream */
 +                      paramsArray,            /* kernel params */
 +                      nullpointer});          /* extra */
+   auto gpuStreamSync =
+       getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuStreamSynchronizeName);
+   builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
+@@ -461,6 +520,38 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
    launchOp.erase();
  }
  
@@ -201,34 +181,11 @@ index 37b056263ab..4b4cf7ca38c 100644
 +  }
 +}
 +
-+// Introduce a device synchronization at the end of every GPU function
-+void GpuLaunchFuncToGpuRuntimeCallsPass::introduceDeviceSync(
-+    LLVM::LLVMFuncOp funcOp) {
-+  OpBuilder builder(funcOp);
-+  Location loc = funcOp.getLoc();
-+  if (!funcOp.getOps<mlir::gpu::LaunchFuncOp>().empty()) {
-+    funcOp.walk([&](LLVM::ReturnOp op) {
-+      builder.setInsertionPoint(op);
-+      auto gpuGetStreamHelper = getOperation().lookupSymbol<LLVM::LLVMFuncOp>(
-+          kGpuGetStreamHelperName);
-+      auto gpuStream = builder.create<LLVM::CallOp>(
-+          loc, ArrayRef<Type>{getPointerType()},
-+          builder.getSymbolRefAttr(gpuGetStreamHelper), ArrayRef<Value>{});
-+      auto gpuStreamSync = getOperation().lookupSymbol<LLVM::LLVMFuncOp>(
-+          kGpuStreamSynchronizeName);
-+      builder.create<LLVM::CallOp>(loc,
-+                                   ArrayRef<Type>{getGpuRuntimeResultType()},
-+                                   builder.getSymbolRefAttr(gpuStreamSync),
-+                                   ArrayRef<Value>(gpuStream.getResult(0)));
-+    });
-+  }
-+}
-+
  std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
  mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
      StringRef gpuBinaryAnnotation) {
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 705fa9f0093..2d6ec2a9fe6 100644
+index 705fa9f0093..b31888c7721 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 @@ -17,6 +17,7 @@
@@ -375,7 +332,7 @@ index 705fa9f0093..2d6ec2a9fe6 100644
  
  // Allows to register byte array with the CUDA runtime. Helpful until we have
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index f49e6c91ea6..b82e705e796 100644
+index f49e6c91ea6..72ea1b6ed97 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 @@ -17,6 +17,7 @@
