@@ -1,5 +1,5 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 37b056263ab..1f5d1cdfd51 100644
+index 37b056263ab..2fd71653836 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 @@ -42,6 +42,8 @@ static constexpr const char *kGpuLaunchKernelName = "mgpuLaunchKernel";
@@ -145,38 +145,41 @@ index 37b056263ab..1f5d1cdfd51 100644
    auto gpuStreamSync =
        getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuStreamSynchronizeName);
    builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
-@@ -461,6 +520,38 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+@@ -461,6 +520,41 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
    launchOp.erase();
  }
  
 +// Replace all malloc and free pairs by GPU memory allocations.
 +void GpuLaunchFuncToGpuRuntimeCallsPass::replaceMallocAndFreeCalls(
 +    LLVM::CallOp callOp) {
-+  OpBuilder builder(callOp);
-+  Location loc = callOp.getLoc();
-+  // Replace all memory allocations by GPU memory allocations
-+  if (callOp.callee().getValueOr("") == "malloc") {
-+    auto one = builder.create<LLVM::ConstantOp>(loc, getInt64Type(),
-+                                                builder.getI64IntegerAttr(0));
-+    auto allocPtr =
-+        builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(), one, 0);
-+    auto allocFunc =
-+        getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemAllocName);
-+    auto size = extendIndex(builder, loc, callOp.getOperand(0));
-+    builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
-+                                 builder.getSymbolRefAttr(allocFunc),
-+                                 ArrayRef<Value>{allocPtr, size});
-+    callOp.getResult(0).replaceAllUsesWith(
-+        builder.create<LLVM::LoadOp>(loc, getPointerType(), allocPtr));
-+    callOp.erase();
-+  }
-+  // Replace all frees by GPU memory frees
-+  if (callOp.callee().getValueOr("") == "free") {
-+    auto freeFunc =
-+        getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemFreeName);
-+    builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
-+                                 builder.getSymbolRefAttr(freeFunc),
-+                                 ArrayRef<Value>{callOp.getOperand(0)});
++  // Replace all memory allocations by GPU memory allocations or frees.
++  if (callOp.callee().getValueOr("") == "malloc" ||
++      callOp.callee().getValueOr("") == "free") {
++    OpBuilder builder(callOp);
++    Location loc = callOp.getLoc();
++
++    if (callOp.callee().getValue() == "malloc") {
++      auto one = builder.create<LLVM::ConstantOp>(loc, getInt64Type(),
++                                                  builder.getI64IntegerAttr(0));
++      auto allocPtr =
++          builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(), one, 0);
++      auto allocFunc =
++          getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemAllocName);
++      auto size = extendIndex(builder, loc, callOp.getOperand(0));
++      builder.create<LLVM::CallOp>(
++          loc, ArrayRef<Type>{getGpuRuntimeResultType()},
++          builder.getSymbolRefAttr(allocFunc), ArrayRef<Value>{allocPtr, size});
++      callOp.getResult(0).replaceAllUsesWith(
++          builder.create<LLVM::LoadOp>(loc, getPointerType(), allocPtr));
++    }
++    if (callOp.callee().getValue() == "free") {
++      auto freeFunc =
++          getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemFreeName);
++      builder.create<LLVM::CallOp>(loc,
++                                   ArrayRef<Type>{getGpuRuntimeResultType()},
++                                   builder.getSymbolRefAttr(freeFunc),
++                                   ArrayRef<Value>{callOp.getOperand(0)});
++    }
 +    callOp.erase();
 +  }
 +}
