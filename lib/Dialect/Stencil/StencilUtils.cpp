@@ -1,5 +1,4 @@
 #include "Dialect/Stencil/StencilUtils.h"
-#include "Dialect/Stencil/StencilTypes.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
 #include <cstdint>

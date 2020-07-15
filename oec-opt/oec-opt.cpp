@@ -23,7 +23,6 @@
 #include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -33,7 +32,6 @@
 #include "mlir/Support/MlirOptMain.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 using namespace mlir;

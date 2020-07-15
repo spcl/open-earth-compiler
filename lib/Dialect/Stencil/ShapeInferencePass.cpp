@@ -4,18 +4,14 @@
 #include "Dialect/Stencil/StencilTypes.h"
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 #include <cstddef>
-#include <limits>
 
 using namespace mlir;
 using namespace stencil;
