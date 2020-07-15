@@ -38,8 +38,8 @@ inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
     }                                                                          \
   }
 
-static OwnedBlob compilePtxToCubin(const std::string &ptx, Location loc,
-                                   StringRef name) {
+OwnedBlob compilePtxToCubin(const std::string ptx, Location loc,
+                            StringRef name) {
   char jitErrorBuffer[4096] = {0};
 
   RETURN_ON_CUDA_ERROR(cuInit(0), "cuInit");
