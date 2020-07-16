@@ -16,7 +16,7 @@ mkdir build && cd build
 cmake -G Ninja .. -DMLIR_DIR=$PREFIX/lib/cmake/mlir -DLLVM_EXTERNAL_LIT=$BUILD_DIR/bin/llvm-lit
 cmake --build . --target check-oec-opt
 ```
-The ROCM_BACKEND_ENABLED flag enables the support for AMDGPU tragets. It requires an llvm build with lld and we need to set the path to lld using the following flag:
+The ROCM_BACKEND_ENABLED flag enables the support for AMDGPU targets. It requires an LLVM build including lld and we need to set the path to lld using the following flag:
 ```sh
 -DLLD_DIR=$PREFIX/lib/cmake/lld
 ```
@@ -28,7 +28,7 @@ cmake --build . --target mlir-doc
 
 ## LLVM Build Instructions
 
-The repository depends on a build of llvm including mlir. The OEC build has been tested with LLVM commit b539f012214 using the following configuration:
+The repository depends on a build of LLVM including MLIR. The Open Earth Compiler build has been tested with LLVM commit b539f012214 using the following configuration:
 ```
 cmake -G Ninja ../llvm -DLLVM_BUILD_EXAMPLES=OFF -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" -DCMAKE_INSTALL_PREFIX=<install_root> -DLLVM_ENABLE_PROJECTS='mlir;lld' -DLLVM_OPTIMIZED_TABLEGEN=ON -DLLVM_ENABLE_OCAMLDOC=OFF -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INSTALL_UTILS=ON -DCMAKE_LINKER=<path_to_lld> -DLLVM_PARALLEL_LINK_JOBS=2
 ```
@@ -39,7 +39,7 @@ git apply ../stencil-dialect/patches/runtime.patch
 
 ## Compiling an Example Stencil Program
 
-The following command lowers the laplace stencil to NVIDIA GPU code:
+The following command lowers the laplace example stencil to NVIDIA GPU code:
 ```
 oec-opt --stencil-shape-inference --convert-stencil-to-std --cse --parallel-loop-tiling='parallel-loop-tile-sizes=128,1,1' --canonicalize --test-gpu-greedy-parallel-loop-mapping --convert-parallel-loops-to-gpu --canonicalize --lower-affine --convert-scf-to-std --stencil-kernel-to-cubin ../test/Examples/laplace.mlir > laplace_lowered.mlir
 ```
