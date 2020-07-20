@@ -6,7 +6,7 @@ Development repository for the Open Earth Compiler. The compiler implements a st
 
 A detailed discussion of the Open Earth Compiler can be found here:
 
-[Domain-Specific Multi-Level IR Rewriting for GPU](https://arxiv.org/abs/)
+[Domain-Specific Multi-Level IR Rewriting for GPU](https://arxiv.org/abs/2005.13014)
 
 ## Build Instructions
 
