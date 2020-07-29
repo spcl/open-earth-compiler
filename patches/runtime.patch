@@ -1,9 +1,9 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 37b056263ab..a1bdfa55ed2 100644
+index 14011e08de0..ba885cd5b83 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 @@ -42,6 +42,8 @@ static constexpr const char *kGpuLaunchKernelName = "mgpuLaunchKernel";
- static constexpr const char *kGpuGetStreamHelperName = "mgpuGetStreamHelper";
+ static constexpr const char *kGpuStreamCreateName = "mgpuStreamCreate";
  static constexpr const char *kGpuStreamSynchronizeName =
      "mgpuStreamSynchronize";
 +static constexpr const char *kGpuMemAllocName = "mgpuMemAlloc";
@@ -11,7 +11,7 @@ index 37b056263ab..a1bdfa55ed2 100644
  static constexpr const char *kGpuMemHostRegisterName = "mgpuMemHostRegister";
  static constexpr const char *kGpuBinaryStorageSuffix = "_gpubin_cst";
  
-@@ -114,6 +116,24 @@ private:
+@@ -108,6 +110,24 @@ private:
                                            /*alignment=*/0);
    }
  
@@ -36,7 +36,7 @@ index 37b056263ab..a1bdfa55ed2 100644
    void declareGpuRuntimeFunctions(Location loc);
    void addParamToList(OpBuilder &builder, Location loc, Value param, Value list,
                        unsigned pos, Value one);
-@@ -121,6 +141,7 @@ private:
+@@ -115,6 +135,7 @@ private:
    Value generateKernelNameConstant(StringRef moduleName, StringRef name,
                                     Location loc, OpBuilder &builder);
    void translateGpuLaunchCalls(mlir::gpu::LaunchFuncOp launchOp);
@@ -44,7 +44,7 @@ index 37b056263ab..a1bdfa55ed2 100644
  
  public:
    GpuLaunchFuncToGpuRuntimeCallsPass() = default;
-@@ -138,6 +159,22 @@ public:
+@@ -132,6 +153,22 @@ public:
      getOperation().walk(
          [this](mlir::gpu::LaunchFuncOp op) { translateGpuLaunchCalls(op); });
  
@@ -67,8 +67,8 @@ index 37b056263ab..a1bdfa55ed2 100644
      // GPU kernel modules are no longer necessary since we have a global
      // constant with the CUBIN, or HSACO data.
      for (auto m :
-@@ -201,12 +238,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
-             getGpuRuntimeResultType(),
+@@ -189,12 +226,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
+             getVoidType(),
              {
                  getPointerType(),        /* void* f */
 -                getIntPtrType(),         /* intptr_t gridXDim */
@@ -86,15 +86,15 @@ index 37b056263ab..a1bdfa55ed2 100644
                  getInt32Type(),          /* unsigned int sharedMemBytes */
                  getPointerType(),        /* void *hstream */
                  getPointerPointerType(), /* void **kernelParams */
-@@ -228,6 +265,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
-                                       getPointerType() /* CUstream stream */,
+@@ -216,6 +253,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
+                                       {getPointerType()}, /* void *stream */
                                        /*isVarArg=*/false));
    }
 +  if (!module.lookupSymbol(kGpuMemAllocName)) {
 +    builder.create<LLVM::LLVMFuncOp>(
 +        loc, kGpuMemAllocName,
 +        LLVM::LLVMType::getFunctionTy(
-+            getGpuRuntimeResultType(),
++            getVoidType(),
 +            {
 +                getPointerPointerType(), /* void **ptr */
 +                getInt64Type()           /* int64 sizeBytes */
@@ -104,17 +104,17 @@ index 37b056263ab..a1bdfa55ed2 100644
 +  if (!module.lookupSymbol(kGpuMemFreeName)) {
 +    builder.create<LLVM::LLVMFuncOp>(
 +        loc, kGpuMemFreeName,
-+        LLVM::LLVMType::getFunctionTy(getGpuRuntimeResultType(),
++        LLVM::LLVMType::getFunctionTy(getVoidType(),
 +                                      getPointerType(), /* void *ptr */
 +                                      /*isVarArg=*/false));
 +  }
    if (!module.lookupSymbol(kGpuMemHostRegisterName)) {
      builder.create<LLVM::LLVMFuncOp>(
          loc, kGpuMemHostRegisterName,
-@@ -435,6 +490,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+@@ -413,6 +468,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+   // Invoke the function with required arguments.
+   auto gpuLaunchKernel =
        getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuLaunchKernelName);
-   auto gpuFunctionRef =
-       builder.create<LLVM::LoadOp>(loc, getPointerType(), gpuFunction);
 +  auto gridSizeX = truncateIndex(builder, loc, launchOp.gridSizeX());
 +  auto gridSizeY = truncateIndex(builder, loc, launchOp.gridSizeY());
 +  auto gridSizeZ = truncateIndex(builder, loc, launchOp.gridSizeZ());
@@ -124,28 +124,36 @@ index 37b056263ab..a1bdfa55ed2 100644
    auto paramsArray = setupParamsArray(launchOp, builder);
    if (!paramsArray) {
      launchOp.emitOpError() << "cannot pass given parameters to the kernel";
-@@ -445,14 +506,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
-   builder.create<LLVM::CallOp>(
-       loc, ArrayRef<Type>{getGpuRuntimeResultType()},
-       builder.getSymbolRefAttr(gpuLaunchKernel),
--      ArrayRef<Value>{gpuFunctionRef, launchOp.getOperand(0),
+@@ -420,25 +481,57 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+   }
+   auto nullpointer =
+       builder.create<LLVM::IntToPtrOp>(loc, getPointerPointerType(), zero);
+-  builder.create<LLVM::CallOp>(
+-      loc, ArrayRef<Type>{getVoidType()},
+-      builder.getSymbolRefAttr(gpuLaunchKernel),
+-      ArrayRef<Value>{function.getResult(0), launchOp.getOperand(0),
 -                      launchOp.getOperand(1), launchOp.getOperand(2),
 -                      launchOp.getOperand(3), launchOp.getOperand(4),
 -                      launchOp.getOperand(5), zero, /* sharedMemBytes */
--                      gpuStream.getResult(0),       /* stream */
+-                      stream.getResult(0),          /* stream */
 -                      paramsArray,                  /* kernel params */
 -                      nullpointer /* extra */});
 -  // Sync on the stream to make it synchronous.
-+      ArrayRef<Value>{gpuFunctionRef, gridSizeX, gridSizeY, gridSizeZ,
-+                      blockSizeX, blockSizeY, blockSizeZ,
-+                      zero,                   /* sharedMemBytes */
-+                      gpuStream.getResult(0), /* stream */
-+                      paramsArray,            /* kernel params */
-+                      nullpointer});          /* extra */
++  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
++                               builder.getSymbolRefAttr(gpuLaunchKernel),
++                               ArrayRef<Value>{function.getResult(0), gridSizeX,
++                                               gridSizeY, gridSizeZ, blockSizeX,
++                                               blockSizeY, blockSizeZ,
++                                               zero, /* sharedMemBytes */
++                                               stream.getResult(0), /* stream */
++                                               paramsArray, /* kernel params */
++                                               nullpointer /* extra */});
    auto gpuStreamSync =
        getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuStreamSynchronizeName);
-   builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getGpuRuntimeResultType()},
-@@ -461,6 +520,41 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+-  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getVoidType()},
++  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
+                                builder.getSymbolRefAttr(gpuStreamSync),
+                                ArrayRef<Value>(stream.getResult(0)));
    launchOp.erase();
  }
  
@@ -166,17 +174,16 @@ index 37b056263ab..a1bdfa55ed2 100644
 +      auto allocFunc =
 +          getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemAllocName);
 +      auto size = extendIndex(builder, loc, callOp.getOperand(0));
-+      builder.create<LLVM::CallOp>(
-+          loc, ArrayRef<Type>{getGpuRuntimeResultType()},
-+          builder.getSymbolRefAttr(allocFunc), ArrayRef<Value>{allocPtr, size});
++      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
++                                   builder.getSymbolRefAttr(allocFunc),
++                                   ArrayRef<Value>{allocPtr, size});
 +      callOp.getResult(0).replaceAllUsesWith(
 +          builder.create<LLVM::LoadOp>(loc, getPointerType(), allocPtr));
 +    }
 +    if (callOp.callee().getValue() == "free") {
 +      auto freeFunc =
 +          getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemFreeName);
-+      builder.create<LLVM::CallOp>(loc,
-+                                   ArrayRef<Type>{getGpuRuntimeResultType()},
++      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
 +                                   builder.getSymbolRefAttr(freeFunc),
 +                                   ArrayRef<Value>{callOp.getOperand(0)});
 +    }
@@ -188,7 +195,7 @@ index 37b056263ab..a1bdfa55ed2 100644
  mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
      StringRef gpuBinaryAnnotation) {
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 705fa9f0093..b31888c7721 100644
+index 8e2dc029fa9..8606373737a 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 @@ -17,6 +17,7 @@
@@ -199,82 +206,63 @@ index 705fa9f0093..b31888c7721 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "cuda.h"
-@@ -28,21 +29,100 @@ int32_t reportErrorIfAny(CUresult result, const char *where) {
-   }
-   return result;
- }
+@@ -32,6 +33,74 @@
+     llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
+   }(expr)
+ 
++namespace {
 +// Context object that buffers GPU modules, functions, temporary storage.
 +struct Runtime {
 +  // Load a module and cache it.
-+  int32_t loadModule(void **module, void *data) {
++  void loadModule(CUmodule *module, void *data) {
 +    int32_t err = CUDA_SUCCESS;
 +    // Load the module during the first execution.
 +    if(moduleList.count(data) == 0) {
-+      err = reportErrorIfAny(
-+        cuModuleLoadData(reinterpret_cast<CUmodule *>(module), data),
-+        "ModuleLoad");
++      CUDA_REPORT_IF_ERROR(cuModuleLoadData(module, data));
 +      moduleList[data] = *module;
 +    }
 +    *module = moduleList[data];
-+    return err;
 +  }
 +
 +  // Get a function an cache it.
-+  int32_t getFunction(void **function, void *module, const char *name) {
-+    int32_t err = CUDA_SUCCESS;
++  void getFunction(CUfunction *function, CUmodule module, const char *name) {
 +    // Get the function during the first execution.
 +    if(functionList.count(name) == 0) {
-+      err =  reportErrorIfAny(
-+        cuModuleGetFunction(reinterpret_cast<CUfunction *>(function),
-+        reinterpret_cast<CUmodule>(module), name),
-+        "GetFunction");
++      CUDA_REPORT_IF_ERROR(cuModuleGetFunction(function, module, name));
 +      functionList[name] = *function;
 +    }
 +    *function = functionList[name];
-+    return err;
 +  }
 +
 +  // Get the default stream.
-+  int32_t createStream(void **stream) {
-+    int32_t err = CUDA_SUCCESS;
++  void createStream(CUstream *stream) {
 +    if(streamList.empty()) {
 +      CUstream stream;
-+      err = reportErrorIfAny(
-+        cuStreamCreate(&stream, CU_STREAM_DEFAULT),
-+        "StreamCreate");
++      CUDA_REPORT_IF_ERROR(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
 +      streamList.push_back(stream);
 +    }
 +    *stream = streamList.back();
-+    return err;
 +  }
 +
 +  // Allocate GPU device memory.
-+  int32_t allocMem(void** ptr, size_t size) {
-+    int32_t err = CUDA_SUCCESS;
++  void allocMem(CUdeviceptr *ptr, size_t size) {
 +    // Allocate storage if free list contains no matching allocation.
 +    if(tempList.count(size) == 0 || tempList[size].empty()) {
-+      err = reportErrorIfAny(
-+        cuMemAlloc(reinterpret_cast<CUdeviceptr*>(ptr), size),
-+        "Alloc");
-+      return err;
++      CUDA_REPORT_IF_ERROR(cuMemAlloc(ptr, size));
++      return;
 +    }
 +    // Return existing allocation.
 +    *ptr = tempList[size].back();
 +    tempList[size].pop_back();
-+    return err;
 +  }
 +
 +  // Free GPU device memory.
-+  int32_t freeMem(void* ptr) {
-+    int32_t err = CUDA_SUCCESS;
++  void freeMem(CUdeviceptr ptr) {
 +    CUdeviceptr allocPtr;
 +    size_t allocSize = 0;
 +    // Get the size of the allocation.
-+    err = reportErrorIfAny(
-+        cuMemGetAddressRange(&allocPtr, &allocSize, reinterpret_cast<CUdeviceptr>(ptr)),
-+        "GetAddressRange");
++    CUDA_REPORT_IF_ERROR(cuMemGetAddressRange(&allocPtr, &allocSize, ptr));
 +    tempList[allocSize].push_back(ptr);
-+    return err;
 +  }
 +
 +  static Runtime &getInstance() {
@@ -283,59 +271,42 @@ index 705fa9f0093..b31888c7721 100644
 +  }
 +
 +private:
-+  std::vector<void*> streamList;
-+  llvm::DenseMap<void*, void*> moduleList;
-+  llvm::DenseMap<const char*, void*> functionList;
-+  llvm::DenseMap<size_t, std::vector<void*>> tempList;
++  std::vector<CUstream> streamList;
++  llvm::DenseMap<void*, CUmodule> moduleList;
++  llvm::DenseMap<const char*, CUfunction> functionList;
++  llvm::DenseMap<size_t, std::vector<CUdeviceptr>> tempList;
 +};
- } // anonymous namespace
++} // anonymous namespace
++
+ extern "C" CUmodule mgpuModuleLoad(void *data) {
+   CUmodule module = nullptr;
+   CUDA_REPORT_IF_ERROR(cuModuleLoadData(&module, data));
+@@ -59,7 +128,7 @@ extern "C" void mgpuLaunchKernel(CUfunction function, intptr_t gridX,
  
- extern "C" int32_t mgpuModuleLoad(void **module, void *data) {
--  int32_t err = reportErrorIfAny(
--      cuModuleLoadData(reinterpret_cast<CUmodule *>(module), data),
--      "ModuleLoad");
--  return err;
-+  return Runtime::getInstance().loadModule(module, data);
- }
- 
- extern "C" int32_t mgpuModuleGetFunction(void **function, void *module,
-                                          const char *name) {
--  return reportErrorIfAny(
--      cuModuleGetFunction(reinterpret_cast<CUfunction *>(function),
--                          reinterpret_cast<CUmodule>(module), name),
--      "GetFunction");
-+  return Runtime::getInstance().getFunction(function, module, name);
- }
- 
- // The wrapper uses intptr_t instead of CUDA's unsigned int to match
-@@ -61,8 +141,8 @@ extern "C" int32_t mgpuLaunchKernel(void *function, intptr_t gridX,
- }
- 
- extern "C" void *mgpuGetStreamHelper() {
--  CUstream stream;
--  reportErrorIfAny(cuStreamCreate(&stream, CU_STREAM_DEFAULT), "StreamCreate");
-+  void* stream;
+ extern "C" CUstream mgpuStreamCreate() {
+   CUstream stream = nullptr;
+-  CUDA_REPORT_IF_ERROR(cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
 +  Runtime::getInstance().createStream(&stream);
    return stream;
  }
  
-@@ -71,6 +151,14 @@ extern "C" int32_t mgpuStreamSynchronize(void *stream) {
-       cuStreamSynchronize(reinterpret_cast<CUstream>(stream)), "StreamSync");
+@@ -67,6 +136,14 @@ extern "C" void mgpuStreamSynchronize(CUstream stream) {
+   CUDA_REPORT_IF_ERROR(cuStreamSynchronize(stream));
  }
  
-+extern "C" int32_t mgpuMemAlloc(void **ptr, uint64_t size) {
-+  return Runtime::getInstance().allocMem(ptr, size);
++extern "C" void mgpuMemAlloc(CUdeviceptr *ptr, uint64_t size) {
++  Runtime::getInstance().allocMem(ptr, size);
 +}
 +
-+extern "C" int32_t mgpuMemFree(void *ptr) {
-+  return Runtime::getInstance().freeMem(ptr);
++extern "C" void mgpuMemFree(CUdeviceptr ptr) {
++  Runtime::getInstance().freeMem(ptr);
 +}
 +
  /// Helper functions for writing mlir example code
  
  // Allows to register byte array with the CUDA runtime. Helpful until we have
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index f49e6c91ea6..72ea1b6ed97 100644
+index b97ce695ac4..1da606e488b 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 @@ -17,6 +17,7 @@
@@ -346,83 +317,70 @@ index f49e6c91ea6..72ea1b6ed97 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "hip/hip_runtime.h"
-@@ -28,21 +29,101 @@ int32_t reportErrorIfAny(hipError_t result, const char *where) {
-   }
-   return result;
- }
-+
+@@ -25,23 +26,89 @@
+   [](hipError_t result) {                                                      \
+     if (!result)                                                               \
+       return;                                                                  \
+-    const char *name = nullptr;                                                \
+-    hipGetErrorName(result, &name);                                            \
++    const char *name = hipGetErrorName(result);                                         \
+     if (!name)                                                                 \
+       name = "<unknown>";                                                      \
+     llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
+   }(expr)
+ 
++namespace {
 +// Context object that buffers GPU modules, functions, temporary storage.
 +struct Runtime {
 +  // Load a module and cache it.
-+  int32_t loadModule(void **module, void *data) {
-+    int32_t err = hipSuccess;
++  void loadModule(hipModule_t *module, void *data) {
 +    // Load the module during the first execution.
 +    if(moduleList.count(data) == 0) {
-+      err = reportErrorIfAny(
-+        hipModuleLoadData(reinterpret_cast<hipModule_t *>(module), data),
-+        "ModuleLoad");
++      HIP_REPORT_IF_ERROR(hipModuleLoadData(module, data));
 +      moduleList[data] = *module;
 +    }
 +    *module = moduleList[data];
-+    return err;
 +  }
 +
 +  // Get a function an cache it.
-+  int32_t getFunction(void **function, void *module, const char *name) {
-+    int32_t err = hipSuccess;
++  void getFunction(hipFunction_t *function, hipModule_t module, const char *name) {
 +    // Get the function during the first execution.
 +    if(functionList.count(name) == 0) {
-+      err =  reportErrorIfAny(
-+        hipModuleGetFunction(reinterpret_cast<hipFunction_t *>(function),
-+        reinterpret_cast<hipModule_t>(module), name),
-+        "GetFunction");
++      HIP_REPORT_IF_ERROR(hipModuleGetFunction(function, module, name));
 +      functionList[name] = *function;
 +    }
 +    *function = functionList[name];
-+    return err;
 +  }
 +
 +  // Get the default stream.
-+  int32_t createStream(void **stream) {
-+    int32_t err = hipSuccess;
++  void createStream(hipStream_t *stream) {
 +    if(streamList.empty()) {
 +      hipStream_t stream;
-+      err = reportErrorIfAny(
-+        hipStreamCreate(&stream),
-+        "StreamCreate");
++      HIP_REPORT_IF_ERROR(hipStreamCreate(&stream));
 +      streamList.push_back(stream);
 +    }
 +    *stream = streamList.back();
-+    return err;
 +  }
 +
 +  // Allocate GPU device memory.
-+  int32_t allocMem(void** ptr, size_t size) {
-+    int32_t err = hipSuccess;
++  void allocMem(hipDeviceptr_t *ptr, size_t size) {
 +    // Allocate storage if free list contains no matching allocation.
 +    if(tempList.count(size) == 0 || tempList[size].empty()) {
-+      err = reportErrorIfAny(
-+        hipMalloc(ptr, size),
-+        "Alloc");
-+      return err;
++      HIP_REPORT_IF_ERROR(hipMalloc(ptr, size));
++      return;
 +    }
 +    // Return existing allocation.
 +    *ptr = tempList[size].back();
 +    tempList[size].pop_back();
-+    return err;
 +  }
 +
 +  // Free GPU device memory.
-+  int32_t freeMem(void* ptr) {
-+    int32_t err = hipSuccess;
++  void freeMem(hipDeviceptr_t ptr) {
 +    hipDeviceptr_t allocPtr;
 +    size_t allocSize = 0;
 +    // Get the size of the allocation.
-+    err = reportErrorIfAny(
-+        hipMemGetAddressRange(&allocPtr, &allocSize, ptr),
-+        "GetAddressRange");
++    HIP_REPORT_IF_ERROR(hipMemGetAddressRange(&allocPtr, &allocSize, ptr));
 +    tempList[allocSize].push_back(ptr);
-+    return err;
 +  }
 +
 +  static Runtime &getInstance() {
@@ -431,54 +389,70 @@ index f49e6c91ea6..72ea1b6ed97 100644
 +  }
 +
 +private:
-+  std::vector<void*> streamList;
-+  llvm::DenseMap<void*, void*> moduleList;
-+  llvm::DenseMap<const char*, void*> functionList;
-+  llvm::DenseMap<size_t, std::vector<void*>> tempList;
++  std::vector<hipStream_t> streamList;
++  llvm::DenseMap<void*, hipModule_t> moduleList;
++  llvm::DenseMap<const char*, hipFunction_t> functionList;
++  llvm::DenseMap<size_t, std::vector<hipDeviceptr_t>> tempList;
 +};
- } // anonymous namespace
- 
- extern "C" int32_t mgpuModuleLoad(void **module, void *data) {
--  int32_t err = reportErrorIfAny(
--      hipModuleLoadData(reinterpret_cast<hipModule_t *>(module), data),
--      "ModuleLoad");
--  return err;
-+  return Runtime::getInstance().loadModule(module, data);
++} // anonymous namespace
++
+ extern "C" hipModule_t mgpuModuleLoad(void *data) {
+   hipModule_t module = nullptr;
+-  HIP_REPORT_IF_ERROR(hipModuleLoadData(&module, data));
++  Runtime::getInstance().loadModule(&module, data);
+   return module;
  }
  
- extern "C" int32_t mgpuModuleGetFunction(void **function, void *module,
-                                          const char *name) {
--  return reportErrorIfAny(
--      hipModuleGetFunction(reinterpret_cast<hipFunction_t *>(function),
--                           reinterpret_cast<hipModule_t>(module), name),
--      "GetFunction");
-+  return Runtime::getInstance().getFunction(function, module, name);
+ extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
+                                                const char *name) {
+   hipFunction_t function = nullptr;
+-  HIP_REPORT_IF_ERROR(hipModuleGetFunction(&function, module, name));
++  Runtime::getInstance().getFunction(&function, module, name);
+   return function;
  }
  
- // The wrapper uses intptr_t instead of ROCM's unsigned int to match
-@@ -62,8 +143,8 @@ extern "C" int32_t mgpuLaunchKernel(void *function, intptr_t gridX,
- }
+@@ -61,7 +128,7 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
  
- extern "C" void *mgpuGetStreamHelper() {
--  hipStream_t stream;
--  reportErrorIfAny(hipStreamCreate(&stream), "StreamCreate");
-+  void* stream;
+ extern "C" void *mgpuStreamCreate() {
+   hipStream_t stream = nullptr;
+-  HIP_REPORT_IF_ERROR(hipStreamCreate(&stream));
 +  Runtime::getInstance().createStream(&stream);
    return stream;
  }
  
-@@ -73,6 +154,14 @@ extern "C" int32_t mgpuStreamSynchronize(void *stream) {
-       "StreamSync");
+@@ -69,13 +136,20 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
+   return HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
  }
  
-+extern "C" int32_t mgpuMemAlloc(void **ptr, uint64_t size) {
-+  return Runtime::getInstance().allocMem(ptr, size);
++extern "C" void mgpuMemAlloc(hipDeviceptr_t *ptr, uint64_t size) {
++  Runtime::getInstance().allocMem(ptr, size);
 +}
 +
-+extern "C" int32_t mgpuMemFree(void *ptr) {
-+  return Runtime::getInstance().freeMem(ptr);
++extern "C" void mgpuMemFree(hipDeviceptr_t ptr) {
++  Runtime::getInstance().freeMem(ptr);
 +}
 +
  /// Helper functions for writing mlir example code
  
  // Allows to register byte array with the ROCM runtime. Helpful until we have
+ // transfer functions implemented.
+ extern "C" void mgpuMemHostRegister(void *ptr, uint64_t sizeBytes) {
+-  HIP_REPORT_IF_ERROR(hipHostRegister(ptr, sizeBytes, /*flags=*/0),
+-                      "MemHostRegister");
++  HIP_REPORT_IF_ERROR(hipHostRegister(ptr, sizeBytes, /*flags=*/0));
+ }
+ 
+ // Allows to register a MemRef with the ROCM runtime. Initializes array with
+@@ -116,10 +190,9 @@ extern "C" void mgpuMemHostRegisterInt32(int64_t rank, void *ptr) {
+ 
+ template <typename T>
+ void mgpuMemGetDevicePointer(T *hostPtr, T **devicePtr) {
+-  HIP_REPORT_IF_ERROR(hipSetDevice(0), "hipSetDevice");
++  HIP_REPORT_IF_ERROR(hipSetDevice(0));
+   HIP_REPORT_IF_ERROR(
+-      hipHostGetDevicePointer((void **)devicePtr, hostPtr, /*flags=*/0),
+-      "hipHostGetDevicePointer");
++      hipHostGetDevicePointer((void **)devicePtr, hostPtr, /*flags=*/0));
+ }
+ 
+ extern "C" StridedMemRefType<float, 1>
