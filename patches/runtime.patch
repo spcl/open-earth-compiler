@@ -306,7 +306,7 @@ index 8e2dc029fa9..8606373737a 100644
  
  // Allows to register byte array with the CUDA runtime. Helpful until we have
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index b97ce695ac4..1da606e488b 100644
+index a6481500766..5e0ddaa8ec5 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 @@ -17,6 +17,7 @@
@@ -317,15 +317,7 @@ index b97ce695ac4..1da606e488b 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "hip/hip_runtime.h"
-@@ -25,23 +26,89 @@
-   [](hipError_t result) {                                                      \
-     if (!result)                                                               \
-       return;                                                                  \
--    const char *name = nullptr;                                                \
--    hipGetErrorName(result, &name);                                            \
-+    const char *name = hipGetErrorName(result);                                         \
-     if (!name)                                                                 \
-       name = "<unknown>";                                                      \
+@@ -31,16 +32,83 @@
      llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
    }(expr)
  
@@ -411,7 +403,7 @@ index b97ce695ac4..1da606e488b 100644
    return function;
  }
  
-@@ -61,7 +128,7 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
+@@ -60,7 +128,7 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
  
  extern "C" void *mgpuStreamCreate() {
    hipStream_t stream = nullptr;
@@ -420,7 +412,7 @@ index b97ce695ac4..1da606e488b 100644
    return stream;
  }
  
-@@ -69,13 +136,20 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
+@@ -68,6 +136,14 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
    return HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
  }
  
@@ -435,24 +427,3 @@ index b97ce695ac4..1da606e488b 100644
  /// Helper functions for writing mlir example code
  
  // Allows to register byte array with the ROCM runtime. Helpful until we have
- // transfer functions implemented.
- extern "C" void mgpuMemHostRegister(void *ptr, uint64_t sizeBytes) {
--  HIP_REPORT_IF_ERROR(hipHostRegister(ptr, sizeBytes, /*flags=*/0),
--                      "MemHostRegister");
-+  HIP_REPORT_IF_ERROR(hipHostRegister(ptr, sizeBytes, /*flags=*/0));
- }
- 
- // Allows to register a MemRef with the ROCM runtime. Initializes array with
-@@ -116,10 +190,9 @@ extern "C" void mgpuMemHostRegisterInt32(int64_t rank, void *ptr) {
- 
- template <typename T>
- void mgpuMemGetDevicePointer(T *hostPtr, T **devicePtr) {
--  HIP_REPORT_IF_ERROR(hipSetDevice(0), "hipSetDevice");
-+  HIP_REPORT_IF_ERROR(hipSetDevice(0));
-   HIP_REPORT_IF_ERROR(
--      hipHostGetDevicePointer((void **)devicePtr, hostPtr, /*flags=*/0),
--      "hipHostGetDevicePointer");
-+      hipHostGetDevicePointer((void **)devicePtr, hostPtr, /*flags=*/0));
- }
- 
- extern "C" StridedMemRefType<float, 1>
