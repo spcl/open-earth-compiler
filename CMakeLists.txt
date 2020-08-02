@@ -48,7 +48,7 @@ add_definitions(${LLVM_DEFINITIONS})
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules")
 include(sanitizers)
 
-set(CUDA_BACKEND_ENABLED 1 CACHE BOOL "Enable building the oec CUDA backend")
+set(CUDA_BACKEND_ENABLED 0 CACHE BOOL "Enable building the oec CUDA backend")
 set(ROCM_BACKEND_ENABLED 0 CACHE BOOL "Enable building the oec ROCM backend")
 if(CUDA_BACKEND_ENABLED)
   add_definitions(-DCUDA_BACKEND_ENABLED)
