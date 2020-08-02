@@ -10,6 +10,8 @@ set(LIBS
   MLIRSPIRV
   MLIRTranslation
   MLIRSupport
+  MLIRTargetStencil
+  Stencil
 )
 
 add_llvm_executable(oec-translate oec-translate.cpp)
