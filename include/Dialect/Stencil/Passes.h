@@ -14,6 +14,8 @@ std::unique_ptr<OperationPass<FuncOp>> createStencilUnrollingPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createShapeInferencePass();
 
+void registerRandomStencilGenerator();
+
 } // namespace mlir
 
 #endif // DIALECT_STENCIL_PASSES_H

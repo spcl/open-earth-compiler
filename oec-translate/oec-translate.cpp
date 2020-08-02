@@ -76,7 +76,8 @@ int main(int argc, char **argv) {
 
   // Register the stencil passes
   // TODO: Register generator passes here
-
+  registerRandomStencilGenerator();
+  
   llvm::InitLLVM y(argc, argv);
 
   // Add flags for all the registered translations.

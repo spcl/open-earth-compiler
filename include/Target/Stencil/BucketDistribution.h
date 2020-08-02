@@ -20,7 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Target/Stencil/RandGenerator.h"
+#include "RandGenerator.h"
 
 #include <vector>
 #include <utility>

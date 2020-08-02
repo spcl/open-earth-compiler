@@ -37,7 +37,8 @@ private:
 public:
   RandGenerator() {
     random_device rd;
-    eng = mt19937(rd()); // seed the generator
+    // Seed the generator.
+    eng = mt19937(rd());
   }
 
 protected:
@@ -46,7 +47,8 @@ protected:
     if (lowerBound == upperBound)
       return lowerBound;
     
-    uniform_int_distribution<> distr(lowerBound, upperBound); // define the range
+    // Define the range.
+    uniform_int_distribution<> distr(lowerBound, upperBound);
     return distr(eng);
   }
 
@@ -63,7 +65,7 @@ protected:
     return result;
   }
 
-  pair<Value *, Value *> get2RandValues(set<Operation *> &values) {
+  pair<OpResult, OpResult> get2RandValues(set<Operation *> &values) {
     // TODO: analyze if it is correct to remove them from context
     auto rand1 = rand_advance(values);
     auto rand2 = rand_advance(values);
