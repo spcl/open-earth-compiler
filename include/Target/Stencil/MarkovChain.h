@@ -140,10 +140,10 @@ public:
         sequence.push_back("std.cmpf");
         sequence.push_back("scf.if");
       } else
-        sequence.push_back("scf.terminator");
+        sequence.push_back("scf.yield");
     }
 
-    sequence.push_back("func_end");
+    sequence.push_back("std.return");
     sequence.push_back("module_terminator");
 
     correctIfOps(sequence);
@@ -200,7 +200,7 @@ protected:
     // markovChain["stencil._stencil_end"] = {{"stencil._iir_end", 1}};
     // we want only one IIR
     // ========================================================================
-    markovChain["stencil._iir_end"] = {{"module_terminator", 1}};
+    // markovChain["stencil._iir_end"] = {{"module_terminator", 1}};
   }
 
   void correctIfOps(vector<string> &chain) {
@@ -214,7 +214,7 @@ protected:
     vector<int> to_erase;
 
     for (auto op : chain)
-      if (op == "loop.terminator")
+      if (op == "scf.yield")
         terms_to_see++;
 
     for (unsigned int i = 0; i < chain.size(); i++) {
@@ -225,7 +225,7 @@ protected:
           to_erase.push_back(i);
           if_ops_seen--;
         }
-      } else if (op == "loop.terminator") {
+      } else if (op == "scf.yield") {
         terms_seen++;
         terms_to_see--;
         if(terms_seen > 2*if_ops_seen) {
