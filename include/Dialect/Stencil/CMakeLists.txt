@@ -7,7 +7,7 @@ add_public_tablegen_target(MLIRStencilInterfacesIncGen)
 add_dependencies(mlir-headers MLIRStencilInterfacesIncGen)
 
 set(LLVM_TARGET_DEFINITIONS Passes.td)
-mlir_tablegen(Passes.h.inc -gen-pass-decls)
+mlir_tablegen(Passes.h.inc -gen-pass-decls -name Stencil)
 add_public_tablegen_target(MLIRStencilPassIncGen)
 add_dependencies(mlir-headers MLIRStencilPassIncGen)
 

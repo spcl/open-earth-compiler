@@ -82,10 +82,8 @@ int main(int argc, char **argv) {
   registerTestGpuParallelLoopMappingPass();
 
   // Register the stencil passes
-#define GEN_PASS_REGISTRATION
-#include "Conversion/StencilToStandard/Passes.h.inc"
-#define GEN_PASS_REGISTRATION
-#include "Dialect/Stencil/Passes.h.inc"
+  registerStencilPasses();
+  registerStencilConversionPasses();
 
   registerDialect<stencil::StencilDialect>();
 
