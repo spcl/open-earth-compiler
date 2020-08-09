@@ -35,9 +35,6 @@ void registerRandomStencilGenerator() {
   TranslateFromMLIRRegistration registration(
     "generate-random-stencil-program",
     [](ModuleOp module, llvm::raw_ostream &output) {
-      auto chain = MarkovChain(module);
-      chain.print(output);
-
       auto pg = RandomStencilGenerator(module);
       auto p = pg.generateRandomProgramOnTheFly(output);
       output << p << "\n";

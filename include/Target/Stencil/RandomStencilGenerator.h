@@ -51,9 +51,10 @@
 #include <sstream>
 #include <algorithm>
 
-const int DEBUG = 0;
+const int DEBUG = 1;
 
 using namespace std;
+using namespace mlir::stencil;
 
 namespace mlir {
 namespace experimental {
@@ -109,15 +110,22 @@ public:
   }
 
   FuncOp get(Context* c) {
-    /*int rand = rand_range(min_no_args, max_no_args);
-    auto func = builder->create<FuncOp>(loc, "stencil" + fnum++, 
-      FunctionType::get(
-        SmallVector<FieldType>(rand, FieldType::get(c, FloatType::getF64(c)),
-        {},
-        c),
-        {});
-    return func;*/
-    return nullptr;
+    int rand = rand_range(min_no_args, max_no_args);
+    auto fieldType =
+      FieldType::get(builder->getContext(), builder->getF64Type(), {-1, -1, -1});
+    auto typeList = SmallVector<Type, 8>(rand, fieldType);
+    auto funcType = FunctionType::get(typeList, {}, builder->getContext());
+
+    // Create func with `rand` number of 3D dynamic shape fields
+    // and add body block.
+    auto func = builder->create<FuncOp>(loc, "stencil" + fnum++, funcType);
+    builder->createBlock(&func.getBody(), {}, typeList);
+
+    // Add parameter fields to the context.
+    for (auto arg : func.getArguments())
+      c->fields.insert(&arg);
+
+    return func;
   }
 };
 
@@ -395,7 +403,9 @@ private:
       {"std.mulf", [&](Context* c) { return getMulf(c); }},
       {"std.divf", [&](Context* c) { return getDivf(c); }},
       {"std.cmpf", [&](Context* c) { return getCmpf(c); }},
+
       {"std.constant", [&](Context* c) { return getConstant(c); }},
+      {"std.negf", [&](Context* c) {return getNegf(c);}},
 
       /*
       {"std.sitofp", [&](Context* c) { return getSIToFP(c); }},
@@ -437,11 +447,13 @@ private:
   }
 
   Operation * getModuleTerminator(experimental::Context* context) {
-    return builder->create<ModuleTerminatorOp>(loc);
+    return nullptr;
   }
 
   Operation * getFunc(experimental::Context* context) {
-    return nullptr;
+    auto func = funcAccumulator->get(context);
+    builder->setInsertionPointToStart(&func.getBody().front());
+    return func;
   }
 
   Operation * getStdReturn(experimental::Context* context) {
@@ -487,6 +499,10 @@ private:
 
   Operation * getConstant(experimental::Context* context) {
     return constantAccumulator->get(context);
+  }
+
+  Operation * getNegf(experimental::Context* context) {
+    return getUnOp<NegFOp>(context, nonZeroConstView);
   }
 
   //===-------------------------------------------------------------------===//
