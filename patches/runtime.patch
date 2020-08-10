@@ -1,165 +1,118 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 14011e08de0..bf879e20d75 100644
+index 51c4cc924fc..738462d6807 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-@@ -42,6 +42,8 @@ static constexpr const char *kGpuLaunchKernelName = "mgpuLaunchKernel";
- static constexpr const char *kGpuStreamCreateName = "mgpuStreamCreate";
- static constexpr const char *kGpuStreamSynchronizeName =
-     "mgpuStreamSynchronize";
-+static constexpr const char *kGpuMemAllocName = "mgpuMemAlloc";
-+static constexpr const char *kGpuMemFreeName = "mgpuMemFree";
- static constexpr const char *kGpuMemHostRegisterName = "mgpuMemHostRegister";
- static constexpr const char *kGpuBinaryStorageSuffix = "_gpubin_cst";
- 
-@@ -108,6 +110,24 @@ private:
-                                           /*alignment=*/0);
-   }
- 
+@@ -101,12 +101,12 @@ protected:
+       llvmVoidType,
+       {
+           llvmPointerType,        /* void* f */
+-          llvmIntPtrType,         /* intptr_t gridXDim */
+-          llvmIntPtrType,         /* intptr_t gridyDim */
+-          llvmIntPtrType,         /* intptr_t gridZDim */
+-          llvmIntPtrType,         /* intptr_t blockXDim */
+-          llvmIntPtrType,         /* intptr_t blockYDim */
+-          llvmIntPtrType,         /* intptr_t blockZDim */
++          llvmInt32Type,          /* unsigned int gridXDim */
++          llvmInt32Type,          /* unsigned int gridyDim */
++          llvmInt32Type,          /* unsigned int gridZDim */
++          llvmInt32Type,          /* unsigned int blockXDim */
++          llvmInt32Type,          /* unsigned int blockYDim */
++          llvmInt32Type,          /* unsigned int blockZDim */
+           llvmInt32Type,          /* unsigned int sharedMemBytes */
+           llvmPointerType,        /* void *hstream */
+           llvmPointerPointerType, /* void **kernelParams */
+@@ -118,6 +118,37 @@ protected:
+       "mgpuStreamSynchronize",
+       llvmVoidType,
+       {llvmPointerType /* void *stream */}};
++  FunctionCallBuilder memAllocCallBuilder = {
++      "mgpuMemAlloc",
++      llvmVoidType,
++      {
++          llvmPointerPointerType, /* void **ptr */
++          llvmInt64Type /* int64 sizeBytes */
++      }};
++  FunctionCallBuilder memFreeCallBuilder = {
++      "mgpuMemFree",
++      llvmVoidType,
++      {llvmPointerType  /* void *ptr */ }};
++
 +  // Truncate an index value type to unsigned int if necessary.
-+  Value truncateIndex(OpBuilder &builder, Location loc, Value value) {
++  Value truncateIndex(OpBuilder &builder, Location loc, Value value) const {
 +    auto llvmType = value.getType().cast<LLVM::LLVMType>();
 +    if (llvmType.getIntegerBitWidth() > 32) {
-+      return builder.create<LLVM::TruncOp>(loc, getInt32Type(), value);
++      return builder.create<LLVM::TruncOp>(loc, llvmInt32Type, value);
 +    }
 +    return value;
 +  }
 +
 +  // Extend an index value type to a size type if necessary,
-+  Value extendIndex(OpBuilder &builder, Location loc, Value value) {
++  Value extendIndex(OpBuilder &builder, Location loc, Value value) const {
 +    auto llvmType = value.getType().cast<LLVM::LLVMType>();
 +    if (llvmType.getIntegerBitWidth() < 64) {
-+      return builder.create<LLVM::ZExtOp>(loc, getInt64Type(), value);
++      return builder.create<LLVM::ZExtOp>(loc, llvmInt64Type, value);
 +    }
 +    return value;
 +  }
 +
-   void declareGpuRuntimeFunctions(Location loc);
-   void addParamToList(OpBuilder &builder, Location loc, Value param, Value list,
-                       unsigned pos, Value one);
-@@ -115,6 +135,7 @@ private:
-   Value generateKernelNameConstant(StringRef moduleName, StringRef name,
-                                    Location loc, OpBuilder &builder);
-   void translateGpuLaunchCalls(mlir::gpu::LaunchFuncOp launchOp);
-+  void replaceMallocAndFreeCalls(LLVM::CallOp callOp);
- 
- public:
-   GpuLaunchFuncToGpuRuntimeCallsPass() = default;
-@@ -132,6 +153,22 @@ public:
-     getOperation().walk(
-         [this](mlir::gpu::LaunchFuncOp op) { translateGpuLaunchCalls(op); });
- 
-+    // Allocate and free device memory instead of host memory.
-+    getOperation().walk(
-+        [this](LLVM::CallOp op) { replaceMallocAndFreeCalls(op); });
 +
-+    // Erase the malloc and free function declarations if they are unused.
-+    if (llvm::none_of(getOperation().getOps<LLVM::CallOp>(),
-+                      [](LLVM::CallOp callOp) {
-+                        return callOp.callee().getValueOr("") == "malloc" ||
-+                               callOp.callee().getValueOr("") == "free";
-+                      })) {
-+      if (auto *malloc = getOperation().lookupSymbol("malloc"))
-+        malloc->erase();
-+      if (auto *free = getOperation().lookupSymbol("free"))
-+        free->erase();
-+    }
-+
-     // GPU kernel modules are no longer necessary since we have a global
-     // constant with the CUBIN, or HSACO data.
-     for (auto m :
-@@ -189,12 +226,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
-             getVoidType(),
-             {
-                 getPointerType(),        /* void* f */
--                getIntPtrType(),         /* intptr_t gridXDim */
--                getIntPtrType(),         /* intptr_t gridyDim */
--                getIntPtrType(),         /* intptr_t gridZDim */
--                getIntPtrType(),         /* intptr_t blockXDim */
--                getIntPtrType(),         /* intptr_t blockYDim */
--                getIntPtrType(),         /* intptr_t blockZDim */
-+                getInt32Type(),          /* unsigned int gridXDim */
-+                getInt32Type(),          /* unsigned int gridyDim */
-+                getInt32Type(),          /* unsigned int gridZDim */
-+                getInt32Type(),          /* unsigned int blockXDim */
-+                getInt32Type(),          /* unsigned int blockYDim */
-+                getInt32Type(),          /* unsigned int blockZDim */
-                 getInt32Type(),          /* unsigned int sharedMemBytes */
-                 getPointerType(),        /* void *hstream */
-                 getPointerPointerType(), /* void **kernelParams */
-@@ -216,6 +253,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::declareGpuRuntimeFunctions(
-                                       {getPointerType()}, /* void *stream */
-                                       /*isVarArg=*/false));
+ };
+ 
+ /// A rewrite patter to convert gpu.launch_func operations into a sequence of
+@@ -168,8 +199,20 @@ class EraseGpuModuleOpPattern : public OpRewritePattern<gpu::GPUModuleOp> {
    }
-+  if (!module.lookupSymbol(kGpuMemAllocName)) {
-+    builder.create<LLVM::LLVMFuncOp>(
-+        loc, kGpuMemAllocName,
-+        LLVM::LLVMType::getFunctionTy(
-+            getVoidType(),
-+            {
-+                getPointerPointerType(), /* void **ptr */
-+                getInt64Type()           /* int64 sizeBytes */
-+            },
-+            /*isVarArg=*/false));
-+  }
-+  if (!module.lookupSymbol(kGpuMemFreeName)) {
-+    builder.create<LLVM::LLVMFuncOp>(
-+        loc, kGpuMemFreeName,
-+        LLVM::LLVMType::getFunctionTy(getVoidType(),
-+                                      getPointerType(), /* void *ptr */
-+                                      /*isVarArg=*/false));
-+  }
-   if (!module.lookupSymbol(kGpuMemHostRegisterName)) {
-     builder.create<LLVM::LLVMFuncOp>(
-         loc, kGpuMemHostRegisterName,
-@@ -413,6 +468,12 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
+ };
+ 
++class ConvertAllocFreeOpsToGpuRuntimeAllocFreePattern
++    : public ConvertOpToGpuRuntimeCallPattern<LLVM::CallOp> {
++public:
++  ConvertAllocFreeOpsToGpuRuntimeAllocFreePattern(LLVMTypeConverter &typeConverter)
++      : ConvertOpToGpuRuntimeCallPattern<LLVM::CallOp>(typeConverter) {}
++
++private:
++  LogicalResult
++  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
++                  ConversionPatternRewriter &rewriter) const override;
++};
+ } // namespace
+ 
++
+ void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
+   LLVMTypeConverter converter(&getContext());
+   OwningRewritePatternList patterns;
+@@ -367,13 +410,21 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
    // Invoke the function with required arguments.
-   auto gpuLaunchKernel =
-       getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuLaunchKernelName);
-+  auto gridSizeX = truncateIndex(builder, loc, launchOp.gridSizeX());
-+  auto gridSizeY = truncateIndex(builder, loc, launchOp.gridSizeY());
-+  auto gridSizeZ = truncateIndex(builder, loc, launchOp.gridSizeZ());
-+  auto blockSizeX = truncateIndex(builder, loc, launchOp.blockSizeX());
-+  auto blockSizeY = truncateIndex(builder, loc, launchOp.blockSizeY());
-+  auto blockSizeZ = truncateIndex(builder, loc, launchOp.blockSizeZ());
-   auto paramsArray = setupParamsArray(launchOp, builder);
-   if (!paramsArray) {
-     launchOp.emitOpError() << "cannot pass given parameters to the kernel";
-@@ -420,25 +481,57 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::translateGpuLaunchCalls(
-   }
+   auto zero = rewriter.create<LLVM::ConstantOp>(loc, llvmInt32Type,
+                                                 rewriter.getI32IntegerAttr(0));
++
++  auto gridSizeX = truncateIndex(rewriter, loc, launchOp.gridSizeX());
++  auto gridSizeY = truncateIndex(rewriter, loc, launchOp.gridSizeY());
++  auto gridSizeZ = truncateIndex(rewriter, loc, launchOp.gridSizeZ());
++  auto blockSizeX = truncateIndex(rewriter, loc, launchOp.blockSizeX());
++  auto blockSizeY = truncateIndex(rewriter, loc, launchOp.blockSizeY());
++  auto blockSizeZ = truncateIndex(rewriter, loc, launchOp.blockSizeZ());
++
    auto nullpointer =
-       builder.create<LLVM::IntToPtrOp>(loc, getPointerPointerType(), zero);
--  builder.create<LLVM::CallOp>(
--      loc, ArrayRef<Type>{getVoidType()},
--      builder.getSymbolRefAttr(gpuLaunchKernel),
--      ArrayRef<Value>{function.getResult(0), launchOp.getOperand(0),
--                      launchOp.getOperand(1), launchOp.getOperand(2),
--                      launchOp.getOperand(3), launchOp.getOperand(4),
--                      launchOp.getOperand(5), zero, /* sharedMemBytes */
--                      stream.getResult(0),          /* stream */
--                      paramsArray,                  /* kernel params */
--                      nullpointer /* extra */});
--  // Sync on the stream to make it synchronous.
-+  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
-+                               builder.getSymbolRefAttr(gpuLaunchKernel),
-+                               ArrayRef<Value>{function.getResult(0), gridSizeX,
-+                                               gridSizeY, gridSizeZ, blockSizeX,
-+                                               blockSizeY, blockSizeZ,
-+                                               zero, /* sharedMemBytes */
-+                                               stream.getResult(0), /* stream */
-+                                               paramsArray, /* kernel params */
-+                                               nullpointer /* extra */});
-   auto gpuStreamSync =
-       getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuStreamSynchronizeName);
--  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{getVoidType()},
-+  builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
-                                builder.getSymbolRefAttr(gpuStreamSync),
-                                ArrayRef<Value>(stream.getResult(0)));
-   launchOp.erase();
+       rewriter.create<LLVM::IntToPtrOp>(loc, llvmPointerPointerType, zero);
+   launchKernelCallBuilder.create(
+       loc, rewriter,
+-      {function.getResult(0), launchOp.gridSizeX(), launchOp.gridSizeY(),
+-       launchOp.gridSizeZ(), launchOp.blockSizeX(), launchOp.blockSizeY(),
+-       launchOp.blockSizeZ(), zero, /* sharedMemBytes */
++      {function.getResult(0), gridSizeX, gridSizeY,
++       gridSizeZ, blockSizeX, blockSizeY,
++       blockSizeZ, zero, /* sharedMemBytes */
+        stream.getResult(0),         /* stream */
+        kernelParams,                /* kernel params */
+        nullpointer /* extra */});
+@@ -383,6 +434,34 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+   return success();
  }
  
-+// Replace all malloc and free pairs by GPU memory allocations.
-+void GpuLaunchFuncToGpuRuntimeCallsPass::replaceMallocAndFreeCalls(
-+    LLVM::CallOp callOp) {
++LogicalResult ConvertAllocFreeOpsToGpuRuntimeAllocFreePattern::matchAndRewrite(
++    Operation *op, ArrayRef<Value> operands,
++    ConversionPatternRewriter &rewriter) const {
++  auto callOp = cast<LLVM::CallOp>(op);
 +  // Replace all memory allocations by GPU memory allocations or frees.
 +  if (callOp.callee().getValueOr("") == "malloc" ||
 +      callOp.callee().getValueOr("") == "free") {
@@ -167,25 +120,18 @@ index 14011e08de0..bf879e20d75 100644
 +    Location loc = callOp.getLoc();
 +
 +    if (callOp.callee().getValue() == "malloc") {
-+      auto one = builder.create<LLVM::ConstantOp>(loc, getInt64Type(),
++      auto one = builder.create<LLVM::ConstantOp>(loc, llvmInt64Type,
 +                                                  builder.getI64IntegerAttr(1));
 +      auto allocPtr =
-+          builder.create<LLVM::AllocaOp>(loc, getPointerPointerType(), one, 0);
-+      auto allocFunc =
-+          getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemAllocName);
++          builder.create<LLVM::AllocaOp>(loc, llvmPointerPointerType, one, 0);
 +      auto size = extendIndex(builder, loc, callOp.getOperand(0));
-+      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
-+                                   builder.getSymbolRefAttr(allocFunc),
-+                                   ArrayRef<Value>{allocPtr, size});
++      memAllocCallBuilder.create(loc, builder, ArrayRef<Value>{allocPtr, size});
 +      callOp.getResult(0).replaceAllUsesWith(
-+          builder.create<LLVM::LoadOp>(loc, getPointerType(), allocPtr));
++          builder.create<LLVM::LoadOp>(loc, llvmPointerType, allocPtr));
 +    }
 +    if (callOp.callee().getValue() == "free") {
-+      auto freeFunc =
-+          getOperation().lookupSymbol<LLVM::LLVMFuncOp>(kGpuMemFreeName);
-+      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
-+                                   builder.getSymbolRefAttr(freeFunc),
-+                                   ArrayRef<Value>{callOp.getOperand(0)});
++      memFreeCallBuilder.create(loc, builder,
++                                         ArrayRef<Value>{callOp.getOperand(0)});
 +    }
 +    callOp.erase();
 +  }
@@ -194,6 +140,14 @@ index 14011e08de0..bf879e20d75 100644
  std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
  mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
      StringRef gpuBinaryAnnotation) {
+@@ -395,5 +474,7 @@ void mlir::populateGpuToLLVMConversionPatterns(
+     StringRef gpuBinaryAnnotation) {
+   patterns.insert<ConvertLaunchFuncOpToGpuRuntimeCallPattern>(
+       converter, gpuBinaryAnnotation);
++  patterns.insert<ConvertAllocFreeOpsToGpuRuntimeAllocFreePattern>(
++      converter);
+   patterns.insert<EraseGpuModuleOpPattern>(&converter.getContext());
+ }
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 index 8e2dc029fa9..8606373737a 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
