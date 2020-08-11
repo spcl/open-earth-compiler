@@ -1,28 +1,8 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 51c4cc924fc..262f5894200 100644
+index 51c4cc924fc..6ecb9cde36c 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-@@ -42,6 +42,19 @@ namespace {
- class GpuLaunchFuncToGpuRuntimeCallsPass
-     : public ConvertGpuLaunchFuncToGpuRuntimeCallsBase<
-           GpuLaunchFuncToGpuRuntimeCallsPass> {
-+  // Extend an index value type to a size type if necessary,
-+  Value extendIndex(OpBuilder &builder, Location loc, Value value) const {
-+    LLVM::LLVMType llvmInt64Type =
-+        LLVM::LLVMType::getInt64Ty(builder.getContext());
-+    auto llvmType = value.getType().cast<LLVM::LLVMType>();
-+    if (llvmType.getIntegerBitWidth() < 64) {
-+      return builder.create<LLVM::ZExtOp>(loc, llvmInt64Type, value);
-+    }
-+    return value;
-+  }
-+
-+  void replaceMallocAndFreeCalls(LLVM::CallOp callOp);
-+
- public:
-   GpuLaunchFuncToGpuRuntimeCallsPass(StringRef gpuBinaryAnnotation) {
-     if (!gpuBinaryAnnotation.empty())
-@@ -101,12 +114,12 @@ protected:
+@@ -101,12 +101,12 @@ protected:
        llvmVoidType,
        {
            llvmPointerType,        /* void* f */
@@ -41,15 +21,31 @@ index 51c4cc924fc..262f5894200 100644
            llvmInt32Type,          /* unsigned int sharedMemBytes */
            llvmPointerType,        /* void *hstream */
            llvmPointerPointerType, /* void **kernelParams */
-@@ -118,6 +131,17 @@ protected:
+@@ -118,6 +118,33 @@ protected:
        "mgpuStreamSynchronize",
        llvmVoidType,
        {llvmPointerType /* void *stream */}};
++  FunctionCallBuilder memAllocCallBuilder = {
++      "mgpuMemAlloc",
++      llvmVoidType,
++      {
++          llvmPointerPointerType, /* void **ptr */
++          llvmInt64Type           /* int64 sizeBytes */
++      }};
++  FunctionCallBuilder memFreeCallBuilder = {
++      "mgpuMemFree", llvmVoidType, {llvmPointerType /* void *ptr */}};
++
++  // Extend an index value type to a size type if necessary,
++  Value extendIndex(OpBuilder &builder, Location loc, Value value) const {
++    auto llvmType = value.getType().cast<LLVM::LLVMType>();
++    if (llvmType.getIntegerBitWidth() < 64) {
++      return builder.create<LLVM::ZExtOp>(loc, llvmInt64Type, value);
++    }
++    return value;
++  }
 +
 +  // Truncate an index value type to unsigned int if necessary.
 +  Value truncateIndex(OpBuilder &builder, Location loc, Value value) const {
-+    LLVM::LLVMType llvmInt32Type =
-+        LLVM::LLVMType::getInt32Ty(builder.getContext());
 +    auto llvmType = value.getType().cast<LLVM::LLVMType>();
 +    if (llvmType.getIntegerBitWidth() > 32) {
 +      return builder.create<LLVM::TruncOp>(loc, llvmInt32Type, value);
@@ -59,14 +55,34 @@ index 51c4cc924fc..262f5894200 100644
  };
  
  /// A rewrite patter to convert gpu.launch_func operations into a sequence of
-@@ -178,6 +202,90 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
+@@ -168,6 +195,17 @@ class EraseGpuModuleOpPattern : public OpRewritePattern<gpu::GPUModuleOp> {
+   }
+ };
+ 
++class ReplaceMallocAndFreePattern
++    : public ConvertOpToGpuRuntimeCallPattern<LLVM::CallOp> {
++public:
++  ReplaceMallocAndFreePattern(LLVMTypeConverter &typeConverter)
++      : ConvertOpToGpuRuntimeCallPattern<LLVM::CallOp>(typeConverter) {}
++
++  LogicalResult
++  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
++                  ConversionPatternRewriter &rewriter) const override;
++};
++
+ } // namespace
+ 
+ void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
+@@ -176,8 +214,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
+   populateGpuToLLVMConversionPatterns(converter, patterns, gpuBinaryAnnotation);
+ 
    LLVMConversionTarget target(getContext());
++  target.addDynamicallyLegalOp<LLVM::CallOp>([](LLVM::CallOp callOp) {
++    return callOp.callee().getValueOr("") != "malloc" &&
++           callOp.callee().getValueOr("") != "free";
++  });
    if (failed(applyPartialConversion(getOperation(), target, patterns)))
      signalPassFailure();
-+
-+  // Allocate and free device memory instead of host memory.
-+  getOperation().walk(
-+      [this](LLVM::CallOp op) { replaceMallocAndFreeCalls(op); });
 +
 +  // Erase the malloc and free function declarations if they are unused.
 +  if (llvm::none_of(getOperation().getOps<LLVM::CallOp>(),
@@ -79,78 +95,10 @@ index 51c4cc924fc..262f5894200 100644
 +    if (auto *free = getOperation().lookupSymbol("free"))
 +      free->erase();
 +  }
-+}
-+
-+// Replace all malloc and free pairs by GPU memory allocations.
-+void GpuLaunchFuncToGpuRuntimeCallsPass::replaceMallocAndFreeCalls(
-+    LLVM::CallOp callOp) {
-+
-+  // Prepare the types
-+  LLVM::LLVMType llvmVoidType = LLVM::LLVMType::getVoidTy(callOp.getContext());
-+  LLVM::LLVMType llvmPointerType =
-+      LLVM::LLVMType::getInt8PtrTy(callOp.getContext());
-+  LLVM::LLVMType llvmPointerPointerType = llvmPointerType.getPointerTo();
-+  LLVM::LLVMType llvmInt64Type =
-+      LLVM::LLVMType::getInt64Ty(callOp.getContext());
-+
-+  // Replace all memory allocations by GPU memory allocations or frees.
-+  if (callOp.callee().getValueOr("") == "malloc" ||
-+      callOp.callee().getValueOr("") == "free") {
-+    OpBuilder builder(callOp);
-+    Location loc = callOp.getLoc();
-+
-+    if (!getOperation().lookupSymbol("mgpuMemAlloc")) {
-+      auto module =
-+          builder.getBlock()->getParent()->getParentOfType<ModuleOp>();
-+      OpBuilder(module.getBody()->getTerminator())
-+          .create<LLVM::LLVMFuncOp>(
-+              loc, "mgpuMemAlloc",
-+              LLVM::LLVMType::getFunctionTy(
-+                  llvmVoidType,
-+                  {
-+                      llvmPointerPointerType, /* void **ptr */
-+                      llvmInt64Type           /* int64 sizeBytes */
-+                  },
-+                  /*isVarArg=*/false));
-+    }
-+    if (!getOperation().lookupSymbol("mgpuMemFree")) {
-+      auto module =
-+          builder.getBlock()->getParent()->getParentOfType<ModuleOp>();
-+      OpBuilder(module.getBody()->getTerminator())
-+          .create<LLVM::LLVMFuncOp>(
-+              loc, "mgpuMemFree",
-+              LLVM::LLVMType::getFunctionTy(llvmVoidType,
-+                                            llvmPointerType, /* void *ptr */
-+                                            /*isVarArg=*/false));
-+    }
-+
-+    if (callOp.callee().getValue() == "malloc") {
-+      auto one = builder.create<LLVM::ConstantOp>(loc, llvmInt64Type,
-+                                                  builder.getI64IntegerAttr(1));
-+      auto allocPtr =
-+          builder.create<LLVM::AllocaOp>(loc, llvmPointerPointerType, one, 0);
-+      auto allocFunc =
-+          getOperation().lookupSymbol<LLVM::LLVMFuncOp>("mgpuMemAlloc");
-+      auto size = extendIndex(builder, loc, callOp.getOperand(0));
-+      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
-+                                   builder.getSymbolRefAttr(allocFunc),
-+                                   ArrayRef<Value>{allocPtr, size});
-+      callOp.getResult(0).replaceAllUsesWith(
-+          builder.create<LLVM::LoadOp>(loc, llvmPointerType, allocPtr));
-+    }
-+    if (callOp.callee().getValue() == "free") {
-+      auto freeFunc =
-+          getOperation().lookupSymbol<LLVM::LLVMFuncOp>("mgpuMemFree");
-+      builder.create<LLVM::CallOp>(loc, ArrayRef<Type>{},
-+                                   builder.getSymbolRefAttr(freeFunc),
-+                                   ArrayRef<Value>{callOp.getOperand(0)});
-+    }
-+    callOp.erase();
-+  }
  }
  
  LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
-@@ -367,16 +475,23 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -367,22 +421,56 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
    // Invoke the function with required arguments.
    auto zero = rewriter.create<LLVM::ConstantOp>(loc, llvmInt32Type,
                                                  rewriter.getI32IntegerAttr(0));
@@ -182,6 +130,46 @@ index 51c4cc924fc..262f5894200 100644
    streamSynchronizeCallBuilder.create(loc, rewriter, stream.getResult(0));
  
    rewriter.eraseOp(op);
+   return success();
+ }
+ 
++LogicalResult ReplaceMallocAndFreePattern::matchAndRewrite(
++    Operation *op, ArrayRef<Value> operands,
++    ConversionPatternRewriter &rewriter) const {
++  auto callOp = cast<LLVM::CallOp>(op);
++  auto loc = callOp.getLoc();
++  
++  // Replace all memory allocations by GPU memory allocations or frees.
++  if (callOp.callee().getValue() == "malloc") {
++    auto one = rewriter.create<LLVM::ConstantOp>(loc, llvmInt64Type,
++                                                 rewriter.getI64IntegerAttr(1));
++    auto allocPtr =
++        rewriter.create<LLVM::AllocaOp>(loc, llvmPointerPointerType, one, 0);
++    auto size = extendIndex(rewriter, loc, callOp.getOperand(0));
++    memAllocCallBuilder.create(loc, rewriter, ArrayRef<Value>{allocPtr, size});
++    auto loadOp = rewriter.create<LLVM::LoadOp>(loc, llvmPointerType, allocPtr);
++    rewriter.replaceOp(op, loadOp.getResult());
++    return success();
++  }
++  if (callOp.callee().getValue() == "free") {
++    memFreeCallBuilder.create(loc, rewriter,
++                              ArrayRef<Value>{callOp.getOperand(0)});
++    rewriter.eraseOp(op);
++    return success();
++  }
++  return failure();
++}
++
+ std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+ mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
+     StringRef gpuBinaryAnnotation) {
+@@ -395,5 +483,6 @@ void mlir::populateGpuToLLVMConversionPatterns(
+     StringRef gpuBinaryAnnotation) {
+   patterns.insert<ConvertLaunchFuncOpToGpuRuntimeCallPattern>(
+       converter, gpuBinaryAnnotation);
++  patterns.insert<ReplaceMallocAndFreePattern>(converter);
+   patterns.insert<EraseGpuModuleOpPattern>(&converter.getContext());
+ }
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 index 8e2dc029fa9..8606373737a 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
