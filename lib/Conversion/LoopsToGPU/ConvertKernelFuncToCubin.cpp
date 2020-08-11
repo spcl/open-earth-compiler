@@ -16,6 +16,11 @@
 
 using namespace mlir;
 
+constexpr char tripleName[] = "nvptx64-nvidia-cuda";
+constexpr char targetChip[] = "sm_35";
+constexpr char features[] = "+ptx60";
+constexpr char gpuBinaryAnnotation[] = "nvvm.cubin";
+
 namespace {
 inline void emit_cuda_error(const llvm::Twine &message, const char *buffer,
                             CUresult error, Location loc) {
@@ -101,8 +106,8 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createStripDebugInfoPass());
         kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(32));
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
-            translateModuleToNVVMIR, compilePtxToCubin, "nvptx64-nvidia-cuda",
-            "sm_35", "+ptx60", "nvvm.cubin"));
+            translateModuleToNVVMIR, compilePtxToCubin, tripleName, targetChip,
+            features, gpuBinaryAnnotation));
         pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
                                           /* emitCWrappers = */ true,
                                           /* indexBitwidth = */ 32,

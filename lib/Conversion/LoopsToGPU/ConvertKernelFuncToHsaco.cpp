@@ -39,6 +39,8 @@
 // lld headers.
 #include "lld/Common/Driver.h"
 
+#include <mutex>
+
 using namespace mlir;
 using namespace llvm;
 
@@ -137,13 +139,19 @@ static LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
   }
   FileRemover cleanupHsaco(tempHsacoFilename);
 
-  // Invoke lld. Expect a true return value from lld.
-  bool ret = lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
-                             "-o", tempHsacoFilename.c_str()},
-                            /*canEarlyExit=*/false, llvm::outs(), llvm::errs());
-  if (!ret) {
-    WithColor::error(errs(), name) << "lld invocation error.\n";
-    return failure();
+  {
+    // Run lld single threaded
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+
+    // Invoke lld. Expect a true return value from lld.
+    bool ret = lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
+                              "-o", tempHsacoFilename.c_str()},
+                              /*canEarlyExit=*/false, llvm::outs(), llvm::errs());
+    if (!ret) {
+      WithColor::error(errs(), name) << "lld invocation error.\n";
+      return failure();
+    }
   }
 
   // Load the HSA code object.
