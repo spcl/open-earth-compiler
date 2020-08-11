@@ -16,7 +16,7 @@ using namespace mlir::stencil;
 //===----------------------------------------------------------------------===//
 
 StencilDialect::StencilDialect(mlir::MLIRContext *context)
-    : Dialect(getDialectNamespace(), context) {
+    : Dialect(getDialectNamespace(), context, TypeID::get<StencilDialect>()) {
   addTypes<FieldType, TempType>();
 
   addOperations<
@@ -39,17 +39,17 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
     parser.emitError(parser.getNameLoc(), "expected type identifier");
     return Type();
   }
-  
+
   // Parse the shape
   SmallVector<int64_t, 3> shape;
-  if(parser.parseLess() || parser.parseDimensionList(shape)) {
+  if (parser.parseLess() || parser.parseDimensionList(shape)) {
     parser.emitError(parser.getNameLoc(), "expected valid dimension list");
     return Type();
   }
 
   // Parse the element type
   Type elementType;
-  if(parser.parseType(elementType) || parser.parseGreater()) {
+  if (parser.parseType(elementType) || parser.parseGreater()) {
     parser.emitError(parser.getNameLoc(), "expected valid element type");
     return Type();
   }
@@ -75,9 +75,9 @@ namespace {
 void print(GridType gridType, DialectAsmPrinter &printer) {
   printer << "<";
   for (auto size : gridType.getShape()) {
-    if(size == GridType::kDynamicDimension)
+    if (size == GridType::kDynamicDimension)
       printer << "?";
-    else 
+    else
       printer << size;
     printer << "x";
   }

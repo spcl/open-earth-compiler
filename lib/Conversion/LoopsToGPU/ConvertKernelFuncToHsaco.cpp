@@ -46,6 +46,7 @@ using Blob = SmallVector<char, 0>;
 constexpr char tripleName[] = "amdgcn-amd-amdhsa";
 constexpr char targetChip[] = "gfx1010";
 constexpr char features[] = "-code-object-v3";
+constexpr char gpuBinaryAnnotation[] = "rocdl.hsaco";
 
 static LogicalResult assembleIsa(const std::string isa, StringRef name,
                                  Blob &result) {
@@ -158,9 +159,11 @@ static LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
   return success();
 }
 
-static std::unique_ptr<llvm::Module> compileModuleToROCDLIR(Operation *m) {
-  auto llvmModule = translateModuleToROCDLIR(m);
-  // TODO(whchung): Link with ROCm-Device-Libs in case needed (ex: the Module
+static std::unique_ptr<llvm::Module>
+compileModuleToROCDLIR(Operation *m, llvm::LLVMContext &llvmContext,
+                       StringRef name) {
+  auto llvmModule = translateModuleToROCDLIR(m, llvmContext, name);
+  // TODO: Link with ROCm-Device-Libs in case needed (ex: the Module
   // depends on math functions).
   return llvmModule;
 }
@@ -200,14 +203,13 @@ void registerGPUToHSACOPipeline() {
         kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(32));
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             compileModuleToROCDLIR, compileISAToHsaco, tripleName, targetChip,
-            features,
-            /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+            features, gpuBinaryAnnotation));
         pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
                                           /* emitCWrappers = */ true,
                                           /* indexBitwidth = */ 32,
                                           /* useAlignedAlloc = */ false}));
         pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
-            /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+            gpuBinaryAnnotation));
       });
 }
 } // namespace mlir
