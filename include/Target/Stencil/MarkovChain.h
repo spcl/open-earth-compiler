@@ -176,31 +176,14 @@ protected:
     // --- STATIC SETTINGS ---
     // ======== uncomment in order to increase chances of generating if ops ========
     // markovChain["std.constant"]["std.cmpf"] *= 10;
-    // markovChain["stencil.get_value"]["std.cmpf"] *= 10;
-    // markovChain["std.cmpf"]["loop.if"] *= 20;
-    // markovChain["stencil.write"]["loop.terminator"] *= 10;
-    // markovChain["stencil.write"]["loop.terminator"] *= 20;
+    // markovChain["stencil.access"]["std.cmpf"] *= 10;
+    // markovChain["std.cmpf"]["scf.if"] *= 20;
+    // markovChain["stencil.store"]["scf.yield"] *= 10;
+    // markovChain["stencil.store"]["scf.yield"] *= 20;
     // ========================================================================
 
-    // markovChain["stencil.write"]["stencil._do_method_end"] /= 2;
-    // markovChain["stencil.stage"]["stencil.var"] *= 1.5;
-    // markovChain["stencil.var"]["stencil.var"] /= 1.5;
-
-    // ======== UNCOMMENT WHEN YOU WANT TO TRAIN ON cosmo_merged.mlir ========
-    // markovChain["stencil.var"].erase("stencil.stencil");
-    // markovChain["stencil.stencil"].erase("stencil.stencil");
-
-    // we want only one DoMethod
-    // markovChain["stencil._do_method_end"] = {{"stencil._stage_end", 1}};
-    // we want only one Stage
-    // markovChain["stencil._stage_end"] = {{"stencil._multi_stage_end", 1}};
-    // we want only one MultiStage
-    // markovChain["stencil._multi_stage_end"] = {{"stencil._stencil_end", 1}};
-    // we want only one Stencil
-    // markovChain["stencil._stencil_end"] = {{"stencil._iir_end", 1}};
-    // we want only one IIR
-    // ========================================================================
-    // markovChain["stencil._iir_end"] = {{"module_terminator", 1}};
+    // we want only one func
+    markovChain["std.return"] = {{"module_terminator", 1}};
   }
 
   void correctIfOps(vector<string> &chain) {

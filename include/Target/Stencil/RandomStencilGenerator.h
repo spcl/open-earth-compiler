@@ -223,8 +223,7 @@ public:
     aggregate(m);
     setHandlers();
     learnDistributions(m);
-    unOps = {"std.sitofp", "stencil.sqrtf", "stencil.fabs", "stencil.exp", 
-      "stencil.pow"};
+    unOps = {"std.sqrt", "stencil.fabs", "stencil.exp", "stencil.pow"};
     binOps = {"std.addf", "std.cmpf", "std.divf", "std.mulf", "std.subf"};
   }
 
@@ -233,7 +232,6 @@ public:
       return false;
     if (op == "stencil.store" && (c->fields.empty() || c->values.empty()))
       return false;
-    // TODO: needed?
     if (op == "std.select" && (c->values.size() < 2 || c->bool_values.empty()))
       return false;
     if (op == "scf.if" && (c->bool_values.empty()))
@@ -343,17 +341,17 @@ public:
     Context* c = new Context();
     ModuleOp moduleop = dyn_cast<ModuleOp>(handlers[curr_op](c));
     while (curr_op != "module_terminator") {
-      if (DEBUG) {
-        output << curr_op << "\n";
-        c->print(output);
-      }
-
       auto f = [&](string s) {
         return isValid(s, c) && s != "scf.if" && s != "scf.yield"
           && (i < MIN_SIZE ? s != "std.return" : true);
       };
 
       curr_op = chain.getNextOp(curr_op, f);
+      if (DEBUG) {
+        output << curr_op << "\n";
+        c->print(output);
+      }
+
       if (i == MAX_SIZE && curr_op != "module_terminator")
         curr_op = "std.return";
 
@@ -365,7 +363,7 @@ public:
   }
 
 private:
-  map<string, std::function<Operation*(Context*)>> handlers;
+  map<string, function<Operation*(Context*)>> handlers;
   map<string, set<Operation *>> aggregated;
   set<string> unOps;
   set<string> binOps;
@@ -405,12 +403,9 @@ private:
       {"std.cmpf", [&](Context* c) { return getCmpf(c); }},
 
       {"std.constant", [&](Context* c) { return getConstant(c); }},
-      {"std.negf", [&](Context* c) {return getNegf(c);}},
-
-      /*
-      {"std.sitofp", [&](Context* c) { return getSIToFP(c); }},
+      {"std.negf", [&](Context* c) {return getNegf(c); }},
+      {"std.sqrt", [&](Context* c) {return getSqrt(c); }},
       {"std.select", [&](Context* c) { return getSelect(c); }},
-      */
 
       // Control flow ops.
       {"scf.if", [&](Context* c) { return getScfIf(c); }},
@@ -583,10 +578,6 @@ private:
   // Arithmetics 2.
   //===-------------------------------------------------------------------===//
 
-  /*Operation * getPow(experimental::Context* context) {
-    return getBinOp<stencil::PowOp>(context, nonZeroOrOneConstView);
-  }
-
   Operation * getSelect(experimental::Context* context) {
     auto values = context->values.sample(2);
     auto cond = context->bool_values.sample()->getResult(0);
@@ -599,9 +590,13 @@ private:
     return select;
   }
 
-  Operation * getSqrtf(experimental::Context* context) {
-    return getUnOp<stencil::SqrtfOp>(context,
+  Operation * getSqrt(experimental::Context* context) {
+    return getUnOp<SqrtOp>(context,
       [](Operation * op) { return getConstValOrDefault(op, 1.0) >= 0.0; });
+  }
+
+  /*Operation * getPow(experimental::Context* context) {
+    return getBinOp<stencil::PowOp>(context, nonZeroOrOneConstView);
   }
 
   Operation * getFabs(experimental::Context* context) {
