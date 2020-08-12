@@ -171,14 +171,15 @@ index 51c4cc924fc..6ecb9cde36c 100644
    patterns.insert<EraseGpuModuleOpPattern>(&converter.getContext());
  }
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 8e2dc029fa9..648c62739c8 100644
+index 8e2dc029fa9..99ca2aad3e6 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-@@ -14,9 +14,11 @@
+@@ -14,9 +14,12 @@
  
  #include <cassert>
  #include <numeric>
 +#include <iostream>
++#include <iomanip>
  
  #include "mlir/ExecutionEngine/CRunnerUtils.h"
  #include "llvm/ADT/ArrayRef.h"
@@ -186,7 +187,7 @@ index 8e2dc029fa9..648c62739c8 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "cuda.h"
-@@ -32,6 +34,73 @@
+@@ -32,6 +35,73 @@
      llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
    }(expr)
  
@@ -260,7 +261,7 @@ index 8e2dc029fa9..648c62739c8 100644
  extern "C" CUmodule mgpuModuleLoad(void *data) {
    CUmodule module = nullptr;
    CUDA_REPORT_IF_ERROR(cuModuleLoadData(&module, data));
-@@ -52,14 +121,24 @@ extern "C" void mgpuLaunchKernel(CUfunction function, intptr_t gridX,
+@@ -52,14 +122,24 @@ extern "C" void mgpuLaunchKernel(CUfunction function, intptr_t gridX,
                                   intptr_t blockX, intptr_t blockY,
                                   intptr_t blockZ, int32_t smem, CUstream stream,
                                   void **params, void **extra) {
@@ -276,7 +277,7 @@ index 8e2dc029fa9..648c62739c8 100644
 +  CUDA_REPORT_IF_ERROR(cuEventSynchronize(stop));
 +  float duration = 0.0;
 +  CUDA_REPORT_IF_ERROR(cuEventElapsedTime(&duration, start, stop));
-+  std::cout << "-> kernel time [ms]: " << duration << "\n";
++  std::cout << std::setprecision(5) << "-> kernel time [ms]: " << duration << "\n";
  }
  
  extern "C" CUstream mgpuStreamCreate() {
@@ -286,7 +287,7 @@ index 8e2dc029fa9..648c62739c8 100644
    return stream;
  }
  
-@@ -67,6 +146,14 @@ extern "C" void mgpuStreamSynchronize(CUstream stream) {
+@@ -67,6 +147,14 @@ extern "C" void mgpuStreamSynchronize(CUstream stream) {
    CUDA_REPORT_IF_ERROR(cuStreamSynchronize(stream));
  }
  
@@ -302,14 +303,15 @@ index 8e2dc029fa9..648c62739c8 100644
  
  // Allows to register byte array with the CUDA runtime. Helpful until we have
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index a6481500766..3a443c49372 100644
+index a6481500766..179cae9e3f2 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-@@ -14,9 +14,11 @@
+@@ -14,9 +14,12 @@
  
  #include <cassert>
  #include <numeric>
 +#include <iostream>
++#include <iomanip>
  
  #include "mlir/ExecutionEngine/CRunnerUtils.h"
  #include "llvm/ADT/ArrayRef.h"
@@ -317,7 +319,7 @@ index a6481500766..3a443c49372 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "hip/hip_runtime.h"
-@@ -31,16 +33,83 @@
+@@ -31,16 +34,83 @@
      llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
    }(expr)
  
@@ -403,7 +405,7 @@ index a6481500766..3a443c49372 100644
    return function;
  }
  
-@@ -53,14 +122,24 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
+@@ -53,14 +123,24 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
                                   intptr_t blockZ, int32_t smem,
                                   hipStream_t stream, void **params,
                                   void **extra) {
@@ -419,7 +421,7 @@ index a6481500766..3a443c49372 100644
 +  HIP_REPORT_IF_ERROR(hipEventSynchronize(stop));
 +  float duration = 0.0;
 +  HIP_REPORT_IF_ERROR(hipEventElapsedTime(&duration, start, stop));
-+  std::cout << "-> kernel time [ms]: " << duration << "\n";
++  std::cout << std::setprecision(5) << "-> kernel time [ms]: " << duration << "\n";
  }
  
  extern "C" void *mgpuStreamCreate() {
@@ -429,7 +431,7 @@ index a6481500766..3a443c49372 100644
    return stream;
  }
  
-@@ -68,6 +147,14 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
+@@ -68,6 +148,14 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
    return HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
  }
  
