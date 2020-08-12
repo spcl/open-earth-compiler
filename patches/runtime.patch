@@ -171,10 +171,14 @@ index 51c4cc924fc..6ecb9cde36c 100644
    patterns.insert<EraseGpuModuleOpPattern>(&converter.getContext());
  }
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 8e2dc029fa9..8606373737a 100644
+index 8e2dc029fa9..648c62739c8 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-@@ -17,6 +17,7 @@
+@@ -14,9 +14,11 @@
+ 
+ #include <cassert>
+ #include <numeric>
++#include <iostream>
  
  #include "mlir/ExecutionEngine/CRunnerUtils.h"
  #include "llvm/ADT/ArrayRef.h"
@@ -182,7 +186,7 @@ index 8e2dc029fa9..8606373737a 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "cuda.h"
-@@ -32,6 +33,74 @@
+@@ -32,6 +34,73 @@
      llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
    }(expr)
  
@@ -191,7 +195,6 @@ index 8e2dc029fa9..8606373737a 100644
 +struct Runtime {
 +  // Load a module and cache it.
 +  void loadModule(CUmodule *module, void *data) {
-+    int32_t err = CUDA_SUCCESS;
 +    // Load the module during the first execution.
 +    if(moduleList.count(data) == 0) {
 +      CUDA_REPORT_IF_ERROR(cuModuleLoadData(module, data));
@@ -257,7 +260,24 @@ index 8e2dc029fa9..8606373737a 100644
  extern "C" CUmodule mgpuModuleLoad(void *data) {
    CUmodule module = nullptr;
    CUDA_REPORT_IF_ERROR(cuModuleLoadData(&module, data));
-@@ -59,7 +128,7 @@ extern "C" void mgpuLaunchKernel(CUfunction function, intptr_t gridX,
+@@ -52,14 +121,24 @@ extern "C" void mgpuLaunchKernel(CUfunction function, intptr_t gridX,
+                                  intptr_t blockX, intptr_t blockY,
+                                  intptr_t blockZ, int32_t smem, CUstream stream,
+                                  void **params, void **extra) {
++  CUevent start, stop;
++  CUDA_REPORT_IF_ERROR(cuEventCreate(&start, CU_EVENT_DEFAULT));
++  CUDA_REPORT_IF_ERROR(cuEventCreate(&stop, CU_EVENT_DEFAULT));
++  
++  CUDA_REPORT_IF_ERROR(cuEventRecord(start, stream));
+   CUDA_REPORT_IF_ERROR(cuLaunchKernel(function, gridX, gridY, gridZ, blockX,
+                                       blockY, blockZ, smem, stream, params,
+                                       extra));
++  CUDA_REPORT_IF_ERROR(cuEventRecord(stop, stream));
++  CUDA_REPORT_IF_ERROR(cuEventSynchronize(stop));
++  float duration = 0.0;
++  CUDA_REPORT_IF_ERROR(cuEventElapsedTime(&duration, start, stop));
++  std::cout << "-> kernel time [ms]: " << duration << "\n";
+ }
  
  extern "C" CUstream mgpuStreamCreate() {
    CUstream stream = nullptr;
@@ -266,7 +286,7 @@ index 8e2dc029fa9..8606373737a 100644
    return stream;
  }
  
-@@ -67,6 +136,14 @@ extern "C" void mgpuStreamSynchronize(CUstream stream) {
+@@ -67,6 +146,14 @@ extern "C" void mgpuStreamSynchronize(CUstream stream) {
    CUDA_REPORT_IF_ERROR(cuStreamSynchronize(stream));
  }
  
@@ -282,10 +302,14 @@ index 8e2dc029fa9..8606373737a 100644
  
  // Allows to register byte array with the CUDA runtime. Helpful until we have
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index a6481500766..5e0ddaa8ec5 100644
+index a6481500766..3a443c49372 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-@@ -17,6 +17,7 @@
+@@ -14,9 +14,11 @@
+ 
+ #include <cassert>
+ #include <numeric>
++#include <iostream>
  
  #include "mlir/ExecutionEngine/CRunnerUtils.h"
  #include "llvm/ADT/ArrayRef.h"
@@ -293,7 +317,7 @@ index a6481500766..5e0ddaa8ec5 100644
  #include "llvm/Support/raw_ostream.h"
  
  #include "hip/hip_runtime.h"
-@@ -31,16 +32,83 @@
+@@ -31,16 +33,83 @@
      llvm::errs() << "'" << #expr << "' failed with '" << name << "'\n";        \
    }(expr)
  
@@ -379,7 +403,24 @@ index a6481500766..5e0ddaa8ec5 100644
    return function;
  }
  
-@@ -60,7 +128,7 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
+@@ -53,14 +122,24 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
+                                  intptr_t blockZ, int32_t smem,
+                                  hipStream_t stream, void **params,
+                                  void **extra) {
++  hipEvent_t start, stop;
++  HIP_REPORT_IF_ERROR(hipEventCreate(&start));
++  HIP_REPORT_IF_ERROR(hipEventCreate(&stop));
++  
++  HIP_REPORT_IF_ERROR(hipEventRecord(start, stream));
+   HIP_REPORT_IF_ERROR(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
+                                             blockX, blockY, blockZ, smem,
+                                             stream, params, extra));
++  HIP_REPORT_IF_ERROR(hipEventRecord(stop, stream));
++  HIP_REPORT_IF_ERROR(hipEventSynchronize(stop));
++  float duration = 0.0;
++  HIP_REPORT_IF_ERROR(hipEventElapsedTime(&duration, start, stop));
++  std::cout << "-> kernel time [ms]: " << duration << "\n";
+ }
  
  extern "C" void *mgpuStreamCreate() {
    hipStream_t stream = nullptr;
@@ -388,7 +429,7 @@ index a6481500766..5e0ddaa8ec5 100644
    return stream;
  }
  
-@@ -68,6 +136,14 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
+@@ -68,6 +147,14 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
    return HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
  }
  
