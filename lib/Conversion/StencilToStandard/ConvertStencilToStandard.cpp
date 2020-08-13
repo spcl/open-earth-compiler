@@ -25,8 +25,8 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 
 using namespace mlir;
@@ -172,12 +172,23 @@ public:
     // (we clone the loop op to remove the existing body)
     auto loopOp = rewriter.create<ParallelOp>(loc, lb, ub, steps);
     auto clonedOp = rewriter.cloneWithoutRegions(loopOp);
+    rewriter.eraseOp(loopOp);
     rewriter.inlineRegionBefore(applyOp.region(), clonedOp.region(),
                                 clonedOp.region().begin());
+
+    // Insert index variables at the beginning of the loop body
+    rewriter.setInsertionPointToStart(clonedOp.getBody());
+    auto expr = rewriter.getAffineDimExpr(0);
+    auto map = AffineMap::get(1, 0, expr);
+    for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
+      rewriter.create<AffineApplyOp>(
+          loc, map, ValueRange(clonedOp.getInductionVars()[i]));
+    }
+
+    // Insert terminator at the end of the loop body
     rewriter.setInsertionPointToEnd(clonedOp.getBody());
     rewriter.create<YieldOp>(loc);
     rewriter.replaceOp(applyOp, newResults);
-    rewriter.eraseOp(loopOp);
 
     // Deallocate the temporary storage
     rewriter.setInsertionPoint(
@@ -221,6 +232,9 @@ public:
     assert(allocVals.size() == allocCount &&
            "expected allocation for every result of the stencil operator");
 
+    // Get the induction variables
+    auto inductionVars = getInductionVars(operation);
+
     // Introduce a store for every return value
     for (unsigned i = 0, e = allocCount; i != e; ++i) {
       for (unsigned j = 0, e = unrollFac; j != e; ++j) {
@@ -237,8 +251,8 @@ public:
 
         // Compute the index values and introduce the store operation
         SmallVector<bool, 3> allocation(offset.size(), true);
-        auto storeOffset = computeIndexValues(loopOp.getInductionVars(), offset,
-                                              allocation, rewriter);
+        auto storeOffset =
+            computeIndexValues(inductionVars, offset, allocation, rewriter);
         rewriter.create<mlir::StoreOp>(loc, returnOp.getOperand(operandIdx),
                                        allocVals[i], storeOffset);
       }
@@ -260,11 +274,11 @@ public:
     auto accessOp = cast<stencil::AccessOp>(operation);
     auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
 
-    // Get the parallel loop
-    auto loopOp = operation->getParentOfType<ParallelOp>();
-    if (!loopOp)
+    // Get the induction variables
+    auto inductionVars = getInductionVars(operation);
+    if (inductionVars.size() == 0)
       return failure();
-    assert(loopOp.getNumLoops() == offsetOp.getOffset().size() &&
+    assert(inductionVars.size() == offsetOp.getOffset().size() &&
            "expected loop nest and access offset to have the same size");
 
     // Add the lower bound of the temporary to the access offset
@@ -272,7 +286,7 @@ public:
         applyFunElementWise(offsetOp.getOffset(), valueToLB[accessOp.temp()],
                             std::minus<int64_t>());
     auto tempType = accessOp.temp().getType().cast<TempType>();
-    auto loadOffset = computeIndexValues(loopOp.getInductionVars(), totalOffset,
+    auto loadOffset = computeIndexValues(inductionVars, totalOffset,
                                          tempType.getAllocation(), rewriter);
 
     // Replace the access op by a load op
@@ -293,19 +307,17 @@ public:
     auto indexOp = cast<stencil::IndexOp>(operation);
     auto offsetOp = cast<OffsetOp>(indexOp.getOperation());
 
-    // Get the parallel loop
-    auto loopOp = operation->getParentOfType<ParallelOp>();
-    if (!loopOp)
+    // Get the induction variables
+    auto inductionVars = getInductionVars(operation);
+    if (inductionVars.size() == 0)
       return failure();
-    assert(loopOp.getNumLoops() == offsetOp.getOffset().size() &&
-        "expected loop nest and access offset to have the same size");
+    assert(inductionVars.size() == offsetOp.getOffset().size() &&
+           "expected loop nest and access offset to have the same size");
 
-    auto inductionVars = loopOp.getInductionVars();
+    // Shift the induction variable by the offset
     auto dim = indexOp.getDim();
-
     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
     auto map = AffineMap::get(2, 0, expr);
-
     SmallVector<Value, 2> params = {
         inductionVars[dim],
         rewriter.create<ConstantIndexOp>(loc, offsetOp.getOffset()[dim])
@@ -447,10 +459,9 @@ namespace stencil {
 void populateStencilToStdConversionPatterns(
     StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
     mlir::OwningRewritePatternList &patterns) {
-  patterns
-      .insert<FuncOpLowering, AssertOpLowering, LoadOpLowering, ApplyOpLowering,
-              ReturnOpLowering, AccessOpLowering, IndexOpLowering,
-              StoreOpLowering>(typeConveter, valueToLB);
+  patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
+                  ApplyOpLowering, ReturnOpLowering, AccessOpLowering,
+                  IndexOpLowering, StoreOpLowering>(typeConveter, valueToLB);
 }
 
 //===----------------------------------------------------------------------===//
@@ -495,6 +506,25 @@ StencilToStdPattern::StencilToStdPattern(StringRef rootOpName,
 Index StencilToStdPattern::computeShape(ShapeOp shapeOp) const {
   return applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
                              std::minus<int64_t>());
+}
+
+SmallVector<Value, 3>
+StencilToStdPattern::getInductionVars(Operation *operation) const {
+  SmallVector<Value, 3> inductionVariables;
+
+  // Get the parallel loop
+  auto loopOp = operation->getParentOfType<ParallelOp>();
+  if (!loopOp)
+    return inductionVariables;
+
+  // Collect the induction variables
+  loopOp.walk([&](AffineApplyOp applyOp) {
+    if (llvm::any_of(applyOp.getOperands(), [&](Value operand) {
+          return llvm::is_contained(loopOp.getInductionVars(), operand);
+        }))
+      inductionVariables.push_back(applyOp.getResult());
+  });
+  return inductionVariables;
 }
 
 std::tuple<Index, Index, Index>
