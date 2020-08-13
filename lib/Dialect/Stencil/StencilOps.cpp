@@ -18,8 +18,8 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 
 using namespace mlir;
@@ -32,6 +32,28 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::OperandType, 8> operands;
   SmallVector<OpAsmParser::OperandType, 8> arguments;
   SmallVector<Type, 8> operandTypes;
+
+  // Parse the optional loop attribute
+  IntegerAttr lpdimAttr, lplbAttr, lpubAttr, lpdirAttr;
+  if (succeeded(parser.parseOptionalKeyword("seq"))) {
+    if (parser.parseLParen() || parser.parseKeyword("dim") ||
+        parser.parseEqual() ||
+        parser.parseAttribute(lpdimAttr, stencil::ApplyOp::getLPDIMAttrName(),
+                              state.attributes) ||
+        parser.parseComma() || parser.parseKeyword("range") ||
+        parser.parseEqual() ||
+        parser.parseAttribute(lplbAttr, stencil::ApplyOp::getLPLBAttrName(),
+                              state.attributes) ||
+        parser.parseKeyword("to") ||
+        parser.parseAttribute(lpubAttr, stencil::ApplyOp::getLPUBAttrName(),
+                              state.attributes) ||
+        parser.parseComma() || parser.parseKeyword("dir") ||
+        parser.parseEqual() ||
+        parser.parseAttribute(lpdirAttr, stencil::ApplyOp::getLPDIRAttrName(),
+                              state.attributes) ||
+        parser.parseRParen())
+      return failure();
+  }
 
   // Parse the assignment list
   if (succeeded(parser.parseOptionalLParen())) {
@@ -89,6 +111,15 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
 static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer << stencil::ApplyOp::getOperationName() << ' ';
 
+  // Print the loop attribute
+  if (applyOp.lpdim().hasValue()) {
+    printer << "seq(dim = " << applyOp.lpdir().getValue();
+    printer << ", range = " << applyOp.lplb().getValue() << " to "
+            << applyOp.lpub().getValue();
+    printer << ", dir = " << applyOp.lpdir().getValue();
+    printer << ") ";
+  }
+
   // Print the region arguments
   SmallVector<Value, 10> operands = applyOp.getOperands();
   if (!applyOp.region().empty() && !operands.empty()) {
@@ -112,8 +143,12 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
 
   // Print optional attributes
   printer.printOptionalAttrDictWithKeyword(
-      applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
-                                           stencil::ApplyOp::getUBAttrName()});
+      applyOp.getAttrs(), /*elidedAttrs=*/{
+          stencil::ApplyOp::getLBAttrName(), stencil::ApplyOp::getUBAttrName(),
+          stencil::ApplyOp::getLPDIMAttrName(),
+          stencil::ApplyOp::getLPLBAttrName(),
+          stencil::ApplyOp::getLPUBAttrName(),
+          stencil::ApplyOp::getLPDIRAttrName()});
 
   // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),

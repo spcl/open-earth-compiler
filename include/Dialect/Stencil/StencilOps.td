@@ -257,14 +257,18 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
 
     Example:
 
-      %0 = stencil.apply %arg0=%0 : !stencil.temp<?x?x?xf64> {
+      %0 = stencil.apply (%arg0=%0 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
         ...
-      } : !stencil.temp<?x?x?xf64>
+      } 
   }];
 
-  let arguments = (ins Variadic<AnyType>:$operands, 
+  let arguments = (ins Variadic<AnyType>:$operands,
                         OptionalAttr<Stencil_Index>:$lb, 
-                        OptionalAttr<Stencil_Index>:$ub);
+                        OptionalAttr<Stencil_Index>:$ub,
+                        OptionalAttr<I64Attr>:$lpdim,
+                        OptionalAttr<I64Attr>:$lplb,
+                        OptionalAttr<I64Attr>:$lpub,
+                        OptionalAttr<I64Attr>:$lpdir);
   let results = (outs Variadic<Stencil_Temp>:$res);
   let regions = (region SizedRegion<1>:$region);
   let hasCanonicalizer = 1;
@@ -309,6 +313,10 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
+    static StringRef getLPDIMAttrName() { return "lpdim"; }
+    static StringRef getLPLBAttrName() { return "lplb"; }
+    static StringRef getLPUBAttrName() { return "lpub"; }
+    static StringRef getLPDIRAttrName() { return "lpdir"; }
     Block *getBody() { return &region().front(); }
   }];
 }
