@@ -20,8 +20,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 
 using namespace mlir;
@@ -126,6 +126,10 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
+    // Skip sequential apply operations
+    if (applyOp.lpdim().hasValue())
+      return failure();
+
     // Search closest producer
     Operation *producerOp = nullptr;
     for (auto operand : applyOp.operands()) {
@@ -134,6 +138,12 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
             producerOp->isBeforeInBlock(operand.getDefiningOp()))
           producerOp = operand.getDefiningOp();
       }
+    }
+
+    // Skip sequential apply operations
+    if (auto producerApplyOp = dyn_cast_or_null<stencil::ApplyOp>(producerOp)) {
+      if (producerApplyOp.lpdim().hasValue())
+        return failure();
     }
 
     // Continue if there is producer
@@ -245,6 +255,10 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
+    // Skip sequential apply operations
+    if (applyOp.lpdim().hasValue())
+      return failure();
+
     // Search producer apply op
     for (auto operand : applyOp.operands()) {
       if (isa_and_nonnull<stencil::ApplyOp>(operand.getDefiningOp())) {
@@ -260,6 +274,10 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
         if (llvm::any_of(consumerOps, [&](Operation *op) {
               return op != applyOp.getOperation();
             }))
+          continue;
+
+        // Try the next producer if current is a sequential apply operation
+        if (cast<stencil::ApplyOp>(operand.getDefiningOp()).lpdim().hasValue())
           continue;
 
         // If there is only a single consumer perform the inlining

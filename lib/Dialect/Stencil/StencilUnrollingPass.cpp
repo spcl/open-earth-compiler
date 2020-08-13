@@ -108,7 +108,11 @@ void StencilUnrollingPass::runOnFunction() {
 
   // Unroll all stencil apply ops
   funcOp.walk([&](stencil::ApplyOp applyOp) {
-    // Unroll the stencil
+    // Skip all sequential apply operations
+    if(applyOp.lpdim().hasValue())
+      return;
+
+    // Unroll all non
     unrollStencilApply(applyOp, unrollFactor.getValue(),
                        unrollIndex.getValue());
   });
