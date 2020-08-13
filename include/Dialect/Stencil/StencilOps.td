@@ -307,6 +307,24 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
       if(shapeOp.hasShape() && shapeOp.getRank() != tempType.getRank())
         return emitOpError("expected result rank to match the operation rank");
     }
+
+    // Check the sequential loop attributes
+    if(lpdim().hasValue()) {
+      auto dim = lpdim().getValue().getSExtValue();
+      auto dir = lpdir().getValue().getSExtValue();
+      auto lb = lplb().getValue().getSExtValue();
+      auto ub = lpub().getValue().getSExtValue();
+      if(dim < 0)
+        return emitOpError("expected seqential loop dimension to be positive");
+      if(dir != 1 && dir != -1)
+        return emitOpError("expected sequential loop direction to be -1 or 1");
+      if(shapeOp.hasShape()) {
+        if(dim >= shapeOp.getRank())
+          return emitOpError("expected sequential loop dimension to match shape");
+        if(lb != shapeOp.getLB()[dim] || ub != shapeOp.getUB()[dim])
+          return emitOpError("expected sequential loop range to match shape");
+      }
+    }
     return success();
   }];
 
