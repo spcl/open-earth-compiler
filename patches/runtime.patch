@@ -1,5 +1,5 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 51c4cc924fc..6ecb9cde36c 100644
+index 51c4cc924fc..4dde024da9b 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 @@ -101,12 +101,12 @@ protected:
@@ -73,7 +73,7 @@ index 51c4cc924fc..6ecb9cde36c 100644
  } // namespace
  
  void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
-@@ -176,8 +214,24 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
+@@ -176,8 +214,18 @@ void GpuLaunchFuncToGpuRuntimeCallsPass::runOnOperation() {
    populateGpuToLLVMConversionPatterns(converter, patterns, gpuBinaryAnnotation);
  
    LLVMConversionTarget target(getContext());
@@ -85,20 +85,14 @@ index 51c4cc924fc..6ecb9cde36c 100644
      signalPassFailure();
 +
 +  // Erase the malloc and free function declarations if they are unused.
-+  if (llvm::none_of(getOperation().getOps<LLVM::CallOp>(),
-+                    [](LLVM::CallOp callOp) {
-+                      return callOp.callee().getValueOr("") == "malloc" ||
-+                             callOp.callee().getValueOr("") == "free";
-+                    })) {
-+    if (auto *malloc = getOperation().lookupSymbol("malloc"))
-+      malloc->erase();
-+    if (auto *free = getOperation().lookupSymbol("free"))
-+      free->erase();
-+  }
++  if (auto *malloc = getOperation().lookupSymbol("malloc"))
++    malloc->erase();
++  if (auto *free = getOperation().lookupSymbol("free"))
++    free->erase();
  }
  
  LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
-@@ -367,22 +421,56 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -367,22 +415,56 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
    // Invoke the function with required arguments.
    auto zero = rewriter.create<LLVM::ConstantOp>(loc, llvmInt32Type,
                                                  rewriter.getI32IntegerAttr(0));
@@ -163,7 +157,7 @@ index 51c4cc924fc..6ecb9cde36c 100644
  std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
  mlir::createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
      StringRef gpuBinaryAnnotation) {
-@@ -395,5 +483,6 @@ void mlir::populateGpuToLLVMConversionPatterns(
+@@ -395,5 +477,6 @@ void mlir::populateGpuToLLVMConversionPatterns(
      StringRef gpuBinaryAnnotation) {
    patterns.insert<ConvertLaunchFuncOpToGpuRuntimeCallPattern>(
        converter, gpuBinaryAnnotation);
