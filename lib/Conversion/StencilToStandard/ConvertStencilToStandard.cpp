@@ -103,7 +103,7 @@ public:
 
     // Get the assert and the cast operation
     auto castOp = getUserOp<MemRefCastOp>(operands[0]);
-    assert(castOp && "exepected operands[0] to point to the input field");
+    assert(castOp && "expected operands[0] to point to the input field");
 
     // Get the temp and field types
     auto fieldType = loadOp.field().getType().cast<FieldType>();
@@ -227,7 +227,6 @@ public:
       // Insert terminator at the end of the loop body
       rewriter.setInsertionPointToEnd(clonedOp.getBody());
       rewriter.create<YieldOp>(loc);
-
       rewriter.eraseOp(forOp);
     } else {
       auto clonedOp = rewriter.cloneWithoutRegions(parallelOp);
@@ -244,7 +243,6 @@ public:
       // Insert terminator at the end of the loop body
       rewriter.setInsertionPointToEnd(clonedOp.getBody());
       rewriter.create<YieldOp>(loc);
-
       rewriter.eraseOp(parallelOp);
     }
 
@@ -353,6 +351,59 @@ public:
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
+                                              loadOffset);
+    return success();
+  }
+};
+
+class DependOpLowering : public StencilOpToStdPattern<stencil::DependOp> {
+public:
+  using StencilOpToStdPattern<stencil::DependOp>::StencilOpToStdPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto dependOp = cast<stencil::DependOp>(operation);
+    auto offsetOp = cast<OffsetOp>(dependOp.getOperation());
+    auto output = dependOp.output().getSExtValue();
+
+    // Get the loop operation
+    auto parallelOp = operation->getParentOfType<ParallelOp>();
+    auto forOp = operation->getParentOfType<ForOp>();
+    if(!parallelOp || !forOp)
+      return failure();
+    
+    // Get the return operation
+    auto returnOp = dyn_cast<stencil::ReturnOp>(
+        forOp.getBody()->getTerminator()->getPrevNode());
+    if(!returnOp)
+      return failure();
+
+    // Get allocations of result buffers
+    SmallVector<Value, 3> allocValues;
+    auto *node = parallelOp.getOperation();
+    while (node && allocValues.size() <= output) {
+      if (auto allocOp = dyn_cast<AllocOp>(node)) {
+        allocValues.push_back(allocOp.getResult());
+      }
+      node = node->getPrevNode();
+    }
+    assert(allocValues.size() > output && "expected allocation for output index");
+
+    // Get the induction variables
+    auto inductionVars = getInductionVars(operation);
+
+    // Add the lower bound of the result to the access offset
+    auto totalOffset = applyFunElementWise(
+        offsetOp.getOffset(), valueToLB[returnOp.getOperand(output)],
+        std::minus<int64_t>());
+    SmallVector<bool, 3> allocation(totalOffset.size(), true);
+    auto loadOffset =
+        computeIndexValues(inductionVars, totalOffset, allocation, rewriter);
+
+    // Replace the access op by a load op
+    rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, allocValues[output],
                                               loadOffset);
     return success();
   }
@@ -523,7 +574,8 @@ void populateStencilToStdConversionPatterns(
     mlir::OwningRewritePatternList &patterns) {
   patterns.insert<FuncOpLowering, AssertOpLowering, LoadOpLowering,
                   ApplyOpLowering, ReturnOpLowering, AccessOpLowering,
-                  IndexOpLowering, StoreOpLowering>(typeConveter, valueToLB);
+                  DependOpLowering, IndexOpLowering, StoreOpLowering>(
+      typeConveter, valueToLB);
 }
 
 //===----------------------------------------------------------------------===//

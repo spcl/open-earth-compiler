@@ -257,3 +257,25 @@ func @sequential_loop(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.prog
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }
+
+// -----
+
+// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
+// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+
+// CHECK-LABEL: @depend_op
+func @depend_op(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  // CHECK: scf.for [[ARG3:%.*]] =
+  %1 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+    // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP0]]([[ARG3]])
+    // CHECK-DAG: [[C2:%.*]] = constant -1 : index
+    // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
+    // CHECK: %{{.*}} = load %{{.*}}{{\[}}[[O2]], %{{.*}}, %{{.*}}{{[]]}}
+    %2 = stencil.depend 0 [0, 0, -1] : f64
+    stencil.return %2 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
