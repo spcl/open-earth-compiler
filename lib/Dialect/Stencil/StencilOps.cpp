@@ -113,7 +113,7 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
 
   // Print the loop attribute
   if (applyOp.lpdim().hasValue()) {
-    printer << "seq(dim = " << applyOp.lpdir().getValue();
+    printer << "seq(dim = " << applyOp.lpdim().getValue();
     printer << ", range = " << applyOp.lplb().getValue() << " to "
             << applyOp.lpub().getValue();
     printer << ", dir = " << applyOp.lpdir().getValue();

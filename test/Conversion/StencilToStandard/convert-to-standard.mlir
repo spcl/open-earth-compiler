@@ -255,6 +255,5 @@ func @sequential_loop(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.prog
     %4 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
     stencil.return %4 : f64
   } to ([0, 0, 0]:[7, 7, 7])
-
   return
 }
