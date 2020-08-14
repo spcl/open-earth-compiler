@@ -6,9 +6,9 @@ module {
     stencil.assert %arg2([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     %0 = stencil.load %arg0 : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
     %1 = stencil.load %arg1 : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
-    %2 = stencil.apply seq(dim=2, range=0 to 60, dir=-1) (%arg3 = %0 : !stencil.temp<?x?x?xf64>, %arg4 = %1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %2 = stencil.apply seq(dim=2, range=0 to 64, dir=-1) (%arg3 = %0 : !stencil.temp<?x?x?xf64>, %arg4 = %1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %k = stencil.index 2 [0,0,0] : index
-      %clast = constant 59 : index
+      %clast = constant 63 : index
       %top = cmpi "eq", %k, %clast : index
       %res = scf.if %top -> (f64) {
         %3 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
