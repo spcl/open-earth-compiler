@@ -186,8 +186,8 @@ public:
     rewriter.applySignatureConversion(&applyOp.region(), result);
 
     // Affine map used for induction variable computation
-    auto expr = rewriter.getAffineDimExpr(0);
-    auto map = AffineMap::get(1, 0, expr);
+    auto fwdExpr = rewriter.getAffineDimExpr(0);
+    auto fwdMap = AffineMap::get(1, 0, fwdExpr);
 
     // Replace the stencil apply operation by a loop nest
     // (clone the innermost loop to remove the existing body)
@@ -203,12 +203,25 @@ public:
       // Insert index variables at the beginning of the loop body
       rewriter.setInsertionPointToStart(clonedOp.getBody());
       for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
-        if (sequential == i)
-          rewriter.create<AffineApplyOp>(
-              loc, map, ValueRange(clonedOp.getInductionVar()));
-        else
-          rewriter.create<AffineApplyOp>(
-              loc, map, ValueRange(parallelOp.getInductionVars()[i]));
+        if (sequential == i) {
+          if (applyOp.lpdir().getValue().getSExtValue() == 1) {
+            // Access the iv of the sequential loop
+            rewriter.create<AffineApplyOp>(
+                loc, fwdMap, ValueRange(clonedOp.getInductionVar()));
+          } else {
+            // Reverse the iv of the sequential loop
+            auto bwdExpr = rewriter.getAffineDimExpr(0) - 1 +
+                           rewriter.getAffineDimExpr(1) -
+                           rewriter.getAffineDimExpr(2);
+            auto bwdMap = AffineMap::get(3, 0, bwdExpr);
+            rewriter.create<AffineApplyOp>(
+                loc, bwdMap, ValueRange({ub, lb, clonedOp.getInductionVar()}));
+          }
+          continue;
+        }
+        // Handle the parallel loop dimensions
+        rewriter.create<AffineApplyOp>(
+            loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
       }
 
       // Insert terminator at the end of the loop body
@@ -225,7 +238,7 @@ public:
       rewriter.setInsertionPointToStart(clonedOp.getBody());
       for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
         rewriter.create<AffineApplyOp>(
-            loc, map, ValueRange(clonedOp.getInductionVars()[i]));
+            loc, fwdMap, ValueRange(clonedOp.getInductionVars()[i]));
       }
 
       // Insert terminator at the end of the loop body
@@ -569,12 +582,12 @@ StencilToStdPattern::getInductionVars(Operation *operation) const {
 
   // Collect the induction variables
   parallelOp.walk([&](AffineApplyOp applyOp) {
-    for(auto operand : applyOp.getOperands()) {
-      if(forOp && forOp.getInductionVar() == operand) {
+    for (auto operand : applyOp.getOperands()) {
+      if (forOp && forOp.getInductionVar() == operand) {
         inductionVariables.push_back(applyOp.getResult());
         break;
       }
-      if(llvm::is_contained(parallelOp.getInductionVars(), operand)) {
+      if (llvm::is_contained(parallelOp.getInductionVars(), operand)) {
         inductionVariables.push_back(applyOp.getResult());
         break;
       }
