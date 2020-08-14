@@ -160,14 +160,14 @@ def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>
 
   let verifier = [{
     auto applyOp = getParentOfType<stencil::ApplyOp>();
-    if(!applyOp || !applyOp.lpdim().hasValue())
+    if(!applyOp || !applyOp.seqdim().hasValue())
       return emitOpError("expected parent that executes sequentially");
     
     // Check the output offset exists and the result type matches
-    int64_t outputIdx = output().getSExtValue();
-    if(!(outputIdx >= 0 && outputIdx < applyOp.getNumResults()))
+    int64_t output = getOutput();
+    if(!(output >= 0 && output < applyOp.getNumResults()))
       return emitOpError("output index out of range");
-    auto resultType = applyOp.getResult(outputIdx).getType().cast<stencil::GridType>();
+    auto resultType = applyOp.getResult(output).getType().cast<stencil::GridType>();
     if(resultType.getElementType() != res().getType())
       return emitOpError("result type does not match the output element type");
     
@@ -175,11 +175,11 @@ def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>
     auto offsetOp = cast<OffsetOp>(this->getOperation());
     for (auto &en : llvm::enumerate(offsetOp.getOffset())) {
       if(en.value() != 0) {
-        if(applyOp.lpdim().getValue().getSExtValue() != en.index())
+        if(applyOp.getSeqDim() != en.index())
           return emitOpError("unexpected non-zero offset in parallel dimension");
-        if(applyOp.lpdir().getValue().getSExtValue() == 1 && en.value() > -1)
+        if(applyOp.getSeqDir() == 1 && en.value() > -1)
           return emitOpError("expected offset in the negative direction");
-        if(applyOp.lpdir().getValue().getSExtValue() == -1 && en.value() < 1)
+        if(applyOp.getSeqDir() == -1 && en.value() < 1)
           return emitOpError("expected offset in the positive direction");
       }
     }
@@ -188,6 +188,7 @@ def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>
 
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
+    int64_t getOutput() { return output().getSExtValue(); }
   }];
 }
 
@@ -318,24 +319,31 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   let arguments = (ins Variadic<AnyType>:$operands,
                         OptionalAttr<Stencil_Index>:$lb, 
                         OptionalAttr<Stencil_Index>:$ub,
-                        OptionalAttr<I64Attr>:$lpdim,
-                        OptionalAttr<I64Attr>:$lplb,
-                        OptionalAttr<I64Attr>:$lpub,
-                        OptionalAttr<I64Attr>:$lpdir);
+                        OptionalAttr<I64Attr>:$seqdim,
+                        OptionalAttr<I64Attr>:$seqlb,
+                        OptionalAttr<I64Attr>:$sequb,
+                        OptionalAttr<I64Attr>:$seqdir);
   let results = (outs Variadic<Stencil_Temp>:$res);
   let regions = (region SizedRegion<1>:$region);
   let hasCanonicalizer = 1;
   
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state,"
-              "ValueRange operands, ValueRange results", [{
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "ValueRange operands, ValueRange results, "
+              "Optional<IntegerAttr> seqDimAttr, Optional<IntegerAttr> seqLBAttr, "
+              "Optional<IntegerAttr> seqUBAttr, Optional<IntegerAttr> seqDirAttr", [{
       state.addOperands(operands);
       auto region = state.addRegion(); 
       region->push_back(new Block());
       for(auto operand : operands) {
         region->front().addArgument(operand.getType());
       }
-
+      if(seqDimAttr.hasValue()) {
+        state.addAttribute(getSeqDimAttrName(), seqDimAttr.getValue());
+        state.addAttribute(getSeqLBAttrName(), seqLBAttr.getValue());
+        state.addAttribute(getSeqUBAttrName(), seqUBAttr.getValue());
+        state.addAttribute(getSeqDirAttrName(), seqDirAttr.getValue());
+      }
       SmallVector<Type, 10> resultTypes;
       resultTypes.resize(results.size());
       llvm::transform(results, resultTypes.begin(),
@@ -362,19 +370,15 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
     }
 
     // Check the sequential loop attributes
-    if(lpdim().hasValue()) {
-      auto dim = lpdim().getValue().getSExtValue();
-      auto dir = lpdir().getValue().getSExtValue();
-      auto lb = lplb().getValue().getSExtValue();
-      auto ub = lpub().getValue().getSExtValue();
-      if(dim < 0)
+    if(seqdim().hasValue()) {
+      if(getSeqDim() < 0)
         return emitOpError("expected seqential loop dimension to be positive");
-      if(dir != 1 && dir != -1)
+      if(getSeqDir() != 1 && getSeqDir() != -1)
         return emitOpError("expected sequential loop direction to be -1 or 1");
       if(shapeOp.hasShape()) {
-        if(dim >= shapeOp.getRank())
+        if(getSeqDim() >= shapeOp.getRank())
           return emitOpError("expected sequential loop dimension to match shape");
-        if(lb != shapeOp.getLB()[dim] || ub != shapeOp.getUB()[dim])
+        if(getSeqLB() != shapeOp.getLB()[getSeqDim()] || getSeqUB() != shapeOp.getUB()[getSeqDim()])
           return emitOpError("expected sequential loop range to match shape");
       }
     }
@@ -384,10 +388,14 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    static StringRef getLPDIMAttrName() { return "lpdim"; }
-    static StringRef getLPLBAttrName() { return "lplb"; }
-    static StringRef getLPUBAttrName() { return "lpub"; }
-    static StringRef getLPDIRAttrName() { return "lpdir"; }
+    static StringRef getSeqDimAttrName() { return "seqdim"; }
+    static StringRef getSeqLBAttrName() { return "seqlb"; }
+    static StringRef getSeqUBAttrName() { return "sequb"; }
+    static StringRef getSeqDirAttrName() { return "seqdir"; }
+    int64_t getSeqDim() { return seqdim().getValue().getSExtValue(); }
+    int64_t getSeqDir() { return seqdir().getValue().getSExtValue(); }
+    int64_t getSeqLB() { return seqlb().getValue().getSExtValue(); }
+    int64_t getSeqUB() { return sequb().getValue().getSExtValue(); }
     Block *getBody() { return &region().front(); }
   }];
 }

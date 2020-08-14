@@ -110,7 +110,7 @@ func @sequential(%in : f64, %out : !stencil.field<?x?x?xf64>)
     ^bb0(%1 : f64):
     //  CHECK: stencil.return %{{.*}} : f64
     "stencil.return"(%1) : (f64) -> ()
-  }) {lpdim=2, lplb=0, lpub=60, lpdir=1} : (f64) -> !stencil.temp<1x2x3xf64>
+  }) {seqdim=2, seqlb=0, sequb=60, seqdir=1} : (f64) -> !stencil.temp<1x2x3xf64>
   return
 }
 
@@ -126,6 +126,6 @@ func @depend(%in : f64, %out : !stencil.field<?x?x?xf64>)
     %2 = "stencil.depend"() {output = 0, offset = [0, 0, -3]} : () -> f64
     //  CHECK: stencil.return %{{.*}} : f64
     "stencil.return"(%1) : (f64) -> ()
-  }) {lpdim=2, lplb=0, lpub=60, lpdir=1} : (f64) -> !stencil.temp<1x2x3xf64>
+  }) {seqdim=2, seqlb=0, sequb=60, seqdir=1} : (f64) -> !stencil.temp<1x2x3xf64>
   return
 }

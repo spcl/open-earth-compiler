@@ -150,12 +150,10 @@ public:
     // Get the sequential dimension if there is one
     Value lb, ub, step;
     Optional<int64_t> sequential = None;
-    if (applyOp.lpdim().hasValue()) {
-      sequential = applyOp.lpdim().getValue().getSExtValue();
-      lb = rewriter.create<ConstantIndexOp>(
-          loc, applyOp.lplb().getValue().getSExtValue());
-      ub = rewriter.create<ConstantIndexOp>(
-          loc, applyOp.lpub().getValue().getSExtValue());
+    if (applyOp.seqdim().hasValue()) {
+      sequential = applyOp.getSeqDim();
+      lb = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqLB());
+      ub = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqUB());
       step = rewriter.create<ConstantIndexOp>(loc, 1);
     }
 
@@ -204,7 +202,7 @@ public:
       rewriter.setInsertionPointToStart(clonedOp.getBody());
       for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
         if (sequential == i) {
-          if (applyOp.lpdir().getValue().getSExtValue() == 1) {
+          if (applyOp.getSeqDir() == 1) {
             // Access the iv of the sequential loop
             rewriter.create<AffineApplyOp>(
                 loc, fwdMap, ValueRange(clonedOp.getInductionVar()));
@@ -366,18 +364,18 @@ public:
     auto loc = operation->getLoc();
     auto dependOp = cast<stencil::DependOp>(operation);
     auto offsetOp = cast<OffsetOp>(dependOp.getOperation());
-    auto output = dependOp.output().getSExtValue();
+    auto output = dependOp.getOutput();
 
     // Get the loop operation
     auto parallelOp = operation->getParentOfType<ParallelOp>();
     auto forOp = operation->getParentOfType<ForOp>();
-    if(!parallelOp || !forOp)
+    if (!parallelOp || !forOp)
       return failure();
-    
+
     // Get the return operation
     auto returnOp = dyn_cast<stencil::ReturnOp>(
         forOp.getBody()->getTerminator()->getPrevNode());
-    if(!returnOp)
+    if (!returnOp)
       return failure();
 
     // Get allocations of result buffers
@@ -389,7 +387,8 @@ public:
       }
       node = node->getPrevNode();
     }
-    assert(allocValues.size() > output && "expected allocation for output index");
+    assert(allocValues.size() > output &&
+           "expected allocation for output index");
 
     // Get the induction variables
     auto inductionVars = getInductionVars(operation);
