@@ -66,8 +66,8 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
     // Create new consumer op right after the producer op
     auto loc = consumerOp.getLoc();
     rewriter.setInsertionPoint(consumerOp);
-    auto newOp =
-        rewriter.create<stencil::ApplyOp>(loc, newOperands, newResults);
+    auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands, newResults,
+                                                   None, None, None, None);
     // Clone the body of the consumer op
     BlockAndValueMapping mapper;
     for (size_t i = 0, e = newOperands.size(); i != e; ++i) {
@@ -127,7 +127,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
     // Skip sequential apply operations
-    if (applyOp.lpdim().hasValue())
+    if (applyOp.seqdim().hasValue())
       return failure();
 
     // Search closest producer
@@ -142,7 +142,7 @@ struct RerouteRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Skip sequential apply operations
     if (auto producerApplyOp = dyn_cast_or_null<stencil::ApplyOp>(producerOp)) {
-      if (producerApplyOp.lpdim().hasValue())
+      if (producerApplyOp.seqdim().hasValue())
         return failure();
     }
 
@@ -209,8 +209,8 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
 
     // Clone the consumer op
     auto loc = consumerOp.getLoc();
-    auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
-                                                   consumerOp.getResults());
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        loc, newOperands, consumerOp.getResults(), None, None, None, None);
     rewriter.cloneRegionBefore(consumerOp.region(), newOp.region(),
                                newOp.region().begin(), mapper);
 
@@ -256,7 +256,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
     // Skip sequential apply operations
-    if (applyOp.lpdim().hasValue())
+    if (applyOp.seqdim().hasValue())
       return failure();
 
     // Search producer apply op
@@ -277,7 +277,7 @@ struct InliningRewrite : public OpRewritePattern<stencil::ApplyOp> {
           continue;
 
         // Try the next producer if current is a sequential apply operation
-        if (cast<stencil::ApplyOp>(operand.getDefiningOp()).lpdim().hasValue())
+        if (cast<stencil::ApplyOp>(operand.getDefiningOp()).seqdim().hasValue())
           continue;
 
         // If there is only a single consumer perform the inlining

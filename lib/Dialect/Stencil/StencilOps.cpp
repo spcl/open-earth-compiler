@@ -34,22 +34,22 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<Type, 8> operandTypes;
 
   // Parse the optional loop attribute
-  IntegerAttr lpdimAttr, lplbAttr, lpubAttr, lpdirAttr;
+  IntegerAttr seqdimAttr, seqlbAttr, sequbAttr, seqdirAttr;
   if (succeeded(parser.parseOptionalKeyword("seq"))) {
     if (parser.parseLParen() || parser.parseKeyword("dim") ||
         parser.parseEqual() ||
-        parser.parseAttribute(lpdimAttr, stencil::ApplyOp::getLPDIMAttrName(),
+        parser.parseAttribute(seqdimAttr, stencil::ApplyOp::getSeqDimAttrName(),
                               state.attributes) ||
         parser.parseComma() || parser.parseKeyword("range") ||
         parser.parseEqual() ||
-        parser.parseAttribute(lplbAttr, stencil::ApplyOp::getLPLBAttrName(),
+        parser.parseAttribute(seqlbAttr, stencil::ApplyOp::getSeqLBAttrName(),
                               state.attributes) ||
         parser.parseKeyword("to") ||
-        parser.parseAttribute(lpubAttr, stencil::ApplyOp::getLPUBAttrName(),
+        parser.parseAttribute(sequbAttr, stencil::ApplyOp::getSeqUBAttrName(),
                               state.attributes) ||
         parser.parseComma() || parser.parseKeyword("dir") ||
         parser.parseEqual() ||
-        parser.parseAttribute(lpdirAttr, stencil::ApplyOp::getLPDIRAttrName(),
+        parser.parseAttribute(seqdirAttr, stencil::ApplyOp::getSeqDirAttrName(),
                               state.attributes) ||
         parser.parseRParen())
       return failure();
@@ -112,11 +112,11 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer << stencil::ApplyOp::getOperationName() << ' ';
 
   // Print the loop attribute
-  if (applyOp.lpdim().hasValue()) {
-    printer << "seq(dim = " << applyOp.lpdim().getValue();
-    printer << ", range = " << applyOp.lplb().getValue() << " to "
-            << applyOp.lpub().getValue();
-    printer << ", dir = " << applyOp.lpdir().getValue();
+  if (applyOp.seqdim().hasValue()) {
+    printer << "seq(dim = " << applyOp.seqdim().getValue();
+    printer << ", range = " << applyOp.seqlb().getValue() << " to "
+            << applyOp.sequb().getValue();
+    printer << ", dir = " << applyOp.seqdir().getValue();
     printer << ") ";
   }
 
@@ -145,10 +145,10 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer.printOptionalAttrDictWithKeyword(
       applyOp.getAttrs(), /*elidedAttrs=*/{
           stencil::ApplyOp::getLBAttrName(), stencil::ApplyOp::getUBAttrName(),
-          stencil::ApplyOp::getLPDIMAttrName(),
-          stencil::ApplyOp::getLPLBAttrName(),
-          stencil::ApplyOp::getLPUBAttrName(),
-          stencil::ApplyOp::getLPDIRAttrName()});
+          stencil::ApplyOp::getSeqDimAttrName(),
+          stencil::ApplyOp::getSeqLBAttrName(),
+          stencil::ApplyOp::getSeqUBAttrName(),
+          stencil::ApplyOp::getSeqDirAttrName()});
 
   // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),
@@ -214,7 +214,9 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
       // Clone the apply op
       rewriter.setInsertionPoint(applyOp);
       auto newOp = rewriter.create<stencil::ApplyOp>(
-          applyOp.getLoc(), applyOp.getOperands(), newResults);
+          applyOp.getLoc(), applyOp.getOperands(), newResults,
+          applyOp.seqdimAttr(), applyOp.seqlbAttr(), applyOp.sequbAttr(),
+          applyOp.seqdirAttr());
       rewriter.inlineRegionBefore(applyOp.region(), newOp.region(),
                                   newOp.region().begin());
 
@@ -248,8 +250,9 @@ struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
     if (newOperands.size() < applyOp.getNumOperands()) {
       // Clone the apply op
       auto loc = applyOp.getLoc();
-      auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
-                                                     applyOp.getResults());
+      auto newOp = rewriter.create<stencil::ApplyOp>(
+          loc, newOperands, applyOp.getResults(), applyOp.seqdimAttr(),
+          applyOp.seqlbAttr(), applyOp.sequbAttr(), applyOp.seqdirAttr());
 
       // Compute the block argument mapping
       BlockAndValueMapping mapper;
