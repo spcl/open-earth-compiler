@@ -25,6 +25,7 @@ def Stencil_Field : Type<Stencil_IsFieldType, "a input/output array">;
 def Stencil_ElementType : AnyTypeOf<[F32, F64]>;
 
 def Stencil_Index : Confined<I64ArrayAttr, [ArrayCount<3>]>;
+def Stencil_Loop : Confined<I64ArrayAttr, [ArrayCount<4>]>;
 
 //===----------------------------------------------------------------------===//
 // Stencil Operation

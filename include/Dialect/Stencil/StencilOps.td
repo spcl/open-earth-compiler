@@ -160,7 +160,7 @@ def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>
 
   let verifier = [{
     auto applyOp = getParentOfType<stencil::ApplyOp>();
-    if(!applyOp || !applyOp.seqdim().hasValue())
+    if(!applyOp || !applyOp.seq().hasValue())
       return emitOpError("expected parent that executes sequentially");
     
     // Check the output offset exists and the result type matches
@@ -319,10 +319,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   let arguments = (ins Variadic<AnyType>:$operands,
                         OptionalAttr<Stencil_Index>:$lb, 
                         OptionalAttr<Stencil_Index>:$ub,
-                        OptionalAttr<I64Attr>:$seqdim,
-                        OptionalAttr<I64Attr>:$seqlb,
-                        OptionalAttr<I64Attr>:$sequb,
-                        OptionalAttr<I64Attr>:$seqdir);
+                        OptionalAttr<Stencil_Loop>:$seq);
   let results = (outs Variadic<Stencil_Temp>:$res);
   let regions = (region SizedRegion<1>:$region);
   let hasCanonicalizer = 1;
@@ -330,19 +327,15 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
               "ValueRange operands, ValueRange results, "
-              "Optional<IntegerAttr> seqDimAttr, Optional<IntegerAttr> seqLBAttr, "
-              "Optional<IntegerAttr> seqUBAttr, Optional<IntegerAttr> seqDirAttr", [{
+              "Optional<ArrayAttr> seq", [{
       state.addOperands(operands);
       auto region = state.addRegion(); 
       region->push_back(new Block());
       for(auto operand : operands) {
         region->front().addArgument(operand.getType());
       }
-      if(seqDimAttr.hasValue()) {
-        state.addAttribute(getSeqDimAttrName(), seqDimAttr.getValue());
-        state.addAttribute(getSeqLBAttrName(), seqLBAttr.getValue());
-        state.addAttribute(getSeqUBAttrName(), seqUBAttr.getValue());
-        state.addAttribute(getSeqDirAttrName(), seqDirAttr.getValue());
+      if(seq.hasValue()) {
+        state.addAttribute(getSeqAttrName(), seq.getValue());
       }
       SmallVector<Type, 10> resultTypes;
       resultTypes.resize(results.size());
@@ -370,7 +363,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
     }
 
     // Check the sequential loop attributes
-    if(seqdim().hasValue()) {
+    if(seq().hasValue()) {
       if(getSeqDim() < 0)
         return emitOpError("expected seqential loop dimension to be positive");
       if(getSeqDir() != 1 && getSeqDir() != -1)
@@ -388,14 +381,11 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    static StringRef getSeqDimAttrName() { return "seqdim"; }
-    static StringRef getSeqLBAttrName() { return "seqlb"; }
-    static StringRef getSeqUBAttrName() { return "sequb"; }
-    static StringRef getSeqDirAttrName() { return "seqdir"; }
-    int64_t getSeqDim() { return seqdim().getValue().getSExtValue(); }
-    int64_t getSeqDir() { return seqdir().getValue().getSExtValue(); }
-    int64_t getSeqLB() { return seqlb().getValue().getSExtValue(); }
-    int64_t getSeqUB() { return sequb().getValue().getSExtValue(); }
+    static StringRef getSeqAttrName() { return "seq"; }
+    int64_t getSeqDim() { return seq().getValue()[0].cast<IntegerAttr>().getValue().getSExtValue(); }
+    int64_t getSeqLB() { return seq().getValue()[1].cast<IntegerAttr>().getValue().getSExtValue(); }
+    int64_t getSeqUB() { return seq().getValue()[2].cast<IntegerAttr>().getValue().getSExtValue(); }
+    int64_t getSeqDir() { return seq().getValue()[3].cast<IntegerAttr>().getValue().getSExtValue(); }
     Block *getBody() { return &region().front(); }
   }];
 }

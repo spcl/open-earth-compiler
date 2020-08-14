@@ -150,7 +150,7 @@ public:
     // Get the sequential dimension if there is one
     Value lb, ub, step;
     Optional<int64_t> sequential = None;
-    if (applyOp.seqdim().hasValue()) {
+    if (applyOp.seq().hasValue()) {
       sequential = applyOp.getSeqDim();
       lb = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqLB());
       ub = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqUB());
