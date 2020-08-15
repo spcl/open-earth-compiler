@@ -25,9 +25,8 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <bits/stdint-intn.h>
-#include <cstddef>
 #include <cstdint>
+#include <cstddef>
 #include <tuple>
 
 using namespace mlir;
