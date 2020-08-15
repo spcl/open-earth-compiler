@@ -377,13 +377,15 @@ public:
         forOp.getBody()->getTerminator()->getPrevNode());
     if (!returnOp)
       return failure();
+    assert(returnOp.getUnrollFactor() == 1 &&
+           "expect sequential loops to have no unrolling");
 
     // Get allocations of result buffers
     SmallVector<Value, 3> allocValues;
     auto *node = parallelOp.getOperation();
-    while (node && allocValues.size() <= output) {
+    while (node && allocValues.size() < returnOp.getNumOperands()) {
       if (auto allocOp = dyn_cast<AllocOp>(node)) {
-        allocValues.push_back(allocOp.getResult());
+        allocValues.insert(allocValues.begin(), allocOp.getResult());
       }
       node = node->getPrevNode();
     }
