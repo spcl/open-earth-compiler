@@ -65,6 +65,7 @@ struct Context {
 
     Distribution<Uniform, Value> fields;
     Distribution<Uniform, Value> temps;
+    Distribution<Uniform, Value> args;
     Distribution<Exponential, Operation*> values;
     Distribution<Exponential, Operation*> bool_values;
 
@@ -76,6 +77,8 @@ struct Context {
 
     void print(llvm::raw_ostream &output) {
       output << "fields:" << fields.size() 
+             << " temps:" << temps.size()
+             << " args:" << args.size()
              << " values:" << values.size() 
              << " bool values:" << bool_values.size()
              << " if_else: ";
@@ -150,7 +153,7 @@ public:
   }
 
   stencil::AccessOp get(Context* c) {
-    auto field = c->temps.sample();
+    auto field = c->args.sample();
     auto def_op = field.getDefiningOp();
 
     accesses.setView([&](IntVec o) {
@@ -229,7 +232,9 @@ public:
   }
 
   bool isValid(string op, Context* c) {
-    if (op == "stencil.access" && c->temps.empty())
+    if (op == "stencil.apply" && c->temps.empty())
+      return false;
+    if (op == "stencil.access" && c->args.empty())
       return false;
     if (op == "stencil.load" && c->fields.empty())
       return false;
@@ -558,7 +563,20 @@ private:
   }
 
   Operation * getStencilApply(experimental::Context* context) {
-    return nullptr;
+    auto parent = builder->getInsertionBlock()->getParentOp();
+    if (isa<stencil::ApplyOp>(parent)) {
+      builder->setInsertionPointToEnd(parent->getBlock());
+    }
+
+    int nArgs = rand_range(1, min(10, context->temps.size()));
+    auto temps = context->temps.sample(nArgs);
+    auto results = context->temps.sample(rand_range(1, nArgs));
+
+    auto applyOp = builder->create<stencil::ApplyOp>(loc, temps, results);
+    builder->setInsertionPointToStart(applyOp.getBody());
+    for (auto result : applyOp.getResults())
+      context->args.insert(result);
+    return applyOp;
   }
 
   Operation * getStencilAssert(experimental::Context* context) {
