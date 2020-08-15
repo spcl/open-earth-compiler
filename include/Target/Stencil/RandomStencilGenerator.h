@@ -65,8 +65,8 @@ struct Context {
 
     Distribution<Uniform, Value> fields;
     Distribution<Uniform, Value> temps;
-    Distribution<Exponential, Operation> values;
-    Distribution<Exponential, Operation> bool_values;
+    Distribution<Exponential, Operation*> values;
+    Distribution<Exponential, Operation*> bool_values;
 
     // set of IfOp indexes that have else region
     set<int> if_else;
@@ -124,7 +124,7 @@ public:
 
     // Add parameter fields to the context.
     for (auto arg : block->getArguments())
-      c->fields.insert(&arg);
+      c->fields.insert(arg);
 
     return func;
   }
@@ -135,7 +135,7 @@ using IntVec = llvm::ArrayRef<int64_t>;
 class FieldAccessAccumulator : public Accumulator, RandGenerator {
 private:
   Distribution<Uniform, IntVec> accesses;
-  map<Operation *, vector<IntVec*>> used_offsets;
+  map<Operation *, vector<IntVec>> used_offsets;
 public:
   FieldAccessAccumulator(set<Operation *> ops, OpBuilder* b, Location l)
     : Accumulator(b, l) {
@@ -145,17 +145,17 @@ public:
         int64_t ioffset = offset[0].cast<IntegerAttr>().getInt();
         int64_t joffset = offset[1].cast<IntegerAttr>().getInt();
         int64_t koffset = offset[2].cast<IntegerAttr>().getInt();
-        accesses.insert(new IntVec({ioffset, joffset, koffset}));
+        accesses.insert(IntVec({ioffset, joffset, koffset}));
       }
   }
 
   stencil::AccessOp get(Context* c) {
     auto field = c->temps.sample();
-    auto def_op = field->getDefiningOp();
+    auto def_op = field.getDefiningOp();
 
-    accesses.setView([&](IntVec* o) {
+    accesses.setView([&](IntVec o) {
       for (auto oo : used_offsets[def_op]) {
-        if (memcmp(o->data(), oo->data(), 3)) return false;
+        if (memcmp(o.data(), oo.data(), 3)) return false;
       }
       return true;
     }, "FieldAccessFilter");
@@ -167,7 +167,7 @@ public:
     used_offsets[def_op].push_back(offset);
     accesses.unsetView("FieldAccessFilter");
 
-    auto access = builder->create<stencil::AccessOp>(loc, *field, *offset);
+    auto access = builder->create<stencil::AccessOp>(loc, field, offset);
     c->values.insert(access.getOperation());
     return access;
   }
@@ -230,6 +230,8 @@ public:
 
   bool isValid(string op, Context* c) {
     if (op == "stencil.access" && c->temps.empty())
+      return false;
+    if (op == "stencil.load" && c->fields.empty())
       return false;
     if (op == "stencil.store" && (c->fields.empty() || c->values.empty()))
       return false;
@@ -565,7 +567,10 @@ private:
   }
 
   Operation * getStencilLoad(experimental::Context* context) {
-    return nullptr;
+    auto field = context->fields.sample();
+    auto temp = builder->create<stencil::LoadOp>(loc, field);
+    context->temps.insert(temp.getResult());
+    return temp;
   }
 
   Operation * getStencilStore(experimental::Context* context) {

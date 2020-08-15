@@ -33,18 +33,18 @@ namespace experimental {
 
   /// Container for any kind of discrete distribution and element type.
   /// DistType has to implement these 2 methods:
-  ///   * static void insert(vector<pair<T *, int>> &distribution, T* elem)
-  ///   * static void erase(vector<pair<T *, int>> &distribution, T* elem)
+  ///   * static void insert(vector<pair<T, int>> &distribution, T elem)
+  ///   * static void erase(vector<pair<T, int>> &distribution, T elem)
   template<typename DistType, typename ElemType>
   class Distribution : RandGenerator {
-    using Filter = function<bool(ElemType *)>;
+    using Filter = function<bool(ElemType)>;
 
     private:
-      vector<pair<ElemType *, int>> distribution;
+      vector<pair<ElemType, int>> distribution;
       map<string, Filter> filters;
 
       /// Returns true if `el` passes all filters, false otherwise.
-      bool passes(ElemType * el) {
+      bool passes(ElemType el) {
         for (auto it : filters)
           if (!it.second(el))
             return false;
@@ -53,7 +53,7 @@ namespace experimental {
 
     public:
       /// Adds element to the container.
-      void insert(ElemType* element) {
+      void insert(ElemType element) {
         DistType::insert(distribution, element);
       }
 
@@ -71,14 +71,14 @@ namespace experimental {
         return distribution.empty();
       }
 
-      bool contains(ElemType* element) {
+      bool contains(ElemType element) {
         for (auto elem : elems())
           if (elem == element)
             return true;
         return false;
       }
 
-      void erase(ElemType* element) {
+      void erase(ElemType element) {
         DistType::erase(distribution, element);
       }
 
@@ -95,13 +95,13 @@ namespace experimental {
       }
 
       /// Samples from the distribution `n` times.
-      vector<ElemType *> sample(unsigned int n) {
+      vector<ElemType> sample(unsigned int n) {
         assert(n <= size());
-        vector<ElemType *> sampled;
+        vector<ElemType> sampled;
         for (unsigned int i = 0; i < n; i++) {
-          ElemType * elem = _sample(rand_range(1, getDistributionSize()));
+          ElemType elem = _sample(rand_range(1, getDistributionSize()));
           auto id = "##__" + to_string(i);
-          setView([&](ElemType * el) { return el != elem; }, id);
+          setView([&](ElemType el) { return el != elem; }, id);
           sampled.push_back(elem);
         }
 
@@ -111,7 +111,7 @@ namespace experimental {
         return sampled;
       }
 
-      ElemType * sample() {
+      ElemType sample() {
         int rand = rand_range(1, getDistributionSize());
         return _sample(rand);
       }
@@ -127,8 +127,8 @@ namespace experimental {
       }
 
       /// Returns all elements passing all filters.
-      const vector<ElemType *> elems() {
-        vector<ElemType *> arr;
+      const vector<ElemType> elems() {
+        vector<ElemType> arr;
         for (auto it : distribution) {
           if (passes(it.first))
             arr.push_back(it.first);
@@ -137,7 +137,7 @@ namespace experimental {
       }
 
     private:
-      ElemType* _sample(int rand) {
+      ElemType _sample(int rand) {
         int sum = 0;
         for (auto it : distribution) {
           if (passes(it.first)) {
@@ -155,12 +155,12 @@ namespace experimental {
   class Uniform {
   public:
     template<typename T>
-    static void insert(vector<pair<T *, int>> &distribution, T* elem) {
+    static void insert(vector<pair<T, int>> &distribution, T elem) {
       distribution.push_back({elem, 1});
     }
     
     template<typename T>
-    static void erase(vector<pair<T *, int>> &distribution, T* elem) {
+    static void erase(vector<pair<T, int>> &distribution, T elem) {
       for (auto it = distribution.begin(); it != distribution.end(); ++it) {
         if (it->first == elem) {
           distribution.erase(it);
@@ -174,7 +174,7 @@ namespace experimental {
   class Exponential {
   public:
     template<typename T>
-    static void insert(vector<pair<T *, int>> &distribution, T* elem) {
+    static void insert(vector<pair<T, int>> &distribution, T elem) {
       if (distribution.size() < 2) {
         distribution.push_back({elem, 1});
       } else {
@@ -190,7 +190,7 @@ namespace experimental {
     }
     
     template<typename T>
-    static void erase(vector<pair<T *, int>> &distribution, T* elem) {
+    static void erase(vector<pair<T, int>> &distribution, T elem) {
       if (distribution.empty())
         return;
 
