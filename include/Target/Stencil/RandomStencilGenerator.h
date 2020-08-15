@@ -130,7 +130,7 @@ public:
   }
 };
 
-using IntVec = llvm::ArrayRef<int64_t>;
+using IntVec = std::vector<int64_t>;
 
 class FieldAccessAccumulator : public Accumulator, RandGenerator {
 private:
@@ -145,7 +145,7 @@ public:
         int64_t ioffset = offset[0].cast<IntegerAttr>().getInt();
         int64_t joffset = offset[1].cast<IntegerAttr>().getInt();
         int64_t koffset = offset[2].cast<IntegerAttr>().getInt();
-        accesses.insert(IntVec({ioffset, joffset, koffset}));
+        accesses.insert({ioffset, joffset, koffset});
       }
   }
 
