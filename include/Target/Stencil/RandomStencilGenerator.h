@@ -64,6 +64,7 @@ struct Context {
     int index = 0;
 
     Distribution<Uniform, Value> fields;
+    Distribution<Uniform, Value> temps;
     Distribution<Exponential, Operation> values;
     Distribution<Exponential, Operation> bool_values;
 
@@ -119,10 +120,10 @@ public:
     // Create func with `rand` number of 3D dynamic shape fields
     // and add body block.
     auto func = builder->create<FuncOp>(loc, "stencil" + fnum++, funcType);
-    builder->createBlock(&func.getBody(), {}, typeList);
+    auto block = func.addEntryBlock();
 
     // Add parameter fields to the context.
-    for (auto arg : func.getArguments())
+    for (auto arg : block->getArguments())
       c->fields.insert(&arg);
 
     return func;
@@ -149,7 +150,7 @@ public:
   }
 
   stencil::AccessOp get(Context* c) {
-    auto field = c->fields.sample();
+    auto field = c->temps.sample();
     auto def_op = field->getDefiningOp();
 
     accesses.setView([&](IntVec* o) {
@@ -228,7 +229,7 @@ public:
   }
 
   bool isValid(string op, Context* c) {
-    if (op == "stencil.access" && c->fields.empty())
+    if (op == "stencil.access" && c->temps.empty())
       return false;
     if (op == "stencil.store" && (c->fields.empty() || c->values.empty()))
       return false;
@@ -448,11 +449,15 @@ private:
   Operation * getFunc(experimental::Context* context) {
     auto func = funcAccumulator->get(context);
     builder->setInsertionPointToStart(&func.getBody().front());
+    for (auto field : func.getArguments()) {
+      builder->create<stencil::AssertOp>(
+        loc, field, IntVec{-4, -4, -4}, IntVec{68, 68, 68});
+    }
     return func;
   }
 
   Operation * getStdReturn(experimental::Context* context) {
-    return nullptr;
+    return builder->create<ReturnOp>(loc);
   }
 
   //===-------------------------------------------------------------------===//
@@ -547,7 +552,7 @@ private:
   //===-------------------------------------------------------------------===//
 
   Operation * getStencilAccess(experimental::Context* context) {
-    return nullptr;
+    return fieldAccessAccumulator->get(context);
   }
 
   Operation * getStencilApply(experimental::Context* context) {
@@ -555,6 +560,7 @@ private:
   }
 
   Operation * getStencilAssert(experimental::Context* context) {
+    // asserts are emitted together with FuncOp
     return nullptr;
   }
 
