@@ -71,6 +71,10 @@ namespace experimental {
         return distribution.empty();
       }
 
+      void clear() {
+        distribution.clear();
+      }
+
       bool contains(ElemType element) {
         for (auto elem : elems())
           if (elem == element)

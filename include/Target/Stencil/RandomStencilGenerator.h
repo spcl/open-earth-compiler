@@ -51,7 +51,7 @@
 #include <sstream>
 #include <algorithm>
 
-const int DEBUG = 1;
+const int DEBUG = 0;
 
 using namespace std;
 using namespace mlir::stencil;
@@ -464,6 +464,7 @@ private:
   }
 
   Operation * getStdReturn(experimental::Context* context) {
+    terminateStencilApply(context);
     return builder->create<ReturnOp>(loc);
   }
 
@@ -510,6 +511,23 @@ private:
 
   Operation * getNegf(experimental::Context* context) {
     return getUnOp<NegFOp>(context, nonZeroConstView);
+  }
+
+  Operation * getSelect(experimental::Context* context) {
+    auto values = context->values.sample(2);
+    auto cond = context->bool_values.sample()->getResult(0);
+    auto select = builder->create<SelectOp>(
+      loc, cond, 
+      values[0]->getResult(0),
+      values[1]->getResult(0)
+    );
+    context->values.insert(select);
+    return select;
+  }
+
+  Operation * getSqrt(experimental::Context* context) {
+    return getUnOp<SqrtOp>(context,
+      [](Operation * op) { return getConstValOrDefault(op, 1.0) >= 0.0; });
   }
 
   //===-------------------------------------------------------------------===//
@@ -563,19 +581,17 @@ private:
   }
 
   Operation * getStencilApply(experimental::Context* context) {
-    auto parent = builder->getInsertionBlock()->getParentOp();
-    if (isa<stencil::ApplyOp>(parent)) {
-      builder->setInsertionPointToEnd(parent->getBlock());
-    }
+    // Terminate current ApplyOp if exists.
+    terminateStencilApply(context);
 
     int nArgs = rand_range(1, min(10, context->temps.size()));
     auto temps = context->temps.sample(nArgs);
-    auto results = context->temps.sample(rand_range(1, nArgs));
+    auto results = context->temps.sample();
 
     auto applyOp = builder->create<stencil::ApplyOp>(loc, temps, results);
     builder->setInsertionPointToStart(applyOp.getBody());
     for (auto result : applyOp.getResults())
-      context->args.insert(result);
+      context->temps.insert(result);
     return applyOp;
   }
 
@@ -585,6 +601,9 @@ private:
   }
 
   Operation * getStencilLoad(experimental::Context* context) {
+    // Terminate current ApplyOp if exists.
+    terminateStencilApply(context);
+
     auto field = context->fields.sample();
     auto temp = builder->create<stencil::LoadOp>(loc, field);
     context->temps.insert(temp.getResult());
@@ -592,7 +611,13 @@ private:
   }
 
   Operation * getStencilStore(experimental::Context* context) {
-    return nullptr;
+    // Terminate current ApplyOp if exists.
+    terminateStencilApply(context);
+
+    auto field = context->fields.sample();
+    auto value = context->args.sample();
+    return builder->create<stencil::StoreOp>(
+      loc, value, field, Index{0, 0, 0}, Index{64, 64, 64});
   }
 
   Operation * getStencilIndex(experimental::Context* context) {
@@ -600,42 +625,8 @@ private:
   }
 
   Operation * getStencilReturn(experimental::Context* context) {
-    return nullptr;
+    return terminateStencilApply(context);
   }
-
-  //===-------------------------------------------------------------------===//
-  // Arithmetics 2.
-  //===-------------------------------------------------------------------===//
-
-  Operation * getSelect(experimental::Context* context) {
-    auto values = context->values.sample(2);
-    auto cond = context->bool_values.sample()->getResult(0);
-    auto select = builder->create<SelectOp>(
-      loc, cond, 
-      values[0]->getResult(0),
-      values[1]->getResult(0)
-    );
-    context->values.insert(select);
-    return select;
-  }
-
-  Operation * getSqrt(experimental::Context* context) {
-    return getUnOp<SqrtOp>(context,
-      [](Operation * op) { return getConstValOrDefault(op, 1.0) >= 0.0; });
-  }
-
-  /*Operation * getPow(experimental::Context* context) {
-    return getBinOp<stencil::PowOp>(context, nonZeroOrOneConstView);
-  }
-
-  Operation * getFabs(experimental::Context* context) {
-    return getUnOp<stencil::FabsOp>(context);
-  }
-
-  Operation * getExp(experimental::Context* context) {
-    return getUnOp<stencil::ExpOp>(context, nonZeroOrOneConstView);
-  }*/
-
 
   //===-------------------------------------------------------------------===//
   // Utils
@@ -704,6 +695,30 @@ private:
     auto unop = builder->create<T>(loc, value->getResult(0));
     context->values.insert(unop);
     return unop;
+  }
+
+  Operation * terminateStencilApply(Context * context) {
+    Operation * ret = nullptr;
+    auto parent = builder->getInsertionBlock()->getParentOp();
+    if (isa<stencil::ApplyOp>(parent)) {
+      Value value;
+      if (context->values.empty())
+        value = getConstant(context)->getResult(0);
+      else
+        value = context->values.elems().back()->getResult(0);
+      ret = builder->create<stencil::ReturnOp>(loc, ValueRange{value}, nullptr);
+      builder->setInsertionPointToEnd(parent->getBlock());
+      
+      // clear values defined in the local scope
+      context->args.clear();
+      context->values.clear();
+      context->bool_values.clear();
+    }
+    return ret;
+  }
+
+  bool isInsideStencilApply() {
+    return isa<stencil::ApplyOp>(builder->getInsertionBlock()->getParentOp());
   }
 };
 
