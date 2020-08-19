@@ -207,7 +207,7 @@ module {
       %two = constant 2.000000e+00 : f64
       %half = constant 0.500000e+00 : f64
       %zero = constant 0.000000e+00 : f64
-      %cFlatLimit = constant 15 : index
+      %cFlatLimit = constant 11 : index
       %ckMax = constant 59 : index
 
       %k = stencil.index 2 [0, 0, 0] : index
@@ -295,7 +295,7 @@ module {
       %two = constant 2.000000e+00 : f64
       %half = constant 0.500000e+00 : f64
       %zero = constant 0.000000e+00 : f64
-      %cFlatLimit = constant 15 : index
+      %cFlatLimit = constant 11 : index
       %ckMax = constant 59 : index
 
       %k = stencil.index 2 [0, 0, 0] : index
