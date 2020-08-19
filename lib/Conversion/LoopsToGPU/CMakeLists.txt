@@ -31,6 +31,7 @@ add_mlir_dialect_library(GPUToKernelAndRuntimeCalls
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/Conversion/LoopsToGPU
+  ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
 
   LINK_COMPONENTS
   Core
@@ -43,5 +44,4 @@ add_mlir_dialect_library(GPUToKernelAndRuntimeCalls
   ${NVVMIR_LIB}
   ${ROCDLIR_LIB}
 )
-
 target_link_libraries(GPUToKernelAndRuntimeCalls PUBLIC MLIRIR)
