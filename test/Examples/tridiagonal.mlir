@@ -7,7 +7,7 @@ module {
     stencil.assert %arg2([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     %0 = stencil.load %arg0 : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
     %1 = stencil.load %arg1 : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
-    %2:2 = stencil.apply seq(dim = 2, range = 0 to 60, dir = 1) (%arg3 = %0 : !stencil.temp<?x?x?xf64>, %arg4 = %1 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
+    %2:2 = stencil.apply seq(dim = 2, range = 0 to 64, dir = 1) (%arg3 = %0 : !stencil.temp<?x?x?xf64>, %arg4 = %1 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
       %4 = stencil.index 2 [0, 0, 0] : index
       %c0 = constant 0 : index
       %5 = cmpi "eq", %4, %c0 : index
@@ -36,7 +36,7 @@ module {
       }
       stencil.return %6#0, %6#1 : f64, f64
     }
-    %3 = stencil.apply seq(dim = 2, range = 0 to 60, dir = -1) (%arg3 = %2#0 : !stencil.temp<?x?x?xf64>, %arg4 = %2#1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %3 = stencil.apply seq(dim = 2, range = 0 to 64, dir = -1) (%arg3 = %2#0 : !stencil.temp<?x?x?xf64>, %arg4 = %2#1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %4 = stencil.index 2 [0, 0, 0] : index
       %c59 = constant 59 : index
       %5 = cmpi "eq", %4, %c59 : index
