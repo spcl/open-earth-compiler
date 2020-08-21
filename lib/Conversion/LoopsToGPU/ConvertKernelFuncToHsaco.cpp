@@ -51,7 +51,7 @@ constexpr char features[] = "-code-object-v3";
 constexpr char gpuBinaryAnnotation[] = "rocdl.hsaco";
 
 static LogicalResult assembleIsa(const std::string isa, StringRef name,
-                                 Blob &result) {
+                                 Blob &result) {  
   raw_svector_ostream os(result);
 
   std::string error;
@@ -145,9 +145,10 @@ static LogicalResult createHsaco(const Blob &isaBlob, StringRef name,
     std::lock_guard<std::mutex> lock(mutex);
 
     // Invoke lld. Expect a true return value from lld.
-    bool ret = lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
-                              "-o", tempHsacoFilename.c_str()},
-                              /*canEarlyExit=*/false, llvm::outs(), llvm::errs());
+    bool ret =
+        lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
+                        "-o", tempHsacoFilename.c_str()},
+                       /*canEarlyExit=*/false, llvm::outs(), llvm::errs());
     if (!ret) {
       WithColor::error(errs(), name) << "lld invocation error.\n";
       return failure();
@@ -212,12 +213,7 @@ void registerGPUToHSACOPipeline() {
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             compileModuleToROCDLIR, compileISAToHsaco, tripleName, targetChip,
             features, gpuBinaryAnnotation));
-        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
-                                          /* emitCWrappers = */ true,
-                                          /* indexBitwidth = */ 32,
-                                          /* useAlignedAlloc = */ false}));
-        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass(
-            gpuBinaryAnnotation));
+        pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
       });
 }
 } // namespace mlir

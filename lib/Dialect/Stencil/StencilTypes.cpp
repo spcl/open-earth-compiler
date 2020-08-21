@@ -69,6 +69,10 @@ struct TempTypeStorage : public GridTypeStorage {
 constexpr int64_t GridType::kDynamicDimension;
 constexpr int64_t GridType::kScalarDimension;
 
+bool GridType::classof(Type type) {
+  return type.isa<FieldType, TempType>();
+}
+
 Type GridType::getElementType() const {
   return static_cast<ImplType *>(impl)->getElementType();
 }
@@ -81,16 +85,16 @@ ArrayRef<int64_t> GridType::getShape() const {
 // FieldType
 //===----------------------------------------------------------------------===//
 
-FieldType FieldType::get(MLIRContext *context, Type elementType,
-                         llvm::ArrayRef<int64_t> shape) {
-  return Base::get(context, StencilTypes::Field, elementType, shape);
+FieldType FieldType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
+  mlir::MLIRContext *ctx = elementType.getContext();
+  return Base::get(ctx, elementType, shape);
 }
 
 //===----------------------------------------------------------------------===//
 // TempType
 //===----------------------------------------------------------------------===//
 
-TempType TempType::get(MLIRContext *context, Type elementType,
-                       llvm::ArrayRef<int64_t> shape) {
-  return Base::get(context, StencilTypes::Temp, elementType, shape);
+TempType TempType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
+  mlir::MLIRContext *ctx = elementType.getContext();
+  return Base::get(ctx, elementType, shape);
 }

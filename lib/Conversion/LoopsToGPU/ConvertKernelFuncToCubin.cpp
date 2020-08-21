@@ -108,11 +108,7 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToNVVMIR, compilePtxToCubin, tripleName, targetChip,
             features, gpuBinaryAnnotation));
-        pm.addPass(createLowerToLLVMPass({/* useBarePtrCallConv = */ false,
-                                          /* emitCWrappers = */ true,
-                                          /* indexBitwidth = */ 32,
-                                          /* useAlignedAlloc = */ false}));
-        pm.addPass(createConvertGpuLaunchFuncToGpuRuntimeCallsPass());
+        pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
       });
 }
 } // namespace mlir

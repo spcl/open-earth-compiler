@@ -28,7 +28,7 @@ cmake --build . --target mlir-doc
 
 ## LLVM Build Instructions
 
-The repository depends on a build of LLVM including MLIR. The Open Earth Compiler build has been tested with LLVM commit 70d583ad128 using the following configuration:
+The repository depends on a build of LLVM including MLIR. The Open Earth Compiler build has been tested with LLVM commit e0b220d22ee using the following configuration:
 ```
 cmake -G Ninja ../llvm -DLLVM_BUILD_EXAMPLES=OFF -DLLVM_TARGETS_TO_BUILD="host;NVPTX;AMDGPU" -DCMAKE_INSTALL_PREFIX=<install_root> -DLLVM_ENABLE_PROJECTS='mlir;lld' -DLLVM_OPTIMIZED_TABLEGEN=ON -DLLVM_ENABLE_OCAMLDOC=OFF -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INSTALL_UTILS=ON -DCMAKE_LINKER=<path_to_lld> -DLLVM_PARALLEL_LINK_JOBS=2
 ```

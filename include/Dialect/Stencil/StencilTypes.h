@@ -1,6 +1,7 @@
 #ifndef DIALECT_STENCIL_STENCILTYPES_H
 #define DIALECT_STENCIL_STENCILTYPES_H
 
+#include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
@@ -17,14 +18,6 @@ struct FieldTypeStorage;
 struct TempTypeStorage;
 } // namespace detail
 
-namespace StencilTypes {
-enum Kind {
-  Field = Type::FIRST_PRIVATE_EXPERIMENTAL_0_TYPE,
-  Temp,
-  LAST_USED_PRIVATE_EXPERIMENTAL_0_TYPE = Temp
-};
-}
-
 //===----------------------------------------------------------------------===//
 // GridType
 //===----------------------------------------------------------------------===//
@@ -35,6 +28,8 @@ public:
   using ImplType = detail::GridTypeStorage;
   using Type::Type;
 
+  static bool classof(Type type);
+  
   /// Constants used to mark dynamic size or scalarized dimensions
   static constexpr int64_t kDynamicDimension = -1;
   static constexpr int64_t kScalarDimension = 0;
@@ -54,12 +49,11 @@ public:
       return size == kDynamicDimension || size == kScalarDimension;
     });
   }
-  
+
   /// Return true if all dimensions have a static
   int64_t hasStaticShape() const {
-    return llvm::none_of(getShape(), [](int64_t size) {
-      return size == kDynamicDimension;
-    });
+    return llvm::none_of(
+        getShape(), [](int64_t size) { return size == kDynamicDimension; });
   }
 
   /// Return the allocated / non-scalar dimensions
@@ -75,24 +69,18 @@ public:
   /// (reverse shape from column-major to row-major)
   SmallVector<int64_t, 3> getMemRefShape() const {
     SmallVector<int64_t, 3> result;
-    for(auto size : llvm::reverse(getShape())) {
-      switch(size) {
-        case(kDynamicDimension):
-          result.push_back(ShapedType::kDynamicSize);
-          break;
-        case(kScalarDimension):
-          break;
-        default:
-          result.push_back(size);
+    for (auto size : llvm::reverse(getShape())) {
+      switch (size) {
+      case (kDynamicDimension):
+        result.push_back(ShapedType::kDynamicSize);
+        break;
+      case (kScalarDimension):
+        break;
+      default:
+        result.push_back(size);
       }
     }
     return result;
-  }
-
-  /// Support isa, cast, and dyn_cast
-  static bool classof(Type type) {
-    return type.getKind() == StencilTypes::Field ||
-           type.getKind() == StencilTypes::Temp;
   }
 
   /// Return true if the dimension size is dynamic
@@ -115,11 +103,7 @@ class FieldType
 public:
   using Base::Base;
 
-  static FieldType get(MLIRContext *context, Type elementType,
-                       ArrayRef<int64_t> shape);
-
-  /// Used to implement LLVM-style casts
-  static bool kindof(unsigned kind) { return kind == StencilTypes::Field; }
+  static FieldType get(Type elementType, ArrayRef<int64_t> shape);
 };
 
 //===----------------------------------------------------------------------===//
@@ -132,11 +116,7 @@ class TempType
 public:
   using Base::Base;
 
-  static TempType get(MLIRContext *context, Type elementType,
-                      ArrayRef<int64_t> shape);
-
-  /// Used to implement LLVM-style casts.
-  static bool kindof(unsigned kind) { return kind == StencilTypes::Temp; }
+  static TempType get(Type elementType, ArrayRef<int64_t> shape);
 };
 
 } // namespace stencil

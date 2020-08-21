@@ -146,7 +146,7 @@ LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
         shape[i] = GridType::kScalarDimension;
     }
     auto newType =
-        TempType::get(shapeOp.getContext(), oldType.getElementType(), shape);
+        TempType::get(oldType.getElementType(), shape);
     result.setType(newType);
     for (OpOperand &use : result.getUses()) {
       if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner()))

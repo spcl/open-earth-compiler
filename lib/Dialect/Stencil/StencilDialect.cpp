@@ -5,6 +5,7 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <cstdint>
 
@@ -56,9 +57,9 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 
   // Return the Stencil type
   if (prefix == getFieldTypeName())
-    return FieldType::get(getContext(), elementType, shape);
+    return FieldType::get(elementType, shape);
   if (prefix == getTempTypeName())
-    return TempType::get(getContext(), elementType, shape);
+    return TempType::get(elementType, shape);
 
   // Failed to parse a stencil type
   parser.emitError(parser.getNameLoc(), "unknown stencil type ")
@@ -72,31 +73,24 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 
 namespace {
 
-void print(GridType gridType, DialectAsmPrinter &printer) {
+void print(StringRef name, Type type, DialectAsmPrinter &printer) {
+  printer << name;
   printer << "<";
-  for (auto size : gridType.getShape()) {
+  for (auto size : type.cast<GridType>().getShape()) {
     if (size == GridType::kDynamicDimension)
       printer << "?";
     else
       printer << size;
     printer << "x";
   }
-  printer << gridType.getElementType() << ">";
+  printer << type.cast<GridType>().getElementType() << ">";
 }
 
 } // namespace
 
 void StencilDialect::printType(Type type, DialectAsmPrinter &printer) const {
-  switch (type.getKind()) {
-  case StencilTypes::Field:
-    printer << StencilDialect::getFieldTypeName();
-    print(type.cast<GridType>(), printer);
-    break;
-  case StencilTypes::Temp:
-    printer << StencilDialect::getTempTypeName();
-    print(type.cast<GridType>(), printer);
-    break;
-  default:
-    llvm_unreachable("unhandled stencil type");
-  }
+  TypeSwitch<Type>(type)
+      .Case<FieldType>([&](Type) { print("field", type, printer); })
+      .Case<TempType>([&](Type) { print("temp", type, printer); })
+      .Default([](Type) { llvm_unreachable("unexpected 'shape' type kind"); });
 }

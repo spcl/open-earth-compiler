@@ -212,8 +212,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeOp>,
     OpBuilder<"OpBuilder &builder, OperationState &state, Value field", [{
       state.addOperands(field);
       auto fieldType = field.getType().cast<stencil::GridType>();
-      state.addTypes(stencil::TempType::get(builder.getContext(), 
-                     fieldType.getElementType(), fieldType.getShape()));
+      state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getShape()));
     }]>
   ];
 
