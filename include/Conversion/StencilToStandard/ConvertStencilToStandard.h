@@ -36,6 +36,9 @@ public:
                       DenseMap<Value, Index> &valueToLB,
                       PatternBenefit benefit = 1);
 
+  // Return the induction variables of the parent loop nest
+  SmallVector<Value, 3> getInductionVars(Operation *operation) const;
+
   /// Compute the shape of the operation
   Index computeShape(ShapeOp shapeOp) const;
 

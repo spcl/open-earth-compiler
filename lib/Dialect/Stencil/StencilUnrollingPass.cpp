@@ -16,8 +16,8 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 using namespace mlir;
 using namespace stencil;
@@ -108,7 +108,11 @@ void StencilUnrollingPass::runOnFunction() {
 
   // Unroll all stencil apply ops
   funcOp.walk([&](stencil::ApplyOp applyOp) {
-    // Unroll the stencil
+    // Skip all sequential apply operations
+    if (applyOp.seq().hasValue())
+      return;
+
+    // Unroll all non
     unrollStencilApply(applyOp, unrollFactor.getValue(),
                        unrollIndex.getValue());
   });
