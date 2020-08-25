@@ -32,7 +32,7 @@ module {
     }
     %7:2 = stencil.apply (%arg10 = %1 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
       %cst = constant 1.000000e+00 : f64
-      %cst_0 = constant 0x41584DE740000000 : f64
+      %cst_0 = constant 6371.229e3 : f64
       %14 = divf %cst, %cst_0 : f64
       %cst_1 = constant 2.500000e-01 : f64
       %15 = stencil.access %arg10 [0, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -60,50 +60,50 @@ module {
       %19 = stencil.access %arg10 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %20 = cmpf "ogt", %16, %cst : f64
       %21 = mulf %cst_3, %17 : f64
-      %22 = scf.if %20 -> (f64) {
-        %31 = stencil.access %arg10 [-2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = addf %21, %18 : f64
-        %33 = mulf %15, %19 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %33, %34 : f64
-        %36 = addf %32, %35 : f64
-        %37 = mulf %36, %16 : f64
-        scf.yield %37 : f64
-      } else {
-        %31 = stencil.access %arg10 [2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = mulf %15, %18 : f64
-        %33 = addf %21, %19 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %32, %34 : f64
-        %36 = addf %33, %35 : f64
-        %37 = negf %16 : f64
-        %38 = mulf %37, %36 : f64
-        scf.yield %38 : f64
-      }
+
+      %131 = stencil.access %arg10 [-2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %132 = addf %21, %18 : f64
+      %133 = mulf %15, %19 : f64
+      %134 = mulf %14, %131 : f64
+      %135 = addf %133, %134 : f64
+      %136 = addf %132, %135 : f64
+      %137 = mulf %136, %16 : f64
+
+      %231 = stencil.access %arg10 [2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %232 = mulf %15, %18 : f64
+      %233 = addf %21, %19 : f64
+      %234 = mulf %14, %231 : f64
+      %235 = addf %232, %234 : f64
+      %236 = addf %233, %235 : f64
+      %237 = negf %16 : f64
+      %238 = mulf %237, %236 : f64
+
+      %22 = select %20, %137, %238 : f64
+
       %23 = stencil.access %arg12 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %24 = stencil.access %arg10 [0, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %25 = stencil.access %arg10 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %26 = cmpf "ogt", %23, %cst : f64
-      %27 = scf.if %26 -> (f64) {
-        %31 = stencil.access %arg10 [0, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = addf %21, %24 : f64
-        %33 = mulf %15, %25 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %33, %34 : f64
-        %36 = addf %32, %35 : f64
-        %37 = mulf %36, %23 : f64
-        scf.yield %37 : f64
-      } else {
-        %31 = stencil.access %arg10 [0, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = mulf %15, %24 : f64
-        %33 = addf %21, %25 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %32, %34 : f64
-        %36 = addf %33, %35 : f64
-        %37 = negf %23 : f64
-        %38 = mulf %37, %36 : f64
-        scf.yield %38 : f64
-      }
+
+      %331 = stencil.access %arg10 [0, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %332 = addf %21, %24 : f64
+      %333 = mulf %15, %25 : f64
+      %334 = mulf %14, %331 : f64
+      %335 = addf %333, %334 : f64
+      %336 = addf %332, %335 : f64
+      %337 = mulf %336, %23 : f64
+
+      %431 = stencil.access %arg10 [0, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %432 = mulf %15, %24 : f64
+      %433 = addf %21, %25 : f64
+      %434 = mulf %14, %431 : f64
+      %435 = addf %432, %434 : f64
+      %436 = addf %433, %435 : f64
+      %437 = negf %23 : f64
+      %438 = mulf %437, %436 : f64
+
+      %27 = select %26, %337, %438 : f64
+
       %28 = mulf %22, %arg13 : f64
       %29 = mulf %27, %arg14 : f64
       %30 = addf %28, %29 : f64
@@ -135,7 +135,7 @@ module {
     }
     %11:2 = stencil.apply (%arg10 = %1 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
       %cst = constant 1.000000e+00 : f64
-      %cst_0 = constant 0x41584DE740000000 : f64
+      %cst_0 = constant 6371.229e3 : f64
       %14 = divf %cst, %cst_0 : f64
       %cst_1 = constant 3.000000e+00 : f64
       %15 = divf %cst, %cst_1 : f64
@@ -162,50 +162,50 @@ module {
       %19 = stencil.access %arg10 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %20 = cmpf "ogt", %16, %cst : f64
       %21 = mulf %cst_3, %17 : f64
-      %22 = scf.if %20 -> (f64) {
-        %31 = stencil.access %arg10 [-2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = addf %21, %18 : f64
-        %33 = mulf %15, %19 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %33, %34 : f64
-        %36 = addf %32, %35 : f64
-        %37 = mulf %36, %16 : f64
-        scf.yield %37 : f64
-      } else {
-        %31 = stencil.access %arg10 [2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = mulf %15, %18 : f64
-        %33 = addf %21, %19 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %32, %34 : f64
-        %36 = addf %33, %35 : f64
-        %37 = negf %16 : f64
-        %38 = mulf %37, %36 : f64
-        scf.yield %38 : f64
-      }
+
+      %131 = stencil.access %arg10 [-2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %132 = addf %21, %18 : f64
+      %133 = mulf %15, %19 : f64
+      %134 = mulf %14, %131 : f64
+      %135 = addf %133, %134 : f64
+      %136 = addf %132, %135 : f64
+      %137 = mulf %136, %16 : f64
+
+      %231 = stencil.access %arg10 [2, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %232 = mulf %15, %18 : f64
+      %233 = addf %21, %19 : f64
+      %234 = mulf %14, %231 : f64
+      %235 = addf %232, %234 : f64
+      %236 = addf %233, %235 : f64
+      %237 = negf %16 : f64
+      %238 = mulf %237, %236 : f64
+
+      %22 = select %20, %137, %238 : f64
+
       %23 = stencil.access %arg12 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %24 = stencil.access %arg10 [0, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %25 = stencil.access %arg10 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %26 = cmpf "ogt", %23, %cst : f64
-      %27 = scf.if %26 -> (f64) {
-        %31 = stencil.access %arg10 [0, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = addf %21, %24 : f64
-        %33 = mulf %15, %25 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %33, %34 : f64
-        %36 = addf %32, %35 : f64
-        %37 = mulf %36, %23 : f64
-        scf.yield %37 : f64
-      } else {
-        %31 = stencil.access %arg10 [0, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %32 = mulf %15, %24 : f64
-        %33 = addf %21, %25 : f64
-        %34 = mulf %14, %31 : f64
-        %35 = addf %32, %34 : f64
-        %36 = addf %33, %35 : f64
-        %37 = negf %23 : f64
-        %38 = mulf %37, %36 : f64
-        scf.yield %38 : f64
-      }
+
+      %331 = stencil.access %arg10 [0, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %332 = addf %21, %24 : f64
+      %333 = mulf %15, %25 : f64
+      %334 = mulf %14, %331 : f64
+      %335 = addf %333, %334 : f64
+      %336 = addf %332, %335 : f64
+      %337 = mulf %336, %23 : f64
+
+      %431 = stencil.access %arg10 [0, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+      %432 = mulf %15, %24 : f64
+      %433 = addf %21, %25 : f64
+      %434 = mulf %14, %431 : f64
+      %435 = addf %432, %434 : f64
+      %436 = addf %433, %435 : f64
+      %437 = negf %23 : f64
+      %438 = mulf %437, %436 : f64
+
+      %27 = select %26, %337, %438 : f64
+
       %28 = mulf %22, %arg13 : f64
       %29 = mulf %27, %arg14 : f64
       %30 = addf %28, %29 : f64
