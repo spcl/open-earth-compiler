@@ -1,0 +1,29 @@
+diff --git a/mlir/lib/Dialect/GPU/Transforms/KernelOutlining.cpp b/mlir/lib/Dialect/GPU/Transforms/KernelOutlining.cpp
+index 1d72f9ec269..71d93d7639a 100644
+--- a/mlir/lib/Dialect/GPU/Transforms/KernelOutlining.cpp
++++ b/mlir/lib/Dialect/GPU/Transforms/KernelOutlining.cpp
+@@ -19,6 +19,7 @@
+ #include "mlir/IR/Builders.h"
+ #include "mlir/IR/SymbolTable.h"
+ #include "mlir/Transforms/RegionUtils.h"
++#include <string>
+ 
+ using namespace mlir;
+ 
+@@ -220,13 +221,15 @@ public:
+   void runOnOperation() override {
+     SymbolTable symbolTable(getOperation());
+     bool modified = false;
++    unsigned id = 0;
+     for (auto func : getOperation().getOps<FuncOp>()) {
+       // Insert just after the function.
+       Block::iterator insertPt(func.getOperation()->getNextNode());
+       auto funcWalkResult = func.walk([&](gpu::LaunchOp op) {
+         llvm::SetVector<Value> operands;
++        std::string postfix = "_kernel" + std::to_string(id++);
+         std::string kernelFnName =
+-            Twine(op.getParentOfType<FuncOp>().getName(), "_kernel").str();
++            Twine(op.getParentOfType<FuncOp>().getName(), postfix.c_str()).str();
+ 
+         // Pull in instructions that can be sunk
+         if (failed(sinkOperationsIntoLaunchOp(op)))
