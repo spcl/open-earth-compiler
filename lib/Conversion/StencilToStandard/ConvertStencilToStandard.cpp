@@ -25,8 +25,8 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 
 using namespace mlir;
@@ -177,9 +177,6 @@ public:
     for (auto &en : llvm::enumerate(applyOp.getOperands())) {
       result.remapInput(en.index(), operands[en.index()]);
     }
-    SmallVector<Type, 3> indexes(sequential.hasValue() ? 1 : steps.size(),
-                                 IndexType::get(applyOp.getContext()));
-    result.addInputs(indexes);
     rewriter.applySignatureConversion(&applyOp.region(), result);
 
     // Affine map used for induction variable computation
@@ -193,18 +190,18 @@ public:
     if (sequential) {
       rewriter.setInsertionPointToStart(parallelOp.getBody());
       auto forOp = rewriter.create<ForOp>(loc, lb, ub, step);
-      auto clonedOp = rewriter.cloneWithoutRegions(forOp);
-      rewriter.inlineRegionBefore(applyOp.region(), clonedOp.region(),
-                                  clonedOp.region().begin());
+      rewriter.mergeBlockBefore(
+          applyOp.getBody(),
+          forOp.getLoopBody().getBlocks().back().getTerminator());
 
       // Insert index variables at the beginning of the loop body
-      rewriter.setInsertionPointToStart(clonedOp.getBody());
+      rewriter.setInsertionPointToStart(forOp.getBody());
       for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
         if (sequential == i) {
           if (applyOp.getSeqDir() == 1) {
             // Access the iv of the sequential loop
             rewriter.create<AffineApplyOp>(
-                loc, fwdMap, ValueRange(clonedOp.getInductionVar()));
+                loc, fwdMap, ValueRange(forOp.getInductionVar()));
           } else {
             // Reverse the iv of the sequential loop
             auto bwdExpr = rewriter.getAffineDimExpr(0) - 1 +
@@ -212,7 +209,7 @@ public:
                            rewriter.getAffineDimExpr(2);
             auto bwdMap = AffineMap::get(3, 0, bwdExpr);
             rewriter.create<AffineApplyOp>(
-                loc, bwdMap, ValueRange({ub, lb, clonedOp.getInductionVar()}));
+                loc, bwdMap, ValueRange({ub, lb, forOp.getInductionVar()}));
           }
           continue;
         }
@@ -220,27 +217,17 @@ public:
         rewriter.create<AffineApplyOp>(
             loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
       }
-
-      // Insert terminator at the end of the loop body
-      rewriter.setInsertionPointToEnd(clonedOp.getBody());
-      rewriter.create<YieldOp>(loc);
-      rewriter.eraseOp(forOp);
     } else {
-      auto clonedOp = rewriter.cloneWithoutRegions(parallelOp);
-      rewriter.inlineRegionBefore(applyOp.region(), clonedOp.region(),
-                                  clonedOp.region().begin());
+      rewriter.mergeBlockBefore(
+          applyOp.getBody(),
+          parallelOp.getLoopBody().getBlocks().back().getTerminator());
 
       // Insert index variables at the beginning of the loop body
-      rewriter.setInsertionPointToStart(clonedOp.getBody());
+      rewriter.setInsertionPointToStart(parallelOp.getBody());
       for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
         rewriter.create<AffineApplyOp>(
-            loc, fwdMap, ValueRange(clonedOp.getInductionVars()[i]));
+            loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
       }
-
-      // Insert terminator at the end of the loop body
-      rewriter.setInsertionPointToEnd(clonedOp.getBody());
-      rewriter.create<YieldOp>(loc);
-      rewriter.eraseOp(parallelOp);
     }
 
     // Replace the applyOp
