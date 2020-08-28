@@ -32,7 +32,7 @@ module {
     }
     %15:2 = stencil.apply (%arg8 = %9 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
       %cst = constant 1.000000e+00 : f64
-      %cst_0 = constant 0x41584DE740000000 : f64
+      %cst_0 = constant 6.371229e+06 : f64
       %22 = divf %cst, %cst_0 : f64
       %cst_1 = constant 2.500000e-01 : f64
       %23 = stencil.access %arg8 [0, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -129,7 +129,7 @@ module {
     }
     %19:2 = stencil.apply (%arg8 = %9 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
       %cst = constant 1.000000e+00 : f64
-      %cst_0 = constant 0x41584DE740000000 : f64
+      %cst_0 = constant 6.371229e+06 : f64
       %22 = divf %cst, %cst_0 : f64
       %cst_1 = constant 3.000000e+00 : f64
       %23 = divf %cst, %cst_1 : f64
