@@ -4,7 +4,7 @@
 // CHECK: (%{{.*}}: memref<?x?x?xf64>) {
 func @func_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   // CHECK: %{{.*}} = memref_cast %{{.*}} : memref<?x?x?xf64> to memref<777x77x7xf64>
-  stencil.assert %arg0 ([0, 0, 0]:[7, 77, 777]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[7, 77, 777]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<7x77x777xf64>
   return
 }
 
@@ -93,11 +93,11 @@ func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
 
 // CHECK-LABEL: @access_lowering
 func @access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
   // CHECK: [[VIEW:%.*]] = subview %{{.*}}[0, 0, 0] [10, 10, 10] [1, 1, 1]
-  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
+  %1 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
-  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+  %2 = stencil.apply (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
     // CHECK-DAG: [[IV0:%.*]] = affine.apply [[MAP0]]([[ARG0]])
     // CHECK-DAG: [[IV1:%.*]] = affine.apply [[MAP0]]([[ARG1]])
     // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP0]]([[ARG2]])
@@ -108,8 +108,8 @@ func @access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.prog
     // CHECK-DAG: [[C2:%.*]] = constant 2 : index
     // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
     // CHECK: %{{.*}} = load [[VIEW:%.*]]{{\[}}[[O2]], [[O1]], [[O0]]{{[]]}}
-    %2 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
-    stencil.return %2 : f64
+    %3 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+    stencil.return %3 : f64
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }
@@ -152,9 +152,9 @@ func @return_lowering(%arg0: f64) attributes {stencil.program} {
 
 // CHECK-LABEL: @load_lowering
 func @load_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0 ([0, 0, 0]:[11, 12, 13]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[11, 12, 13]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<11x12x13xf64>
   // CHECK: %{{.*}} = subview %{{.*}}[3, 2, 1] [9, 9, 9] [1, 1, 1] : memref<13x12x11xf64> to memref<9x9x9xf64, #map{{[0-9]+}}>
-  %0 = stencil.load %arg0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<9x9x9xf64>
+  %1 = stencil.load %0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<11x12x13xf64>) -> !stencil.temp<9x9x9xf64>
   return
 }
 
@@ -162,14 +162,14 @@ func @load_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.progra
 
 // CHECK-LABEL: @store_lowering
 func @store_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
   // CHECK: [[VIEW:%.*]] = subview %{{.*}}[3, 2, 1] [7, 7, 7] [1, 1, 1] : memref<10x10x10xf64> to memref<7x7x7xf64, #map{{[0-9]+}}>
   %cst = constant 1.0 : f64
-  %0 = stencil.apply (%arg1 = %cst : f64) -> !stencil.temp<7x7x7xf64> {
+  %1 = stencil.apply (%arg1 = %cst : f64) -> !stencil.temp<7x7x7xf64> {
     // CHECK: store %{{.*}} [[VIEW]]
     stencil.return %arg1 : f64
   } to ([0, 0, 0]:[7, 7, 7]) 
-  stencil.store %0 to %arg0 ([1, 2, 3]:[8, 9, 10]) : !stencil.temp<7x7x7xf64> to !stencil.field<?x?x?xf64>
+  stencil.store %1 to %0 ([1, 2, 3]:[8, 9, 10]) : !stencil.temp<7x7x7xf64> to !stencil.field<10x10x10xf64>
   return
 }
 
@@ -177,16 +177,16 @@ func @store_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.progr
 
 // CHECK-LABEL: @if_lowering
 func @if_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
-  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
-  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
-    %2 = constant 1 : i1
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
+  %1 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
+  %2 = stencil.apply (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+    %cst = constant 1 : i1
     // CHECK: [[RES:%.*]] = scf.if %{{.*}} -> (f64) {
-    %3 = scf.if %2 -> (f64) {
+    %3 = scf.if %cst -> (f64) {
       // CHECK: [[IF:%.*]] = load
-      %4 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+      %5 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
       // CHECK: scf.yield [[IF]] : f64
-      scf.yield %4 : f64
+      scf.yield %5 : f64
     // CHECK: } else {
     } else {
       // CHECK: [[ELSE:%.*]] = load
@@ -209,11 +209,11 @@ func @if_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 // CHECK: (%{{.*}}: memref<?x?xf64>) {
 func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
   // CHECK: %{{.*}} = memref_cast %{{.*}} : memref<?x?xf64> to memref<11x10xf64>
-  stencil.assert %arg0 ([0, 0, 0]:[10, 11, 12]) : !stencil.field<?x?x0xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 11, 12]) : (!stencil.field<?x?x0xf64>) -> !stencil.field<10x11x0xf64>
   // CHECK: [[VIEW:%.*]] = subview %{{.*}}[0, 0] [8, 7] [1, 1] : memref<11x10xf64> to memref<8x7xf64, #map{{[0-9]+}}>
-  %0 = stencil.load %arg0 ([0, 0, 0]:[7, 8, 9]) : (!stencil.field<?x?x0xf64>) -> !stencil.temp<7x8x0xf64>
+  %1 = stencil.load %0 ([0, 0, 0]:[7, 8, 9]) : (!stencil.field<10x11x0xf64>) -> !stencil.temp<7x8x0xf64>
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
-  %1 = stencil.apply (%arg1 = %0 : !stencil.temp<7x8x0xf64>) -> !stencil.temp<7x8x9xf64> {
+  %2 = stencil.apply (%arg1 = %1 : !stencil.temp<7x8x0xf64>) -> !stencil.temp<7x8x9xf64> {
     // CHECK-DAG: [[IV0:%.*]] = affine.apply [[MAP0]]([[ARG0]])
     // CHECK-DAG: [[IV1:%.*]] = affine.apply [[MAP0]]([[ARG1]])
     // CHECK-DAG: [[C0:%.*]] = constant 0 : index
@@ -221,8 +221,8 @@ func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
     // CHECK-DAG: [[C1:%.*]] = constant 1 : index
     // CHECK-DAG: [[O1:%.*]] = affine.apply [[MAP1]]([[IV1]], [[C1]])
     // CHECK: %{{.*}} = load [[VIEW:%.*]]{{\[}}[[O1]], [[O0]]{{[]]}}
-    %2 = stencil.access %arg1[0, 1, 2]: (!stencil.temp<7x8x0xf64>) -> f64
-    stencil.return %2 : f64
+    %3 = stencil.access %arg1[0, 1, 2]: (!stencil.temp<7x8x0xf64>) -> f64
+    stencil.return %3 : f64
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }
@@ -235,25 +235,25 @@ func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
 
 // CHECK-LABEL: @sequential_loop
 func @sequential_loop(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
-  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
+  %1 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
   // CHECK: scf.for [[ARG3:%.*]] =
-  %1 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+  %2 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
     // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP0]]([[ARG3]])
     // CHECK-DAG: [[C2:%.*]] = constant 2 : index
     // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
-    %2 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
-    stencil.return %2 : f64
+    %3 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+    stencil.return %3 : f64
   } to ([0, 0, 0]:[7, 7, 7])
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
   // CHECK: scf.for [[ARG3:%.*]] = [[LB:%.*]] to [[UB:%.*]]
-  %3 = stencil.apply seq(dim = 2, range = 0 to 7, dir = -1) (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+  %4 = stencil.apply seq(dim = 2, range = 0 to 7, dir = -1) (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
     // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP2]]([[UB:%.*]], [[LB:%.*]], [[ARG3]])
     // CHECK-DAG: [[C2:%.*]] = constant 2 : index
     // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
-    %4 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
-    stencil.return %4 : f64
+    %5 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+    stencil.return %5 : f64
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }
@@ -265,17 +265,17 @@ func @sequential_loop(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.prog
 
 // CHECK-LABEL: @depend_op
 func @depend_op(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  stencil.assert %arg0 ([0, 0, 0]:[10, 10, 10]) : !stencil.field<?x?x?xf64>
-  %0 = stencil.load %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.temp<10x10x10xf64>
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
+  %1 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
   // CHECK: scf.for [[ARG3:%.*]] =
-  %1 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %0 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+  %2 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
     // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP0]]([[ARG3]])
     // CHECK-DAG: [[C2:%.*]] = constant -1 : index
     // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
     // CHECK: %{{.*}} = load %{{.*}}{{\[}}[[O2]], %{{.*}}, %{{.*}}{{[]]}}
-    %2 = stencil.depend 0 [0, 0, -1] : f64
-    stencil.return %2 : f64
+    %3 = stencil.depend 0 [0, 0, -1] : f64
+    stencil.return %3 : f64
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }

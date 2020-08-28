@@ -9,16 +9,18 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 // Concrete Operations
 //===----------------------------------------------------------------------===//
 
-def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeOp>]> {
-  let summary = "assert the input field size";
+def Stencil_CastOp : Stencil_Op<"cast", [DeclareOpInterfaceMethods<ShapeOp>]> {
+  let summary = "cast the dynamiclly shaped input fields";
   let description = [{
-    This operation asserts the size of input fields.
+    This operation casts dynamically shaped input fields to statically shaped fields.
 
     Example:
-      stencil.assert %in ([-3, -3, 0] : [67, 67, 60]) : !stencil.field<?x?x?xf64>
+      %0 = stencil.cast %in ([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   }];
 
   let arguments = (ins Stencil_Field:$field, Stencil_Index:$lb, Stencil_Index:$ub);
+  let results = (outs Stencil_Field:$res);
+
   let hasCanonicalizer = 1;
 
   let builders = [
@@ -27,33 +29,49 @@ def Stencil_AssertOp : Stencil_Op<"assert", [DeclareOpInterfaceMethods<ShapeOp>]
       state.addOperands(field);
       state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
       state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
+      state.addTypes(stencil::FieldType::get(
+        field.getType().cast<stencil::GridType>().getElementType(), 
+        applyFunElementWise(lb, ub, std::minus<int64_t>())));
     }]>
   ];
 
   let assemblyFormat = [{
-    $field `(` $lb `:` $ub `)` attr-dict-with-keyword `:` type($field)
+    $field `(` $lb `:` $ub `)` attr-dict-with-keyword `:` functional-type($field, $res)
   }];
 
   let verifier = [{
     auto fieldType = field().getType().cast<stencil::GridType>();
+    auto resType = res().getType().cast<stencil::GridType>();
     auto shapeOp = cast<ShapeOp>(this->getOperation());
     if(!fieldType.hasDynamicShape())
-      return emitOpError("expected fields to have dynamic shape");
-    if(shapeOp.getRank() != fieldType.getRank())
-      return emitOpError("expected op and field to have the same rank");
+      return emitOpError("expected field to have dynamic shape");
+    if(resType.hasDynamicShape())
+      return emitOpError("expected result to have static shape");
+    if(fieldType.getAllocation() != resType.getAllocation())
+      return emitOpError("expected the field and result types to have the same allocation");
+    if (fieldType.getElementType() != resType.getElementType())
+      return emitOpError("the field and result types have different element type");
+    if(shapeOp.getRank() != fieldType.getRank() || shapeOp.getRank() != resType.getRank())
+      return emitOpError("expected op and the field and result types to have the same rank");
     
+    // Ensure the shape matches the result type
+    if (llvm::any_of(
+          llvm::zip(resType.getAllocation(),
+                    resType.getShape(),
+                    applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(), std::minus<int64_t>())),
+          [&](std::tuple<int64_t, int64_t, int64_t> x) { return std::get<0>(x) && (std::get<1>(x) != std::get<2>(x)); }))
+      return emitOpError("expected op and result type to have the same shape");
+
     // Verify all users fit the shape
-    for(auto user : field().getUsers()) {
+    for(auto user : res().getUsers()) {
       if(auto userOp = dyn_cast<ShapeOp>(user)) {
         if(userOp.hasShape() &&
            (shapeOp.getLB() != applyFunElementWise(shapeOp.getLB(), userOp.getLB(), min) ||
             shapeOp.getUB() != applyFunElementWise(shapeOp.getUB(), userOp.getUB(), max))) 
-          return emitOpError("asserted shape not large enough to fit all accesses");
+          return emitOpError("shape not large enough to fit all accesses");
       }
     }
 
-    if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::AssertOp>(op); }) != 1)
-      return emitOpError("expected exactly one assert operation");
     return success();
   }];
   
@@ -199,7 +217,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeOp>,
     This operation takes a field and returns a temporary values.
 
     Example:
-      %0 = stencil.load %field : (!stencil.field<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+      %0 = stencil.load %field : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
   }];
 
   let arguments = (ins Stencil_Field:$field,
@@ -224,6 +242,8 @@ def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeOp>,
     // Check the field and result types
     auto fieldType = field().getType().cast<stencil::GridType>();
     auto resType = res().getType().cast<stencil::GridType>();
+    if(fieldType.hasDynamicShape())
+      return emitOpError("expected fields to have static shape");
     if (fieldType.getRank() != resType.getRank())
       return emitOpError("the field and temp types have different rank");
     if (fieldType.getAllocation() != resType.getAllocation())
@@ -231,8 +251,9 @@ def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeOp>,
     if (fieldType.getElementType() != resType.getElementType())
       return emitOpError("the field and temp types have different element type");
     
-    if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::AssertOp>(op); }) != 1)
-      return emitOpError("expected exactly one assert operation");
+    if(!isa<stencil::CastOp>(field().getDefiningOp()))
+      return emitOpError("expected the defining op of the field is a cast operation");
+
     return success();
   }];
 
@@ -248,7 +269,7 @@ def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeOp>]> 
     This operation takes a temp and writes a field on a user defined range.
 
     Example:
-      stencil.store %temp to %field ([0,0,0] : [64,64,60]) : !stencil.temp<?x?x?xf64> to !stencil.field<?x?x?xf64>
+      stencil.store %temp to %field ([0,0,0] : [64,64,60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
   }];
 
   let arguments = (ins Stencil_Temp:$temp, 
@@ -275,6 +296,10 @@ def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeOp>]> 
     // Check the field and result types
     auto fieldType = field().getType().cast<stencil::GridType>();
     auto tempType = temp().getType().cast<stencil::GridType>();
+    if(fieldType.hasDynamicShape())
+      return emitOpError("expected fields to have static shape");
+    if (fieldType.getRank() != tempType.getRank())
+      return emitOpError("the field and temp types have different rank");
     if (fieldType.getRank() != tempType.getRank())
       return emitOpError("the field and temp types have different rank");
     if (fieldType.getAllocation() != tempType.getAllocation())
@@ -284,12 +309,14 @@ def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeOp>]> 
     
     if (!dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()))
       return emitOpError("output temp not result of an apply");
-    if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::AssertOp>(op); }) != 1)
-      return emitOpError("expected exactly one assert operation");
     if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::LoadOp>(op); }) != 0)
       return emitOpError("an output cannot be an input");  
     if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::StoreOp>(op); }) != 1)
       return emitOpError("multiple stores to the same output");  
+    
+    if(!isa<stencil::CastOp>(field().getDefiningOp()))
+      return emitOpError("expected the defining op of the field is a cast operation");
+
     return success();
   }];
 

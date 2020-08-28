@@ -273,9 +273,9 @@ LogicalResult hoistBackward(Operation *op, PatternRewriter &rewriter,
                             std::function<bool(Operation *)> condition) {
   // Skip compute operations
   auto curr = op;
-  while (curr->getPrevNode() && condition(curr->getPrevNode())) {
+  while (curr->getPrevNode() && condition(curr->getPrevNode()) &&
+         !llvm::is_contained(curr->getPrevNode()->getUsers(), op))
     curr = curr->getPrevNode();
-  }
 
   // Move the operation
   if (curr != op) {
@@ -289,9 +289,9 @@ LogicalResult hoistForward(Operation *op, PatternRewriter &rewriter,
                            std::function<bool(Operation *)> condition) {
   // Skip compute operations
   auto curr = op;
-  while (curr->getNextNode() && condition(curr->getNextNode())) {
+  while (curr->getNextNode() && condition(curr->getNextNode()) &&
+         !curr->getNextNode()->isKnownTerminator())
     curr = curr->getNextNode();
-  }
 
   // Move the operation
   if (curr != op) {
@@ -300,18 +300,18 @@ LogicalResult hoistForward(Operation *op, PatternRewriter &rewriter,
     return success();
   }
   return failure();
-}
+} // namespace
 
 /// This is a pattern to hoist assert ops out of the computation
-struct AssertOpHoisting : public OpRewritePattern<stencil::AssertOp> {
-  using OpRewritePattern<stencil::AssertOp>::OpRewritePattern;
+struct CastOpHoisting : public OpRewritePattern<stencil::CastOp> {
+  using OpRewritePattern<stencil::CastOp>::OpRewritePattern;
 
   // Remove duplicates if needed
-  LogicalResult matchAndRewrite(stencil::AssertOp assertOp,
+  LogicalResult matchAndRewrite(stencil::CastOp castOp,
                                 PatternRewriter &rewriter) const override {
-    // Skip all non assert operations
-    auto condition = [](Operation *op) { return !isa<stencil::AssertOp>(op); };
-    return hoistBackward(assertOp.getOperation(), rewriter, condition);
+    // Skip all operations except for other casts
+    auto condition = [](Operation *op) { return !isa<stencil::CastOp>(op); };
+    return hoistBackward(castOp.getOperation(), rewriter, condition);
   }
 };
 
@@ -322,9 +322,9 @@ struct LoadOpHoisting : public OpRewritePattern<stencil::LoadOp> {
   // Remove duplicates if needed
   LogicalResult matchAndRewrite(stencil::LoadOp loadOp,
                                 PatternRewriter &rewriter) const override {
-    // Skip all apply and store operations
+    // Skip all operations except for casts and other loads
     auto condition = [](Operation *op) {
-      return isa<stencil::ApplyOp>(op) || isa<stencil::StoreOp>(op);
+      return !isa<stencil::LoadOp>(op) && !isa<stencil::CastOp>(op);
     };
     return hoistBackward(loadOp.getOperation(), rewriter, condition);
   }
@@ -337,10 +337,8 @@ struct StoreOpHoisting : public OpRewritePattern<stencil::StoreOp> {
   // Remove duplicates if needed
   LogicalResult matchAndRewrite(stencil::StoreOp storeOp,
                                 PatternRewriter &rewriter) const override {
-    // Skip all apply and load operations
-    auto condition = [](Operation *op) {
-      return isa<stencil::ApplyOp>(op) || isa<stencil::LoadOp>(op);
-    };
+    // Skip all operations except for stores
+    auto condition = [](Operation *op) { return !isa<stencil::StoreOp>(op); };
     return hoistForward(storeOp.getOperation(), rewriter, condition);
   }
 };
@@ -353,9 +351,9 @@ void stencil::ApplyOp::getCanonicalizationPatterns(
   results.insert<ApplyOpArgCleaner, ApplyOpResCleaner>(context);
 }
 
-void stencil::AssertOp::getCanonicalizationPatterns(
+void stencil::CastOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<AssertOpHoisting>(context);
+  results.insert<CastOpHoisting>(context);
 }
 void stencil::LoadOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {

@@ -58,7 +58,7 @@ public:
 
   /// Return the allocated / non-scalar dimensions
   SmallVector<bool, 3> getAllocation() const {
-    SmallVector<bool, 3> result;
+    SmallVector<bool, 3> result; 
     result.resize(getRank());
     llvm::transform(getShape(), result.begin(),
                     [](int64_t x) { return x != kScalarDimension; });

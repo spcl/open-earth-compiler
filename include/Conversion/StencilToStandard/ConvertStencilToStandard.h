@@ -19,9 +19,6 @@ struct StencilTypeConverter : public TypeConverter {
   /// Create a stencil type converter using the default conversions
   StencilTypeConverter(MLIRContext *context);
 
-  /// Convert a dynamic field to a statically sized memref
-  Type convertFieldType(FieldType fieldType, ArrayRef<int64_t> shape);
-
   /// Return the context
   MLIRContext *getContext() { return context; }
 

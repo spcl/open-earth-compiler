@@ -2,6 +2,7 @@
 #include "Dialect/Stencil/StencilDialect.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 
 using namespace mlir;
@@ -69,9 +70,7 @@ struct TempTypeStorage : public GridTypeStorage {
 constexpr int64_t GridType::kDynamicDimension;
 constexpr int64_t GridType::kScalarDimension;
 
-bool GridType::classof(Type type) {
-  return type.isa<FieldType, TempType>();
-}
+bool GridType::classof(Type type) { return type.isa<FieldType, TempType>(); }
 
 Type GridType::getElementType() const {
   return static_cast<ImplType *>(impl)->getElementType();

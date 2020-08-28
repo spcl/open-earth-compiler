@@ -124,7 +124,7 @@ LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
         return failure();
     }
   }
-  // // Update the the operation bounds
+  // Update the the operation bounds
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
   if (shape.empty())
     return shapeOp.emitOpError("expected shape to have non-zero size");
