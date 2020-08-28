@@ -165,6 +165,7 @@ module {
     }
 
     %xrhsy = stencil.apply (%arg13 = %rho : !stencil.temp<?x?x?xf64>, %arg14 = %ppuv : !stencil.temp<?x?x?xf64>, %arg15 = %vtens : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %edadlat = constant 0.00048828125 : f64
       %half = constant 0.500000e+00 : f64
       %15 = stencil.access %arg13 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %16 = stencil.access %arg13 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -202,6 +203,7 @@ module {
 
     %uout = stencil.apply (%arg13 = %uin : !stencil.temp<?x?x?xf64>, %arg14 = %utens : !stencil.temp<?x?x?xf64>, %arg15 = %ppgu_terrain : !stencil.temp<?x?x?xf64>, %arg16 = %rho : !stencil.temp<?x?x?xf64>, %arg17 = %fx : !stencil.temp<0x?x0xf64>, %arg19 = %ppgu_free : !stencil.temp<?x?x?xf64>, %arg20 = %xlhsx : !stencil.temp<?x?x0xf64>, %arg22 = %xdzdx : !stencil.temp<?x?x0xf64>, %arg23 = %xdzdy : !stencil.temp<?x?x0xf64>, %arg24 = %xrhsx : !stencil.temp<?x?x?xf64>, %arg25 = %xrhsy : !stencil.temp<?x?x?xf64>, %arg26 = %xrhsz : !stencil.temp<?x?x?xf64>, %arg27 = %upos : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
 
+      %dt = constant 10.0 : f64
       %two = constant 2.000000e+00 : f64
       %half = constant 0.500000e+00 : f64
       %zero = constant 0.000000e+00 : f64
@@ -289,6 +291,9 @@ module {
     }
 
     %vout = stencil.apply (%arg13 = %vin : !stencil.temp<?x?x?xf64>, %arg14 = %vtens : !stencil.temp<?x?x?xf64>, %arg15 = %ppgv_terrain : !stencil.temp<?x?x?xf64>, %arg16 = %rho : !stencil.temp<?x?x?xf64>, %arg19 = %ppgv_free : !stencil.temp<?x?x?xf64>, %arg21 = %xlhsy : !stencil.temp<?x?x0xf64>, %arg22 = %xdzdx : !stencil.temp<?x?x0xf64>, %arg23 = %xdzdy : !stencil.temp<?x?x0xf64>, %arg24 = %xrhsx : !stencil.temp<?x?x?xf64>, %arg25 = %xrhsy : !stencil.temp<?x?x?xf64>, %arg26 = %xrhsz : !stencil.temp<?x?x?xf64>, %arg27 = %vpos : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+
+      %dt = constant 10.0 : f64
+      %edadlat = constant 0.00048828125 : f64
 
       %two = constant 2.000000e+00 : f64
       %half = constant 0.500000e+00 : f64
