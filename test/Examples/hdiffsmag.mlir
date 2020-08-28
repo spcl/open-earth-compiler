@@ -1,7 +1,7 @@
 
 
 module {
-  func @hdiffsmag(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>, %arg3: !stencil.field<?x?x?xf64>, %arg4: !stencil.field<?x?x?xf64>, %arg5: !stencil.field<0x?x0xf64>, %arg6: !stencil.field<0x?x0xf64>, %arg7: !stencil.field<0x?x0xf64>, %arg8: !stencil.field<0x?x0xf64>, %arg9: !stencil.field<0x?x0xf64>, %arg10: f64, %arg11: f64, %arg12: f64, %arg13: f64) attributes {stencil.program} {
+  func @hdiffsmag(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>, %arg3: !stencil.field<?x?x?xf64>, %arg4: !stencil.field<?x?x?xf64>, %arg5: !stencil.field<0x?x0xf64>, %arg6: !stencil.field<0x?x0xf64>, %arg7: !stencil.field<0x?x0xf64>, %arg8: !stencil.field<0x?x0xf64>, %arg9: !stencil.field<0x?x0xf64>) attributes {stencil.program} {
     stencil.assert %arg0([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %arg1([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %arg2([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
@@ -20,13 +20,15 @@ module {
     %5 = stencil.load %arg7 : (!stencil.field<0x?x0xf64>) -> !stencil.temp<0x?x0xf64>
     %6 = stencil.load %arg8 : (!stencil.field<0x?x0xf64>) -> !stencil.temp<0x?x0xf64>
     %7 = stencil.load %arg9 : (!stencil.field<0x?x0xf64>) -> !stencil.temp<0x?x0xf64>
-    %8 = stencil.apply (%arg14 = %0 : !stencil.temp<?x?x?xf64>, %arg15 = %1 : !stencil.temp<?x?x?xf64>, %arg16 = %7 : !stencil.temp<0x?x0xf64>, %arg17 = %arg10 : f64, %arg18 = %arg11 : f64) -> !stencil.temp<?x?x?xf64> {
+    %8 = stencil.apply (%arg14 = %0 : !stencil.temp<?x?x?xf64>, %arg15 = %1 : !stencil.temp<?x?x?xf64>, %arg16 = %7 : !stencil.temp<0x?x0xf64>) -> !stencil.temp<?x?x?xf64> {
       %cst = constant 1.000000e+00 : f64
-      %cst_0 = constant 0x41584DE740000000 : f64
+      %cst_0 = constant 6371.229e3 : f64
+      %eddlat = constant 0.00048828125 : f64
+      %eddlon = constant 0.000732421875 : f64
       %14 = divf %cst, %cst_0 : f64
       %15 = stencil.access %arg16 [0, 0, 0] : (!stencil.temp<0x?x0xf64>) -> f64
-      %16 = mulf %15, %arg18 : f64
-      %17 = mulf %arg17, %14 : f64
+      %16 = mulf %15, %eddlon : f64
+      %17 = mulf %eddlat, %14 : f64
       %18 = stencil.access %arg15 [0, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %19 = stencil.access %arg15 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %20 = subf %18, %19 : f64
@@ -39,13 +41,15 @@ module {
       %27 = mulf %26, %26 : f64
       stencil.return %27 : f64
     }
-    %9 = stencil.apply (%arg14 = %0 : !stencil.temp<?x?x?xf64>, %arg15 = %1 : !stencil.temp<?x?x?xf64>, %arg16 = %7 : !stencil.temp<0x?x0xf64>, %arg17 = %arg10 : f64, %arg18 = %arg11 : f64) -> !stencil.temp<?x?x?xf64> {
+    %9 = stencil.apply (%arg14 = %0 : !stencil.temp<?x?x?xf64>, %arg15 = %1 : !stencil.temp<?x?x?xf64>, %arg16 = %7 : !stencil.temp<0x?x0xf64>) -> !stencil.temp<?x?x?xf64> {
       %cst = constant 1.000000e+00 : f64
-      %cst_0 = constant 0x41584DE740000000 : f64
+      %cst_0 = constant 6371.229e3 : f64
+      %eddlat = constant 0.00048828125 : f64
+      %eddlon = constant 0.000732421875 : f64
       %14 = divf %cst, %cst_0 : f64
       %15 = stencil.access %arg16 [0, 0, 0] : (!stencil.temp<0x?x0xf64>) -> f64
-      %16 = mulf %15, %arg18 : f64
-      %17 = mulf %arg17, %14 : f64
+      %16 = mulf %15, %eddlon : f64
+      %17 = mulf %eddlat, %14 : f64
       %18 = stencil.access %arg15 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %19 = stencil.access %arg15 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %20 = subf %18, %19 : f64
@@ -98,9 +102,11 @@ module {
       %29 = addf %28, %27 : f64
       stencil.return %29 : f64
     }
-    %12 = stencil.apply (%arg14 = %0 : !stencil.temp<?x?x?xf64>, %arg15 = %8 : !stencil.temp<?x?x?xf64>, %arg16 = %9 : !stencil.temp<?x?x?xf64>, %arg17 = %10 : !stencil.temp<?x?x?xf64>, %arg18 = %2 : !stencil.temp<?x?x?xf64>, %arg19 = %arg13 : f64, %arg20 = %arg12 : f64) -> !stencil.temp<?x?x?xf64> {
+    %12 = stencil.apply (%arg14 = %0 : !stencil.temp<?x?x?xf64>, %arg15 = %8 : !stencil.temp<?x?x?xf64>, %arg16 = %9 : !stencil.temp<?x?x?xf64>, %arg17 = %10 : !stencil.temp<?x?x?xf64>, %arg18 = %2 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %tau_smag = constant 0.01 : f64
+      %weight_smag = constant 0.025 : f64
       %14 = stencil.access %arg18 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-      %15 = mulf %arg19, %14 : f64
+      %15 = mulf %weight_smag, %14 : f64
       %cst = constant 5.000000e-01 : f64
       %cst_0 = constant 0.000000e+00 : f64
       %16 = stencil.access %arg15 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -113,7 +119,7 @@ module {
       %23 = mulf %22, %cst : f64
       %24 = addf %19, %23 : f64
       %25 = sqrt %24 : f64
-      %26 = mulf %25, %arg20 : f64
+      %26 = mulf %25, %tau_smag : f64
       %27 = subf %26, %15 : f64
       %28 = cmpf "ogt", %27, %cst_0 : f64
       %29 = select %28, %27, %cst_0 : f64
@@ -125,9 +131,11 @@ module {
       %35 = addf %34, %33 : f64
       stencil.return %35 : f64
     }
-    %13 = stencil.apply (%arg14 = %1 : !stencil.temp<?x?x?xf64>, %arg15 = %8 : !stencil.temp<?x?x?xf64>, %arg16 = %9 : !stencil.temp<?x?x?xf64>, %arg17 = %11 : !stencil.temp<?x?x?xf64>, %arg18 = %2 : !stencil.temp<?x?x?xf64>, %arg19 = %arg13 : f64, %arg20 = %arg12 : f64) -> !stencil.temp<?x?x?xf64> {
+    %13 = stencil.apply (%arg14 = %1 : !stencil.temp<?x?x?xf64>, %arg15 = %8 : !stencil.temp<?x?x?xf64>, %arg16 = %9 : !stencil.temp<?x?x?xf64>, %arg17 = %11 : !stencil.temp<?x?x?xf64>, %arg18 = %2 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %tau_smag = constant 0.01 : f64
+      %weight_smag = constant 0.025 : f64
       %14 = stencil.access %arg18 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-      %15 = mulf %arg19, %14 : f64
+      %15 = mulf %weight_smag, %14 : f64
       %cst = constant 5.000000e-01 : f64
       %cst_0 = constant 0.000000e+00 : f64
       %16 = stencil.access %arg15 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -140,7 +148,7 @@ module {
       %23 = mulf %22, %cst : f64
       %24 = addf %19, %23 : f64
       %25 = sqrt %24 : f64
-      %26 = mulf %25, %arg20 : f64
+      %26 = mulf %25, %tau_smag : f64
       %27 = subf %26, %15 : f64
       %28 = cmpf "ogt", %27, %cst_0 : f64
       %29 = select %28, %27, %cst_0 : f64

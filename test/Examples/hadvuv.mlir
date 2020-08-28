@@ -1,7 +1,7 @@
 
 
 module {
-  func @hadvuv(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>, %arg3: !stencil.field<?x?x?xf64>, %arg4: !stencil.field<0x?x0xf64>, %arg5: !stencil.field<0x?x0xf64>, %arg6: !stencil.field<0x?x0xf64>, %arg7: !stencil.field<0x?x0xf64>, %arg8: f64, %arg9: f64) attributes {stencil.program} {
+  func @hadvuv(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>, %arg3: !stencil.field<?x?x?xf64>, %arg4: !stencil.field<0x?x0xf64>, %arg5: !stencil.field<0x?x0xf64>, %arg6: !stencil.field<0x?x0xf64>, %arg7: !stencil.field<0x?x0xf64>) attributes {stencil.program} {
     stencil.assert %arg0([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %arg1([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %arg2([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
@@ -46,7 +46,9 @@ module {
       %23 = mulf %22, %14 : f64
       stencil.return %22, %23 : f64, f64
     }
-    %8 = stencil.apply (%arg10 = %0 : !stencil.temp<?x?x?xf64>, %arg11 = %6#1 : !stencil.temp<?x?x?xf64>, %arg12 = %7#1 : !stencil.temp<?x?x?xf64>, %arg13 = %arg8 : f64, %arg14 = %arg9 : f64) -> !stencil.temp<?x?x?xf64> {
+    %8 = stencil.apply (%arg10 = %0 : !stencil.temp<?x?x?xf64>, %arg11 = %6#1 : !stencil.temp<?x?x?xf64>, %arg12 = %7#1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %eddlat = constant 0.00048828125 : f64
+      %eddlon = constant 0.000732421875 : f64
       %cst = constant 0.000000e+00 : f64
       %cst_0 = constant -1.000000e+00 : f64
       %cst_1 = constant 3.000000e+00 : f64
@@ -104,8 +106,8 @@ module {
 
       %27 = select %26, %337, %438 : f64
 
-      %28 = mulf %22, %arg13 : f64
-      %29 = mulf %27, %arg14 : f64
+      %28 = mulf %22, %eddlat : f64
+      %29 = mulf %27, %eddlon : f64
       %30 = addf %28, %29 : f64
       stencil.return %30 : f64
     }
@@ -148,7 +150,9 @@ module {
       %22 = mulf %21, %14 : f64
       stencil.return %21, %22 : f64, f64
     }
-    %12 = stencil.apply (%arg10 = %1 : !stencil.temp<?x?x?xf64>, %arg11 = %10#1 : !stencil.temp<?x?x?xf64>, %arg12 = %11#1 : !stencil.temp<?x?x?xf64>, %arg13 = %arg8 : f64, %arg14 = %arg9 : f64) -> !stencil.temp<?x?x?xf64> {
+    %12 = stencil.apply (%arg10 = %1 : !stencil.temp<?x?x?xf64>, %arg11 = %10#1 : !stencil.temp<?x?x?xf64>, %arg12 = %11#1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %eddlat = constant 0.00048828125 : f64
+      %eddlon = constant 0.000732421875 : f64
       %cst = constant 0.000000e+00 : f64
       %cst_0 = constant -1.000000e+00 : f64
       %cst_1 = constant 3.000000e+00 : f64
@@ -206,8 +210,8 @@ module {
 
       %27 = select %26, %337, %438 : f64
 
-      %28 = mulf %22, %arg13 : f64
-      %29 = mulf %27, %arg14 : f64
+      %28 = mulf %22, %eddlat : f64
+      %29 = mulf %27, %eddlon : f64
       %30 = addf %28, %29 : f64
       stencil.return %30 : f64
     }

@@ -20,9 +20,7 @@ module {
     %xdzdx_fd: !stencil.field<?x?x0xf64>,
     %xdzdy_fd: !stencil.field<?x?x0xf64>,
     %cwp_fd: !stencil.field<?x?x0xf64>,
-    %wbbctens_fd: !stencil.field<?x?x0xf64>,
-    %dt: f64,
-    %edadlat: f64)
+    %wbbctens_fd: !stencil.field<?x?x0xf64>)
     attributes {stencil.program} {
     stencil.assert %uin_fd([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %utens_fd([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
@@ -166,13 +164,13 @@ module {
       stencil.return %27 : f64
     }
 
-    %xrhsy = stencil.apply (%arg13 = %rho : !stencil.temp<?x?x?xf64>, %arg14 = %ppuv : !stencil.temp<?x?x?xf64>, %arg15 = %vtens : !stencil.temp<?x?x?xf64>, %arg16 = %edadlat : f64) -> !stencil.temp<?x?x?xf64> {
+    %xrhsy = stencil.apply (%arg13 = %rho : !stencil.temp<?x?x?xf64>, %arg14 = %ppuv : !stencil.temp<?x?x?xf64>, %arg15 = %vtens : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %half = constant 0.500000e+00 : f64
       %15 = stencil.access %arg13 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %16 = stencil.access %arg13 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %17 = addf %15, %16 : f64
       %18 = mulf %17, %half : f64
-      %20 = negf %arg16 : f64
+      %20 = negf %edadlat : f64
       %21 = divf %20, %18 : f64
       %22 = stencil.access %arg14 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %23 = stencil.access %arg14 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -202,7 +200,7 @@ module {
       stencil.return %32 : f64
     }
 
-    %uout = stencil.apply (%arg13 = %uin : !stencil.temp<?x?x?xf64>, %arg14 = %utens : !stencil.temp<?x?x?xf64>, %arg15 = %ppgu_terrain : !stencil.temp<?x?x?xf64>, %arg16 = %rho : !stencil.temp<?x?x?xf64>, %arg17 = %fx : !stencil.temp<0x?x0xf64>, %arg18 = %dt : f64, %arg19 = %ppgu_free : !stencil.temp<?x?x?xf64>, %arg20 = %xlhsx : !stencil.temp<?x?x0xf64>, %arg22 = %xdzdx : !stencil.temp<?x?x0xf64>, %arg23 = %xdzdy : !stencil.temp<?x?x0xf64>, %arg24 = %xrhsx : !stencil.temp<?x?x?xf64>, %arg25 = %xrhsy : !stencil.temp<?x?x?xf64>, %arg26 = %xrhsz : !stencil.temp<?x?x?xf64>, %arg27 = %upos : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %uout = stencil.apply (%arg13 = %uin : !stencil.temp<?x?x?xf64>, %arg14 = %utens : !stencil.temp<?x?x?xf64>, %arg15 = %ppgu_terrain : !stencil.temp<?x?x?xf64>, %arg16 = %rho : !stencil.temp<?x?x?xf64>, %arg17 = %fx : !stencil.temp<0x?x0xf64>, %arg19 = %ppgu_free : !stencil.temp<?x?x?xf64>, %arg20 = %xlhsx : !stencil.temp<?x?x0xf64>, %arg22 = %xdzdx : !stencil.temp<?x?x0xf64>, %arg23 = %xdzdy : !stencil.temp<?x?x0xf64>, %arg24 = %xrhsx : !stencil.temp<?x?x?xf64>, %arg25 = %xrhsy : !stencil.temp<?x?x?xf64>, %arg26 = %xrhsz : !stencil.temp<?x?x?xf64>, %arg27 = %upos : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
 
       %two = constant 2.000000e+00 : f64
       %half = constant 0.500000e+00 : f64
@@ -255,7 +253,7 @@ module {
         %133 = mulf %130, %132 : f64
         %134 = addf %133, %123 : f64
 
-        %135 = mulf %arg18, %134 : f64
+        %135 = mulf %dt, %134 : f64
         %136 = stencil.access %arg27 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %137 = addf %136, %135 : f64
 
@@ -280,7 +278,7 @@ module {
         %22 = mulf %15, %21 : f64
         %23 = stencil.access %arg14 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %24 = subf %23, %22 : f64
-        %25 = mulf %arg18, %24 : f64
+        %25 = mulf %dt, %24 : f64
         %26 = stencil.access %arg13 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %27 = addf %25, %26 : f64
 
@@ -290,7 +288,7 @@ module {
       stencil.return %res : f64
     }
 
-    %vout = stencil.apply (%arg13 = %vin : !stencil.temp<?x?x?xf64>, %arg14 = %vtens : !stencil.temp<?x?x?xf64>, %arg15 = %ppgv_terrain : !stencil.temp<?x?x?xf64>, %arg16 = %rho : !stencil.temp<?x?x?xf64>, %arg17 = %dt : f64, %arg18 = %edadlat: f64, %arg19 = %ppgv_free : !stencil.temp<?x?x?xf64>, %arg21 = %xlhsy : !stencil.temp<?x?x0xf64>, %arg22 = %xdzdx : !stencil.temp<?x?x0xf64>, %arg23 = %xdzdy : !stencil.temp<?x?x0xf64>, %arg24 = %xrhsx : !stencil.temp<?x?x?xf64>, %arg25 = %xrhsy : !stencil.temp<?x?x?xf64>, %arg26 = %xrhsz : !stencil.temp<?x?x?xf64>, %arg27 = %vpos : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %vout = stencil.apply (%arg13 = %vin : !stencil.temp<?x?x?xf64>, %arg14 = %vtens : !stencil.temp<?x?x?xf64>, %arg15 = %ppgv_terrain : !stencil.temp<?x?x?xf64>, %arg16 = %rho : !stencil.temp<?x?x?xf64>, %arg19 = %ppgv_free : !stencil.temp<?x?x?xf64>, %arg21 = %xlhsy : !stencil.temp<?x?x0xf64>, %arg22 = %xdzdx : !stencil.temp<?x?x0xf64>, %arg23 = %xdzdy : !stencil.temp<?x?x0xf64>, %arg24 = %xrhsx : !stencil.temp<?x?x?xf64>, %arg25 = %xrhsy : !stencil.temp<?x?x?xf64>, %arg26 = %xrhsz : !stencil.temp<?x?x?xf64>, %arg27 = %vpos : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
 
       %two = constant 2.000000e+00 : f64
       %half = constant 0.500000e+00 : f64
@@ -343,7 +341,7 @@ module {
         %133 = mulf %130, %132 : f64
         %134 = addf %133, %123 : f64
 
-        %135 = mulf %arg17, %134 : f64
+        %135 = mulf %dt, %134 : f64
         %136 = stencil.access %arg27 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %137 = addf %136, %135 : f64
 
@@ -362,12 +360,12 @@ module {
         %16 = stencil.access %arg16 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %17 = stencil.access %arg16 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %18 = addf %16, %17 : f64
-        %19 = mulf %two, %arg18 : f64
+        %19 = mulf %two, %edadlat : f64
         %20 = divf %19, %18 : f64
         %21 = mulf %15, %20 : f64
         %22 = stencil.access %arg14 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %23 = subf %22, %21 : f64
-        %24 = mulf %arg17, %23 : f64
+        %24 = mulf %dt, %23 : f64
         %25 = stencil.access %arg13 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
         %26 = addf %24, %25 : f64
 

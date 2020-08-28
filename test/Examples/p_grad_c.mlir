@@ -1,7 +1,7 @@
 
 
 module {
-  func @p_grad_c(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>, %arg3: !stencil.field<?x?x?xf64>, %arg4: !stencil.field<?x?x?xf64>, %arg5: !stencil.field<?x?x?xf64>, %arg6: !stencil.field<?x?x?xf64>, %arg7: !stencil.field<?x?x?xf64>, %arg8: !stencil.field<?x?x?xf64>, %arg9: f64) attributes {stencil.program} {
+  func @p_grad_c(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>, %arg3: !stencil.field<?x?x?xf64>, %arg4: !stencil.field<?x?x?xf64>, %arg5: !stencil.field<?x?x?xf64>, %arg6: !stencil.field<?x?x?xf64>, %arg7: !stencil.field<?x?x?xf64>, %arg8: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
     stencil.assert %arg0([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %arg1([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
     stencil.assert %arg2([-4, -4, -4] : [68, 68, 68]) : !stencil.field<?x?x?xf64>
@@ -22,7 +22,8 @@ module {
       %10 = stencil.access %arg10 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       stencil.return %10 : f64
     }
-    %8 = stencil.apply (%arg10 = %0 : !stencil.temp<?x?x?xf64>, %arg11 = %2 : !stencil.temp<?x?x?xf64>, %arg12 = %7 : !stencil.temp<?x?x?xf64>, %arg13 = %5 : !stencil.temp<?x?x?xf64>, %arg14 = %6 : !stencil.temp<?x?x?xf64>, %arg15 = %arg9 : f64) -> !stencil.temp<?x?x?xf64> {
+    %8 = stencil.apply (%arg10 = %0 : !stencil.temp<?x?x?xf64>, %arg11 = %2 : !stencil.temp<?x?x?xf64>, %arg12 = %7 : !stencil.temp<?x?x?xf64>, %arg13 = %5 : !stencil.temp<?x?x?xf64>, %arg14 = %6 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %dt2 = constant 0.1 : f64
       %10 = stencil.access %arg13 [-1, 0, 1] : (!stencil.temp<?x?x?xf64>) -> f64
       %11 = stencil.access %arg13 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %12 = subf %10, %11 : f64
@@ -42,14 +43,15 @@ module {
       %26 = stencil.access %arg12 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %27 = addf %25, %26 : f64
       %28 = stencil.access %arg11 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-      %29 = mulf %28, %arg15 : f64
+      %29 = mulf %28, %dt2 : f64
       %30 = divf %29, %27 : f64
       %31 = mulf %30, %24 : f64
       %32 = stencil.access %arg10 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %33 = addf %31, %32 : f64
       stencil.return %33 : f64
     }
-    %9 = stencil.apply (%arg10 = %1 : !stencil.temp<?x?x?xf64>, %arg11 = %3 : !stencil.temp<?x?x?xf64>, %arg12 = %7 : !stencil.temp<?x?x?xf64>, %arg13 = %5 : !stencil.temp<?x?x?xf64>, %arg14 = %6 : !stencil.temp<?x?x?xf64>, %arg15 = %arg9 : f64) -> !stencil.temp<?x?x?xf64> {
+    %9 = stencil.apply (%arg10 = %1 : !stencil.temp<?x?x?xf64>, %arg11 = %3 : !stencil.temp<?x?x?xf64>, %arg12 = %7 : !stencil.temp<?x?x?xf64>, %arg13 = %5 : !stencil.temp<?x?x?xf64>, %arg14 = %6 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+      %dt2 = constant 0.1 : f64
       %10 = stencil.access %arg13 [0, -1, 1] : (!stencil.temp<?x?x?xf64>) -> f64
       %11 = stencil.access %arg13 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %12 = subf %10, %11 : f64
@@ -69,7 +71,7 @@ module {
       %26 = stencil.access %arg12 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %27 = addf %25, %26 : f64
       %28 = stencil.access %arg11 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-      %29 = mulf %28, %arg15 : f64
+      %29 = mulf %28, %dt2 : f64
       %30 = divf %29, %27 : f64
       %31 = mulf %30, %24 : f64
       %32 = stencil.access %arg10 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
