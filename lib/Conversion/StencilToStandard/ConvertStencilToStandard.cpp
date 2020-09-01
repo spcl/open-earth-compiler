@@ -489,6 +489,9 @@ public:
 
 struct StencilToStandardPass
     : public StencilToStandardPassBase<StencilToStandardPass> {
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<AffineDialect>();
+  }
   void runOnOperation() override;
 };
 

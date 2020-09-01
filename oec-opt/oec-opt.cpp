@@ -23,6 +23,7 @@
 #include "Conversion/StencilToStandard/Passes.h"
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AsmState.h"
@@ -60,6 +61,7 @@ int main(int argc, char **argv) {
   registry.insert<stencil::StencilDialect>();
   registry.insert<StandardOpsDialect>();
   registry.insert<scf::SCFDialect>();
+  registry.insert<gpu::GPUDialect>();
 
   return failed(
       mlir::MlirOptMain(argc, argv, "Open Earth Compiler driver\n", registry));
