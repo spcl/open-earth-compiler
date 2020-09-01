@@ -192,11 +192,11 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [NoSideEffect]> {
   }];
 
   let verifier = [{
-    // auto tempType = temp().getType().cast<stencil::GridType>();
-    // if (offset().size() != tempType.getRank())
-    //   return emitOpError("offset and temp dimensions do not match");
-    // if (res().getType() != tempType.getElementType())
-    //   return emitOpError("result type and element type are inconsistent");
+    auto tempType = temp().getType().cast<stencil::GridType>();
+    if (offset().size() != tempType.getRank())
+      return emitOpError("offset and temp dimensions do not match");
+    if (res().getType() != tempType.getElementType())
+      return emitOpError("result type and element type are inconsistent");
     return success();
   }];
 
