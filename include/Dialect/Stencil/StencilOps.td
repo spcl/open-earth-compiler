@@ -156,6 +156,56 @@ def Stencil_AccessOp : Stencil_Op<"access", [DeclareOpInterfaceMethods<OffsetOp>
   }];
 }
 
+def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [NoSideEffect]> {
+  let summary = "stencil dyn_access operation";
+  let description = [{
+    This operation accesses a temporary element given a dynamic offset. 
+    The offset is specified in absolute coordinates. An additional 
+    range attribute specifies the maximal access extent relative to the
+    iteration domain of the parent apply operation. 
+
+    Example:
+      %0 = stencil.dyn_access %temp [%i, %j, %k] in [-1, -1, -1]:[1, 1, 1] : !stencil.temp<?x?x?xf64> -> f64
+  }];
+
+  let arguments = (ins Stencil_Temp:$temp, 
+                       Variadic<Index>:$offset, 
+                       Stencil_Index:$lb, 
+                       Stencil_Index:$ub);
+  let results = (outs Stencil_ElementType:$res);
+  
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "Value temp, ValueRange offset, "
+              "ArrayRef<int64_t> lb, ArrayRef<int64_t> ub", [{
+      state.addOperands(temp);
+      state.addOperands(offset);
+      state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
+      state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
+      auto tempType = temp.getType().cast<stencil::GridType>();
+      state.addTypes(tempType.getElementType());
+    }]>
+  ];
+
+  let assemblyFormat = [{
+    $temp `[` $offset `]` `in` $lb `:` $ub attr-dict-with-keyword `:` functional-type($temp, $res)
+  }];
+
+  let verifier = [{
+    // auto tempType = temp().getType().cast<stencil::GridType>();
+    // if (offset().size() != tempType.getRank())
+    //   return emitOpError("offset and temp dimensions do not match");
+    // if (res().getType() != tempType.getElementType())
+    //   return emitOpError("result type and element type are inconsistent");
+    return success();
+  }];
+
+  let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    static StringRef getUBAttrName() { return "ub"; }
+  }];
+}
+
 def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>,
     NoSideEffect]> {
   let summary = "stencil depend operation";
