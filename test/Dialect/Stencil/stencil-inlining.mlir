@@ -1,13 +1,13 @@
-// RUN: oec-opt %s -split-input-file --stencil-inlining -cse | oec-opt | FileCheck %s
+// RUN: oec-opt %s -split-input-file --stencil-inlining --cse | oec-opt | FileCheck %s
 
 // CHECK-LABEL: func @simple(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [0, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [2, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [2, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
 func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
@@ -33,7 +33,7 @@ func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>)
 //  CHECK-LABEL: func @simple_index(%{{.*}}: f64, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : f64) -> !stencil.temp<?x?x?xf64> {
-//   CHECK: %{{.*}} = stencil.index 2 [3, 1, 4] : index
+//  CHECK: %{{.*}} = stencil.index 2 [3, 1, 4] : index
 func @simple_index(%arg0: f64, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %1 = stencil.apply (%arg2 = %arg0 : f64) -> !stencil.temp<?x?x?xf64> {
@@ -62,10 +62,10 @@ func @simple_index(%arg0: f64, %arg1: !stencil.field<?x?x?xf64>) attributes {ste
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>, [[ARG1:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>) ->
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG1]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG1]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
 func @multiple_edges(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
@@ -131,9 +131,9 @@ func @avoid_redundant(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>) ->
-//       CHECK: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-//       CHECK: %{{.*}} = stencil.access [[ARG0]] [0, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
-//       CHECK: %{{.*}} = stencil.access [[ARG0]] [2, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [2, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
 func @reroute(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
@@ -164,22 +164,19 @@ func @reroute(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>) ->
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
 //   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+//   CHECK-DAG: %{{.*}} = stencil.access [[ARG0]] [1, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
 func @root(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %2 = stencil.cast %arg2([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %3 = stencil.load %0 : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
   %4 = stencil.apply (%arg3 = %3 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
-    %6 = stencil.access %arg3 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    %7 = stencil.access %arg3 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    %8 = addf %6, %7 : f64
-    stencil.return %8 : f64
+    %6 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    stencil.return %6 : f64
   }
   %5 = stencil.apply (%arg3 = %3 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
-    %6 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %6 = stencil.access %arg3 [1, 2, 3] : (!stencil.temp<?x?x?xf64>) -> f64
     stencil.return %6 : f64
   }
   stencil.store %4 to %1([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
