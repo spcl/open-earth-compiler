@@ -14,6 +14,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
@@ -224,41 +225,41 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
   }
 };
 
-/// This is a pattern to remove duplicate arguments
+/// This is a pattern to remove duplicate and unused arguments
 struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
   using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
 
-  // Remove duplicates if needed
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Compute the new Operand list
+    // Compute the new operand list and index mapping
+    llvm::DenseMap<Value, unsigned int> newIndex;
     SmallVector<Value, 10> newOperands;
-    for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-      if (!llvm::is_contained(newOperands, applyOp.getOperand(i)))
-        newOperands.push_back(applyOp.getOperand(i));
+    for (auto &en : llvm::enumerate(applyOp.getOperands())) {
+      if (newIndex.count(en.value()) == 0) {
+        if (!applyOp.getBody()->getArgument(en.index()).getUses().empty()) {
+          newIndex[en.value()] = newOperands.size();
+          newOperands.push_back(en.value());
+        } else {
+          // Unused arguments are mapped to the first index
+          newIndex[en.value()] = 0;
+        }
+      }
     }
 
     if (newOperands.size() < applyOp.getNumOperands()) {
-      // Clone the apply op
+      // Create a new apply op
       auto loc = applyOp.getLoc();
       auto newOp = rewriter.create<stencil::ApplyOp>(
           loc, newOperands, applyOp.getResults(), applyOp.seq());
 
-      // Compute the block argument mapping
-      BlockAndValueMapping mapper;
-      for (unsigned i = 0, e = applyOp.getNumOperands(); i != e; ++i) {
-        auto it = llvm::find(newOperands, applyOp.getOperand(i));
-        size_t index = std::distance(newOperands.begin(), it);
-        assert(index <= i && "expected lower replacement index");
-        mapper.map(applyOp.getBody()->getArgument(i),
-                   newOp.getBody()->getArgument(index));
-      }
-
-      // Clone the body
-      rewriter.setInsertionPointToStart(newOp.getBody());
-      for (auto &op : applyOp.getBody()->getOperations()) {
-        rewriter.clone(op, mapper);
-      }
+      // Compute the argument mapping and move the block
+      SmallVector<Value, 10> newArgs(applyOp.getNumOperands());
+      llvm::transform(applyOp.getOperands(), newArgs.begin(), [&](Value value) {
+        return newOperands.empty()
+                   ? value // pass default value if the new apply has no params
+                   : newOp.getBody()->getArgument(newIndex[value]);
+      });
+      rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(), newArgs);
 
       // Replace all uses of the applyOp results
       rewriter.replaceOp(applyOp, newOp.getResults());
