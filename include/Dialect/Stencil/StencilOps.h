@@ -28,7 +28,10 @@ struct ApplyOpPattern : public OpRewritePattern<stencil::ApplyOp> {
   ApplyOpPattern(MLIRContext *context);
 
   stencil::ApplyOp cleanupOpArguments(stencil::ApplyOp applyOp,
-                                   PatternRewriter &rewriter) const;
+                                      PatternRewriter &rewriter) const;
+
+  LogicalResult cleanupOpResults(stencil::ApplyOp applyOp,
+                                 PatternRewriter &rewriter) const;
 };
 
 } // namespace stencil

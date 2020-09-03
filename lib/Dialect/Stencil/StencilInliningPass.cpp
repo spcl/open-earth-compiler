@@ -43,12 +43,12 @@ struct StencilInliningPattern : public ApplyOpPattern {
                         [&](Operation *op) { return op == applyOp; });
   }
 
-  // Check if inlining is imposible at all
-  bool isStencilInliningImpossible(stencil::ApplyOp producerOp,
-                                   stencil::ApplyOp consumerOp) const {
+  // Check if inlining is possible
+  bool isStencilInliningPossible(stencil::ApplyOp producerOp,
+                                 stencil::ApplyOp consumerOp) const {
     // Do not inline sequential producers or consumers currently
     if (producerOp.seq().hasValue() || consumerOp.seq().hasValue())
-      return true;
+      return false;
 
     // Do not inline producers accessed at dynamic offsets
     for (auto operand : llvm::enumerate(consumerOp.operands())) {
@@ -56,28 +56,26 @@ struct StencilInliningPattern : public ApplyOpPattern {
           llvm::any_of(
               consumerOp.getBody()->getArgument(operand.index()).getUsers(),
               [](Operation *op) { return isa<stencil::DynAccessOp>(op); }))
-        return true;
+        return false;
     }
-
-    return false;
+    return true;
   }
 
-  // Check if rerouting is impossible
-  bool isStencilReroutingImpossible(stencil::ApplyOp producerOp,
-                                    stencil::ApplyOp consumerOp) const {
-    // Ensure the producer has not a single use otherwise inlining applies
+  // Check if rerouting is possible
+  bool isStencilReroutingPossible(stencil::ApplyOp producerOp,
+                                  stencil::ApplyOp consumerOp) const {
+    // Perform producer consumer inlining instead
     if (hasSingleConsumer(producerOp, consumerOp))
-      return true;
+      return false;
 
     // Ensure the consumer dependencies are computed before the producer
     for (auto operand : consumerOp.getOperands()) {
       if (operand.getDefiningOp()) {
         if (producerOp.getOperation()->isBeforeInBlock(operand.getDefiningOp()))
-          return true;
+          return false;
       }
     }
-
-    return false;
+    return true;
   }
 };
 
@@ -138,8 +136,14 @@ struct RerouteRewrite : public StencilInliningPattern {
     rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), retOperands, nullptr);
     rewriter.eraseOp(returnOp);
 
+    SmallVector<Value, 10> newProducerRes =
+        newOp.getResults().take_back(rerouteCount);
+    // Duplicate the last element until we have enough replacement values
+    while (newProducerRes.size() < producerOp.getNumResults())
+      newProducerRes.push_back(newProducerRes.back());
+
     // Replace the producer and consumer ops
-    rewriter.replaceOp(producerOp, newOp.getResults().take_back(rerouteCount));
+    rewriter.replaceOp(producerOp, newProducerRes);
     rewriter.replaceOp(
         consumerOp, newOp.getResults().take_front(consumerOp.getNumResults()));
     return success();
@@ -152,21 +156,16 @@ struct RerouteRewrite : public StencilInliningPattern {
     for (auto operand : applyOp.operands()) {
       if (operand.getDefiningOp()) {
         for (auto user : operand.getDefiningOp()->getUsers()) {
-          // Only consider other consumers
-          if (user == applyOp.getOperation())
-            continue;
-
-          // Only consider users before the apply
-          if (!user->isBeforeInBlock(applyOp))
-            continue;
-
           // Only consider other apply operations
           if (auto producerOp = dyn_cast<stencil::ApplyOp>(user)) {
-            if (isStencilReroutingImpossible(producerOp, applyOp) ||
-                isStencilInliningImpossible(producerOp, applyOp))
+            // Only consider other consumers before the apply op
+            if (user == applyOp.getOperation() ||
+                !user->isBeforeInBlock(applyOp))
               continue;
 
-            return redirectStore(producerOp, applyOp, rewriter);
+            if (isStencilReroutingPossible(producerOp, applyOp) &&
+                isStencilInliningPossible(producerOp, applyOp))
+              return redirectStore(producerOp, applyOp, rewriter);
           }
         }
       }
@@ -241,8 +240,8 @@ struct InliningRewrite : public StencilInliningPattern {
     // Clean unused and duplicate arguments of the build op
     auto newOp = cleanupOpArguments(buildOp, rewriter);
     assert(newOp && "expected op to have unused producer consumer edges");
-    
-    // Update the all uses and copy the loop bounds
+
+    // Update the all uses and cleanup temporary ops
     rewriter.replaceOp(consumerOp, newOp.getResults());
     rewriter.eraseOp(buildOp);
     rewriter.eraseOp(producerOp);
@@ -256,11 +255,8 @@ struct InliningRewrite : public StencilInliningPattern {
       if (auto producerOp =
               dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
         // Try the next producer if inlining the current one is not possible
-        if (isStencilInliningImpossible(producerOp, applyOp))
-          continue;
-
-        // Inline if the producer has a single consumer
-        if (hasSingleConsumer(producerOp, applyOp)) {
+        if (isStencilInliningPossible(producerOp, applyOp) &&
+            hasSingleConsumer(producerOp, applyOp)) {
           return inlineProducer(producerOp, applyOp, producerOp.getResults(),
                                 rewriter);
         }

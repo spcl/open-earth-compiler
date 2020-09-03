@@ -170,6 +170,100 @@ void stencil::ApplyOp::setOperandShape(Value operand, TempType newType) {
   arg.setType(newType);
 }
 
+//===----------------------------------------------------------------------===//
+// Canonicalization
+//===----------------------------------------------------------------------===//
+
+stencil::ApplyOpPattern::ApplyOpPattern(MLIRContext *context)
+    : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
+
+stencil::ApplyOp
+stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
+                                            PatternRewriter &rewriter) const {
+  // Compute the new operand list and index mapping
+  llvm::DenseMap<Value, unsigned int> newIndex;
+  SmallVector<Value, 10> newOperands;
+  for (auto &en : llvm::enumerate(applyOp.getOperands())) {
+    if (newIndex.count(en.value()) == 0) {
+      if (!applyOp.getBody()->getArgument(en.index()).getUses().empty()) {
+        newIndex[en.value()] = newOperands.size();
+        newOperands.push_back(en.value());
+      } else {
+        // Unused arguments are mapped to the first index
+        newIndex[en.value()] = 0;
+      }
+    }
+  }
+
+  // Create a new operation with shorther argument list
+  if (newOperands.size() < applyOp.getNumOperands()) {
+    auto loc = applyOp.getLoc();
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        loc, newOperands, applyOp.getResults(), applyOp.seq());
+
+    // Compute the argument mapping and move the block
+    SmallVector<Value, 10> newArgs(applyOp.getNumOperands());
+    llvm::transform(applyOp.getOperands(), newArgs.begin(), [&](Value value) {
+      return newOperands.empty()
+                 ? value // pass default value if the new apply has no params
+                 : newOp.getBody()->getArgument(newIndex[value]);
+    });
+    rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(), newArgs);
+    return newOp;
+  }
+  return nullptr;
+}
+
+LogicalResult
+stencil::ApplyOpPattern::cleanupOpResults(stencil::ApplyOp applyOp,
+                                          PatternRewriter &rewriter) const {
+  // Compute the new return operands
+  llvm::DenseMap<Value, unsigned> newIndex;
+  SmallVector<OperandRange, 10> newRanges;
+  SmallVector<Value, 10> newOperands;
+  SmallVector<Value, 10> newResults;
+  auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+  unsigned factor = returnOp.getUnrollFactor();
+  for (auto &en : llvm::enumerate(applyOp.getResults())) {
+    auto range = returnOp.getOperands().slice(en.index() * factor, factor);
+    // Skip if the values have been stored before
+    auto pos = llvm::find(newRanges, range);
+    if (pos == newRanges.end()) {
+      newRanges.push_back(range);
+      newOperands.insert(newOperands.end(), range.begin(), range.end());
+      newResults.push_back(en.value());
+      newIndex[en.value()] = en.index();
+    } else {
+      newIndex[en.value()] = std::distance(newRanges.begin(), pos);
+    }
+  }
+
+  // Remove duplicates if needed
+  if (newOperands.size() < returnOp.getNumOperands()) {
+    // Replace the return op
+    rewriter.setInsertionPoint(returnOp);
+    rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
+                                       returnOp.unroll());
+
+    // Create a new apply op
+    rewriter.setInsertionPoint(applyOp);
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        applyOp.getLoc(), applyOp.getOperands(), newResults, applyOp.seq());
+    rewriter.inlineRegionBefore(applyOp.region(), newOp.region(),
+                                newOp.region().begin());
+
+    // Compute the replacement values
+    SmallVector<Value, 10> repResults;
+    for (auto result : applyOp.getResults())
+      repResults.push_back(newOp.getResult(newIndex[result]));
+
+    rewriter.replaceOp(applyOp, repResults);
+    rewriter.eraseOp(returnOp);
+    return success();
+  }
+  return failure();
+}
+
 namespace {
 
 /// This is a pattern to remove duplicate results
@@ -178,51 +272,7 @@ struct ApplyOpResultCleaner : public stencil::ApplyOpPattern {
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Compute the new return operands
-    llvm::DenseMap<Value, unsigned> newIndex;
-    SmallVector<OperandRange, 10> newRanges;
-    SmallVector<Value, 10> newOperands;
-    SmallVector<Value, 10> newResults;
-    auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-    unsigned factor = returnOp.getUnrollFactor();
-    for (auto &en : llvm::enumerate(applyOp.getResults())) {
-      auto range = returnOp.getOperands().slice(en.index() * factor, factor);
-      // Skip if the values have been stored before
-      auto pos = llvm::find(newRanges, range);
-      if (pos == newRanges.end()) {
-        newRanges.push_back(range);
-        newOperands.insert(newOperands.end(), range.begin(), range.end());
-        newResults.push_back(en.value());
-        newIndex[en.value()] = en.index();
-      } else {
-        newIndex[en.value()] = std::distance(newRanges.begin(), pos);
-      }
-    }
-
-    // Remove duplicates if needed
-    if (newOperands.size() < returnOp.getNumOperands()) {
-      // Replace the return op
-      rewriter.setInsertionPoint(returnOp);
-      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
-                                         returnOp.unroll());
-
-      // Create a new apply op
-      rewriter.setInsertionPoint(applyOp);
-      auto newOp = rewriter.create<stencil::ApplyOp>(
-          applyOp.getLoc(), applyOp.getOperands(), newResults, applyOp.seq());
-      rewriter.inlineRegionBefore(applyOp.region(), newOp.region(),
-                                  newOp.region().begin());
-
-      // Compute the replacement values
-      SmallVector<Value, 10> repResults;
-      for (auto result : applyOp.getResults())
-        repResults.push_back(newOp.getResult(newIndex[result]));
-
-      rewriter.replaceOp(applyOp, repResults);
-      rewriter.eraseOp(returnOp);
-      return success();
-    }
-    return failure();
+    return cleanupOpResults(applyOp, rewriter);
   }
 };
 
@@ -232,7 +282,7 @@ struct ApplyOpArgumentCleaner : public stencil::ApplyOpPattern {
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    if(auto newOp = cleanupOpArguments(applyOp, rewriter)) {
+    if (auto newOp = cleanupOpArguments(applyOp, rewriter)) {
       rewriter.replaceOp(applyOp, newOp.getResults());
       return success();
     }
@@ -343,46 +393,6 @@ namespace stencil {
 
 #define GET_OP_CLASSES
 #include "Dialect/Stencil/StencilOps.cpp.inc"
-
-ApplyOpPattern::ApplyOpPattern(MLIRContext *context)
-    : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
-
-stencil::ApplyOp
-ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
-                                   PatternRewriter &rewriter) const {
-  // Compute the new operand list and index mapping
-  llvm::DenseMap<Value, unsigned int> newIndex;
-  SmallVector<Value, 10> newOperands;
-  for (auto &en : llvm::enumerate(applyOp.getOperands())) {
-    if (newIndex.count(en.value()) == 0) {
-      if (!applyOp.getBody()->getArgument(en.index()).getUses().empty()) {
-        newIndex[en.value()] = newOperands.size();
-        newOperands.push_back(en.value());
-      } else {
-        // Unused arguments are mapped to the first index
-        newIndex[en.value()] = 0;
-      }
-    }
-  }
-
-  // Create a new operation with shorther argument list
-  if (newOperands.size() < applyOp.getNumOperands()) {
-    auto loc = applyOp.getLoc();
-    auto newOp = rewriter.create<stencil::ApplyOp>(
-        loc, newOperands, applyOp.getResults(), applyOp.seq());
-
-    // Compute the argument mapping and move the block
-    SmallVector<Value, 10> newArgs(applyOp.getNumOperands());
-    llvm::transform(applyOp.getOperands(), newArgs.begin(), [&](Value value) {
-      return newOperands.empty()
-                 ? value // pass default value if the new apply has no params
-                 : newOp.getBody()->getArgument(newIndex[value]);
-    });
-    rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(), newArgs);
-    return newOp;
-  }
-  return nullptr;
-}
 
 } // namespace stencil
 } // namespace mlir
