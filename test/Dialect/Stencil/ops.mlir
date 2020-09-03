@@ -13,9 +13,9 @@ func @access(%in1 : !stencil.temp<10x20x30xf64>, %in2 : !stencil.temp<10x20x0xf3
 
 // CHECK-LABEL: func @dyn_access(%{{.*}}: !stencil.temp<10x20x30xf64>, %{{.*}}: !stencil.temp<10x20x0xf32>, %{{.*}}: index) {
 func @dyn_access(%in1 : !stencil.temp<10x20x30xf64>, %in2 : !stencil.temp<10x20x0xf32>, %idx : index) {
-  //  CHECK-NEXT: %{{.*}} = stencil.dyn_access %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] in [-3, -3, 0] : [3, 3, 0] : (!stencil.temp<10x20x30xf64>) -> f64
+  //  CHECK-NEXT: %{{.*}} = stencil.dyn_access %{{.*}}(%{{.*}}, %{{.*}}, %{{.*}}) in [-3, -3, 0] : [3, 3, 0] : (!stencil.temp<10x20x30xf64>) -> f64
   %0 = "stencil.dyn_access"(%in1, %idx, %idx, %idx) {lb=[-3,-3,0], ub=[3,3,0]} : (!stencil.temp<10x20x30xf64>, index, index, index) -> f64
-  //  CHECK-NEXT: %{{.*}} = stencil.dyn_access %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] in [-3, -3, 0] : [3, 3, 0] : (!stencil.temp<10x20x0xf32>) -> f32
+  //  CHECK-NEXT: %{{.*}} = stencil.dyn_access %{{.*}}(%{{.*}}, %{{.*}}, %{{.*}}) in [-3, -3, 0] : [3, 3, 0] : (!stencil.temp<10x20x0xf32>) -> f32
   %1 = "stencil.dyn_access"(%in2, %idx, %idx, %idx) {lb=[-3,-3,0], ub=[3,3,0]} : (!stencil.temp<10x20x0xf32>, index, index, index) -> f32
   return
 }

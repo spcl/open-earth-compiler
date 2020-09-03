@@ -165,7 +165,7 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [NoSideEffect]> {
     iteration domain of the parent apply operation. 
 
     Example:
-      %0 = stencil.dyn_access %temp [%i, %j, %k] in [-1, -1, -1]:[1, 1, 1] : !stencil.temp<?x?x?xf64> -> f64
+      %0 = stencil.dyn_access %temp (%i, %j, %k) in [-1, -1, -1] : [1, 1, 1] : !stencil.temp<?x?x?xf64> -> f64
   }];
 
   let arguments = (ins Stencil_Temp:$temp, 
@@ -188,7 +188,7 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [NoSideEffect]> {
   ];
 
   let assemblyFormat = [{
-    $temp `[` $offset `]` `in` $lb `:` $ub attr-dict-with-keyword `:` functional-type($temp, $res)
+    $temp `(` $offset `)` `in` $lb `:` $ub attr-dict-with-keyword `:` functional-type($temp, $res)
   }];
 
   let verifier = [{

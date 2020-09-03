@@ -136,14 +136,15 @@ struct RerouteRewrite : public StencilInliningPattern {
     rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), retOperands, nullptr);
     rewriter.eraseOp(returnOp);
 
-    SmallVector<Value, 10> newProducerRes =
+    // Compute the replacement values for the producer results
+    SmallVector<Value, 10> repResults =
         newOp.getResults().take_back(rerouteCount);
     // Duplicate the last element until we have enough replacement values
-    while (newProducerRes.size() < producerOp.getNumResults())
-      newProducerRes.push_back(newProducerRes.back());
+    while (repResults.size() < producerOp.getNumResults())
+      repResults.push_back(repResults.back());
 
     // Replace the producer and consumer ops
-    rewriter.replaceOp(producerOp, newProducerRes);
+    rewriter.replaceOp(producerOp, repResults);
     rewriter.replaceOp(
         consumerOp, newOp.getResults().take_front(consumerOp.getNumResults()));
     return success();
