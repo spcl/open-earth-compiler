@@ -33,9 +33,8 @@ using namespace stencil;
 namespace {
 
 // Base class for the stencil inlining patterns
-struct StencilInliningPattern : public OpRewritePattern<stencil::ApplyOp> {
-  StencilInliningPattern(MLIRContext *context)
-      : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/2) {}
+struct StencilInliningPattern : public ApplyOpPattern {
+  using ApplyOpPattern::ApplyOpPattern;
 
   // Check if the the apply operation is the only consumer
   bool hasSingleConsumer(stencil::ApplyOp producerOp,
@@ -99,7 +98,7 @@ struct RerouteRewrite : public StencilInliningPattern {
     // Compute operand and result lists for the new consumer
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
     SmallVector<Value, 10> newResults = consumerOp.getResults();
-    unsigned numOfReroutes = 0;
+    unsigned rerouteCount = 0;
     for (auto results :
          llvm::zip(producerOp.getResults(), clonedOp.getResults())) {
       Value original, cloned;
@@ -109,7 +108,7 @@ struct RerouteRewrite : public StencilInliningPattern {
                        [&](Operation *op) { return op != consumerOp; })) {
         newResults.push_back(cloned);
         newOperands.push_back(cloned);
-        numOfReroutes++;
+        rerouteCount++;
       }
       // Replace the producer of result in the operands
       llvm::transform(newOperands, newOperands.begin(), [&](Value value) {
@@ -122,7 +121,7 @@ struct RerouteRewrite : public StencilInliningPattern {
         consumerOp.getLoc(), newOperands, newResults, None);
     rewriter.mergeBlocks(consumerOp.getBody(), newOp.getBody(),
                          newOp.getBody()->getArguments().take_front(
-                          consumerOp.getNumOperands()));
+                             consumerOp.getNumOperands()));
 
     // Get the terminator of the cloned consumer op
     auto returnOp =
@@ -131,7 +130,7 @@ struct RerouteRewrite : public StencilInliningPattern {
 
     // Add accesses to rerouted operands and replace the return op
     SmallVector<Value, 10> retOperands = returnOp.getOperands();
-    for (auto arg : newOp.getBody()->getArguments().take_back(numOfReroutes)) {
+    for (auto arg : newOp.getBody()->getArguments().take_back(rerouteCount)) {
       Index zeroOffset = {0, 0, 0};
       retOperands.push_back(rewriter.create<stencil::AccessOp>(
           returnOp.getLoc(), arg, zeroOffset));
@@ -140,35 +139,18 @@ struct RerouteRewrite : public StencilInliningPattern {
     rewriter.eraseOp(returnOp);
 
     // Replace the producer and consumer ops
-    rewriter.replaceOp(producerOp, newOp.getResults().take_back(numOfReroutes));
+    rewriter.replaceOp(producerOp, newOp.getResults().take_back(rerouteCount));
     rewriter.replaceOp(
         consumerOp, newOp.getResults().take_front(consumerOp.getNumResults()));
     return success();
   }
 
-  // Search a matching producer that can be rerouted
-  stencil::ApplyOp searchMatchingProducer(stencil::ApplyOp applyOp) const {
-    // Search a producer that can be rerouted
+  // Find a match and reroute the outputs of the stencil apply
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                PatternRewriter &rewriter) const override {
+    // Find two apply ops with a shared dependency
     for (auto operand : applyOp.operands()) {
-      if (auto producerOp =
-              dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
-        if (isStencilReroutingImpossible(producerOp, applyOp) ||
-            isStencilInliningImpossible(producerOp, applyOp))
-          continue;
-
-        return producerOp;
-      }
-    }
-
-    return nullptr;
-  }
-
-  // Search a matching consumer of the same input
-  stencil::ApplyOp searchMatchingConsumer(stencil::ApplyOp applyOp) const {
-    // Search a consumer that shares the same input
-    for (auto operand : applyOp.operands()) {
-      if (operand.getDefiningOp() &&
-          !isa<stencil::ApplyOp>(operand.getDefiningOp())) {
+      if (operand.getDefiningOp()) {
         for (auto user : operand.getDefiningOp()->getUsers()) {
           // Only consider other consumers
           if (user == applyOp.getOperation())
@@ -179,35 +161,16 @@ struct RerouteRewrite : public StencilInliningPattern {
             continue;
 
           // Only consider other apply operations
-          if (auto consumerOp = dyn_cast<stencil::ApplyOp>(user)) {
-            if (isStencilReroutingImpossible(consumerOp, applyOp) ||
-                isStencilInliningImpossible(consumerOp, applyOp))
+          if (auto producerOp = dyn_cast<stencil::ApplyOp>(user)) {
+            if (isStencilReroutingImpossible(producerOp, applyOp) ||
+                isStencilInliningImpossible(producerOp, applyOp))
               continue;
 
-            return consumerOp;
+            return redirectStore(producerOp, applyOp, rewriter);
           }
         }
       }
     }
-
-    return nullptr;
-  }
-
-  // Find a match and reroute the outputs of the stencil apply
-  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
-                                PatternRewriter &rewriter) const override {
-
-    // Only one should be needed
-    // // Try to reroute the outputs of matching producer
-    // if (auto producerOp = searchMatchingProducer(applyOp)) {
-    //   return redirectStore(producerOp, applyOp, rewriter);
-    // }
-
-    // Try to reroute the outputs of consumer that shares an input
-    if (auto producerOp = searchMatchingConsumer(applyOp)) {
-      return redirectStore(producerOp, applyOp, rewriter);
-    }
-
     return failure();
   }
 };
@@ -217,87 +180,71 @@ struct RerouteRewrite : public StencilInliningPattern {
 struct InliningRewrite : public StencilInliningPattern {
   using StencilInliningPattern::StencilInliningPattern;
 
-  // Helper method replacing all uses of temporary by inline computation
-  void replaceAccess(stencil::ApplyOp consumerOp, stencil::AccessOp accessOp,
-                     ValueRange producerResults, stencil::ReturnOp returnOp,
-                     PatternRewriter &rewriter) const {
-    for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
-      if (consumerOp.getBody()->getArgument(i) == accessOp.temp()) {
-        size_t index = std::distance(
-            producerResults.begin(),
-            llvm::find(producerResults, consumerOp.getOperand(i)));
-        assert(index < returnOp.getNumOperands() &&
-               "failed to find inlined computation");
-        rewriter.replaceOp(accessOp, returnOp.getOperand(index));
-        break;
-      }
-    }
-  }
-
   // Helper method inlining the producer computation
   LogicalResult inlineProducer(stencil::ApplyOp producerOp,
                                stencil::ApplyOp consumerOp,
                                ValueRange producerResults,
                                PatternRewriter &rewriter) const {
-    // Compute the operand list and an argument mapper befor cloning
-    BlockAndValueMapping mapper;
-    SmallVector<Value, 10> newOperands;
-    for (unsigned i = 0, e = consumerOp.getNumOperands(); i != e; ++i) {
-      if (llvm::is_contained(producerResults, consumerOp.getOperand(i)))
-        mapper.map(consumerOp.getBody()->getArgument(i),
-                   consumerOp.getBody()->getArgument(i));
-      else
-        newOperands.push_back(consumerOp.getOperand(i));
-    }
-    for (auto operand : producerOp.getOperands()) {
-      if (!llvm::is_contained(newOperands, operand)) {
-        newOperands.push_back(operand);
-        consumerOp.getBody()->addArgument(operand.getType());
+    // Concatenate the operands of producer and consumer
+    SmallVector<Value, 10> buildOperands = producerOp.getOperands();
+    buildOperands.insert(buildOperands.end(), consumerOp.getOperands().begin(),
+                         consumerOp.getOperands().end());
+
+    // Create a build op to assemble the body of the inlined stencil
+    auto loc = consumerOp.getLoc();
+    auto buildOp = rewriter.create<stencil::ApplyOp>(
+        loc, buildOperands, consumerOp.getResults(), None);
+    rewriter.mergeBlocks(consumerOp.getBody(), buildOp.getBody(),
+                         buildOp.getBody()->getArguments().take_back(
+                             consumerOp.getNumOperands()));
+
+    // Compute the producer result arguments and the replacement offset
+    SmallVector<Value, 10> repArgs;
+    SmallVector<size_t, 10> repIdx;
+    for (auto it :
+         llvm::zip(buildOperands, buildOp.getBody()->getArguments())) {
+      auto pos = std::find(producerOp.getResults().begin(),
+                           producerOp.getResults().end(), std::get<0>(it));
+      if (pos != producerOp.getResults().end()) {
+        repArgs.push_back(std::get<1>(it));
+        repIdx.push_back(std::distance(producerOp.getResults().begin(), pos));
       }
     }
 
-    // Clone the consumer op
-    auto loc = consumerOp.getLoc();
-    auto newOp = rewriter.create<stencil::ApplyOp>(
-        loc, newOperands, consumerOp.getResults(), None);
-    rewriter.cloneRegionBefore(consumerOp.region(), newOp.region(),
-                               newOp.region().begin(), mapper);
-
-    // Add mappings for the producer operands
-    for (unsigned i = 0, e = producerOp.getNumOperands(); i != e; ++i) {
-      auto it = llvm::find(newOperands, producerOp.getOperand(i));
-      assert(it != newOperands.end() && "expected to find producer operand");
-      mapper.map(
-          producerOp.getBody()->getArgument(i),
-          newOp.getBody()->getArgument(std::distance(newOperands.begin(), it)));
-    }
-
     // Walk accesses of producer results and replace them by computation
-    newOp.walk([&](stencil::AccessOp accessOp) {
-      if (llvm::count(newOp.getBody()->getArguments(), accessOp.temp()) == 0) {
+    buildOp.walk([&](stencil::AccessOp accessOp) {
+      auto pos = std::find(repArgs.begin(), repArgs.end(), accessOp.temp());
+      if (pos != repArgs.end()) {
+        // Get the shift offset
         auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
         Index offset = offsetOp.getOffset();
-        // Copy the operations in after the access op
-        rewriter.setInsertionPoint(accessOp);
-        for (auto &op : producerOp.getBody()->getOperations()) {
-          auto clonedOp = rewriter.clone(op, mapper);
-          clonedOp->walk([&](stencil::OffsetOp offsetOp) {
-            offsetOp.setOffset(applyFunElementWise(offsetOp.getOffset(), offset,
-                                                   std::plus<int64_t>()));
-          });
-        }
-
-        // Replace all uses of the accesOp
+        // Clone the entire producer and shift all accesses
+        auto clonedOp = cast<stencil::ApplyOp>(rewriter.clone(*producerOp));
+        clonedOp.walk([&](stencil::OffsetOp offsetOp) {
+          offsetOp.setOffset(applyFunElementWise(offsetOp.getOffset(), offset,
+                                                 std::plus<int64_t>()));
+        });
+        // Merge into to build op and erase the clone
+        rewriter.mergeBlockBefore(clonedOp.getBody(), accessOp,
+                                  buildOp.getBody()->getArguments().take_front(
+                                      producerOp.getNumOperands()));
+        rewriter.eraseOp(clonedOp);
+        // Replace the access operation by the result of return operation
+        auto index = repIdx[std::distance(repArgs.begin(), pos)];
         stencil::ReturnOp returnOp =
             cast<stencil::ReturnOp>(*std::prev(Block::iterator(accessOp)));
-        replaceAccess(consumerOp, accessOp, producerResults, returnOp,
-                      rewriter);
+        rewriter.replaceOp(accessOp, returnOp.getOperand(index));
         rewriter.eraseOp(returnOp);
       }
     });
 
+    // Clean unused and duplicate arguments of the build op
+    auto newOp = cleanupOpArguments(buildOp, rewriter);
+    assert(newOp && "expected op to have unused producer consumer edges");
+    
     // Update the all uses and copy the loop bounds
     rewriter.replaceOp(consumerOp, newOp.getResults());
+    rewriter.eraseOp(buildOp);
     rewriter.eraseOp(producerOp);
     return success();
   }
@@ -321,7 +268,7 @@ struct InliningRewrite : public StencilInliningPattern {
     }
     return failure();
   }
-};
+}; // namespace
 
 struct StencilInliningPass
     : public StencilInliningPassBase<StencilInliningPass> {

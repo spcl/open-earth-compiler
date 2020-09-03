@@ -173,8 +173,8 @@ void stencil::ApplyOp::setOperandShape(Value operand, TempType newType) {
 namespace {
 
 /// This is a pattern to remove duplicate results
-struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
-  using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
+struct ApplyOpResultCleaner : public stencil::ApplyOpPattern {
+  using ApplyOpPattern::ApplyOpPattern;
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
@@ -217,7 +217,7 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
       SmallVector<Value, 10> repResults;
       for (auto result : applyOp.getResults())
         repResults.push_back(newOp.getResult(newIndex[result]));
-        
+
       rewriter.replaceOp(applyOp, repResults);
       rewriter.eraseOp(returnOp);
       return success();
@@ -227,42 +227,12 @@ struct ApplyOpResCleaner : public OpRewritePattern<stencil::ApplyOp> {
 };
 
 /// This is a pattern to remove duplicate and unused arguments
-struct ApplyOpArgCleaner : public OpRewritePattern<stencil::ApplyOp> {
-  using OpRewritePattern<stencil::ApplyOp>::OpRewritePattern;
+struct ApplyOpArgumentCleaner : public stencil::ApplyOpPattern {
+  using ApplyOpPattern::ApplyOpPattern;
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Compute the new operand list and index mapping
-    llvm::DenseMap<Value, unsigned int> newIndex;
-    SmallVector<Value, 10> newOperands;
-    for (auto &en : llvm::enumerate(applyOp.getOperands())) {
-      if (newIndex.count(en.value()) == 0) {
-        if (!applyOp.getBody()->getArgument(en.index()).getUses().empty()) {
-          newIndex[en.value()] = newOperands.size();
-          newOperands.push_back(en.value());
-        } else {
-          // Unused arguments are mapped to the first index
-          newIndex[en.value()] = 0;
-        }
-      }
-    }
-
-    if (newOperands.size() < applyOp.getNumOperands()) {
-      // Create a new apply op
-      auto loc = applyOp.getLoc();
-      auto newOp = rewriter.create<stencil::ApplyOp>(
-          loc, newOperands, applyOp.getResults(), applyOp.seq());
-
-      // Compute the argument mapping and move the block
-      SmallVector<Value, 10> newArgs(applyOp.getNumOperands());
-      llvm::transform(applyOp.getOperands(), newArgs.begin(), [&](Value value) {
-        return newOperands.empty()
-                   ? value // pass default value if the new apply has no params
-                   : newOp.getBody()->getArgument(newIndex[value]);
-      });
-      rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(), newArgs);
-
-      // Replace all uses of the applyOp results
+    if(auto newOp = cleanupOpArguments(applyOp, rewriter)) {
       rewriter.replaceOp(applyOp, newOp.getResults());
       return success();
     }
@@ -350,7 +320,7 @@ struct StoreOpHoisting : public OpRewritePattern<stencil::StoreOp> {
 // Register canonicalization patterns
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<ApplyOpArgCleaner, ApplyOpResCleaner>(context);
+  results.insert<ApplyOpArgumentCleaner, ApplyOpResultCleaner>(context);
 }
 
 void stencil::CastOp::getCanonicalizationPatterns(
@@ -373,5 +343,46 @@ namespace stencil {
 
 #define GET_OP_CLASSES
 #include "Dialect/Stencil/StencilOps.cpp.inc"
+
+ApplyOpPattern::ApplyOpPattern(MLIRContext *context)
+    : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
+
+stencil::ApplyOp
+ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
+                                   PatternRewriter &rewriter) const {
+  // Compute the new operand list and index mapping
+  llvm::DenseMap<Value, unsigned int> newIndex;
+  SmallVector<Value, 10> newOperands;
+  for (auto &en : llvm::enumerate(applyOp.getOperands())) {
+    if (newIndex.count(en.value()) == 0) {
+      if (!applyOp.getBody()->getArgument(en.index()).getUses().empty()) {
+        newIndex[en.value()] = newOperands.size();
+        newOperands.push_back(en.value());
+      } else {
+        // Unused arguments are mapped to the first index
+        newIndex[en.value()] = 0;
+      }
+    }
+  }
+
+  // Create a new operation with shorther argument list
+  if (newOperands.size() < applyOp.getNumOperands()) {
+    auto loc = applyOp.getLoc();
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        loc, newOperands, applyOp.getResults(), applyOp.seq());
+
+    // Compute the argument mapping and move the block
+    SmallVector<Value, 10> newArgs(applyOp.getNumOperands());
+    llvm::transform(applyOp.getOperands(), newArgs.begin(), [&](Value value) {
+      return newOperands.empty()
+                 ? value // pass default value if the new apply has no params
+                 : newOp.getBody()->getArgument(newIndex[value]);
+    });
+    rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(), newArgs);
+    return newOp;
+  }
+  return nullptr;
+}
+
 } // namespace stencil
 } // namespace mlir
