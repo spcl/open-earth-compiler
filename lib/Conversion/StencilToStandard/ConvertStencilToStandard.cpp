@@ -25,8 +25,10 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include <bits/stdint-intn.h>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <tuple>
 
 using namespace mlir;
@@ -351,13 +353,12 @@ public:
     assert(inductionVars.size() == dynAccessOp.offset().size() &&
            "expected loop nest and access offset to have the same size");
 
-    // Reverse the order of the offsets and filter the non allocated dims
-    SmallVector<Value, 3> loadOffset;
+    // Add the negative lower bound to the offset
     auto tempType = dynAccessOp.temp().getType().cast<TempType>();
-    for (auto it : llvm::zip(tempType.getAllocation(), dynAccessOp.offset())) {
-      if (std::get<0>(it))
-        loadOffset.insert(loadOffset.begin(), std::get<1>(it));
-    }
+    auto tempLB = valueToLB[dynAccessOp.temp()];
+    llvm::transform(tempLB, tempLB.begin(), std::negate<int64_t>());
+    auto loadOffset = computeIndexValues(dynAccessOp.offset(), tempLB,
+                                         tempType.getAllocation(), rewriter);
 
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
