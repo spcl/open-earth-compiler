@@ -279,3 +279,31 @@ func @depend_op(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   } to ([0, 0, 0]:[7, 7, 7])
   return
 }
+
+// -----
+
+// CHECK-LABEL: @dyn_access_lowering
+func @dyn_access_lowering(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<0x?x?xf64>) attributes {stencil.program} {
+  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
+  %1 = stencil.cast %arg1 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<0x?x?xf64>) -> !stencil.field<0x10x10xf64>
+  // CHECK: %{{.*}} = subview %{{.*}}[0, 0, 0] [10, 10, 10] [1, 1, 1]
+  // CHECK: %{{.*}} = subview %{{.*}}[0, 0] [10, 10] [1, 1]
+  %2 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
+  %3 = stencil.load %1 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<0x10x10xf64>) -> !stencil.temp<0x10x10xf64>
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  %4 = stencil.apply (%arg2 = %2 : !stencil.temp<10x10x10xf64>, %arg3 = %3 : !stencil.temp<0x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
+    // CHECK-DAG: [[C0:%.*]] = constant 0 : index
+    // CHECK-DAG: [[C1:%.*]] = constant 1 : index
+    // CHECK-DAG: [[C2:%.*]] = constant 2 : index
+    // CHECK: %{{.*}} = load %{{.*}}{{\[}}[[C2]], [[C1]], [[C0]]{{[]]}}
+    // CHECK: %{{.*}} = load %{{.*}}{{\[}}[[C2]], [[C1]]{{[]]}}
+    %c0 = constant 0 : index
+    %c1 = constant 1 : index
+    %c2 = constant 2 : index
+    %5 = stencil.dyn_access %arg2(%c0, %c1, %c2) in [0, 0, 0] : [0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
+    %6 = stencil.dyn_access %arg3(%c0, %c1, %c2) in [0, 0, 0] : [0, 1, 2] : (!stencil.temp<0x10x10xf64>) -> f64
+    %7 = addf %5, %6 : f64
+    stencil.return %7 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}

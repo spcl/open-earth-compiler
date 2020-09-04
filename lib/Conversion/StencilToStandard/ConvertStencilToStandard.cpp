@@ -111,9 +111,8 @@ public:
 
     // Replace the load op by a subview op
     auto subViewOp = rewriter.create<SubViewOp>(
-        loc, operands[0], std::get<0>(subViewShape),
-        std::get<1>(subViewShape), std::get<2>(subViewShape), ValueRange(),
-        ValueRange(), ValueRange());
+        loc, operands[0], std::get<0>(subViewShape), std::get<1>(subViewShape),
+        std::get<2>(subViewShape), ValueRange(), ValueRange(), ValueRange());
     rewriter.replaceOp(operation, subViewOp.getResult());
     return success();
   }
@@ -335,6 +334,38 @@ public:
   }
 };
 
+class DynAccessOpLowering : public StencilOpToStdPattern<stencil::DynAccessOp> {
+public:
+  using StencilOpToStdPattern<stencil::DynAccessOp>::StencilOpToStdPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto dynAccessOp = cast<stencil::DynAccessOp>(operation);
+
+    // Get the induction variables
+    auto inductionVars = getInductionVars(operation);
+    if (inductionVars.size() == 0)
+      return failure();
+    assert(inductionVars.size() == dynAccessOp.offset().size() &&
+           "expected loop nest and access offset to have the same size");
+
+    // Reverse the order of the offsets and filter the non allocated dims
+    SmallVector<Value, 3> loadOffset;
+    auto tempType = dynAccessOp.temp().getType().cast<TempType>();
+    for (auto it : llvm::zip(tempType.getAllocation(), dynAccessOp.offset())) {
+      if (std::get<0>(it))
+        loadOffset.insert(loadOffset.begin(), std::get<1>(it));
+    }
+
+    // Replace the access op by a load op
+    rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
+                                              loadOffset);
+    return success();
+  }
+};
+
 class DependOpLowering : public StencilOpToStdPattern<stencil::DependOp> {
 public:
   using StencilOpToStdPattern<stencil::DependOp>::StencilOpToStdPattern;
@@ -449,9 +480,8 @@ public:
     auto allocOp = operands[0].getDefiningOp();
     rewriter.setInsertionPoint(allocOp);
     auto subViewOp = rewriter.create<SubViewOp>(
-        loc, operands[1], std::get<0>(subViewShape),
-        std::get<1>(subViewShape), std::get<2>(subViewShape), ValueRange(),
-        ValueRange(), ValueRange());
+        loc, operands[1], std::get<0>(subViewShape), std::get<1>(subViewShape),
+        std::get<2>(subViewShape), ValueRange(), ValueRange(), ValueRange());
     rewriter.replaceOp(allocOp, subViewOp.getResult());
 
     // Remove the deallocation and the store operation
@@ -553,10 +583,11 @@ namespace stencil {
 void populateStencilToStdConversionPatterns(
     StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
     mlir::OwningRewritePatternList &patterns) {
-  patterns.insert<FuncOpLowering, CastOpLowering, LoadOpLowering,
-                  ApplyOpLowering, ReturnOpLowering, AccessOpLowering,
-                  DependOpLowering, IndexOpLowering, StoreOpLowering>(
-      typeConveter, valueToLB);
+  patterns
+      .insert<FuncOpLowering, CastOpLowering, LoadOpLowering, ApplyOpLowering,
+              ReturnOpLowering, AccessOpLowering, DynAccessOpLowering,
+              DependOpLowering, IndexOpLowering, StoreOpLowering>(typeConveter,
+                                                                  valueToLB);
 }
 
 //===----------------------------------------------------------------------===//
