@@ -90,4 +90,27 @@ def OffsetOp : OpInterface<"OffsetOp"> {
   ];
 }
 
+def ExtentOp : OpInterface<"ExtentOp"> {
+  let description = [{
+    Interface to get the access extent.
+  }];
+
+  let methods = [
+    InterfaceMethod<"/*Get the offset of the operation*/",
+      "Value", "getAccessedValue", (ins), [{}],
+        /*defaultImplementation=*/[{
+        return $_op.temp();
+    }]>,
+    InterfaceMethod<"/*Get the offset of the operation*/",
+      "std::tuple<Index, Index>", "getAccessExtent", (ins), [{}],
+        /*defaultImplementation=*/[{
+        Index result;
+        ArrayAttr offset = $_op.offset();
+        for (auto &elem : offset.getValue())
+          result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
+        return std::make_tuple(result, result);
+    }]>,
+  ];
+}
+
 #endif // Stencil_INTERFACES

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <tuple>
 
 using namespace mlir;
 
@@ -168,6 +169,22 @@ void stencil::ApplyOp::setOperandShape(Value operand, TempType newType) {
   assert(oldType.getAllocation() == newType.getAllocation() &&
          "expected the types to have the same allocation");
   arg.setType(newType);
+}
+
+//===----------------------------------------------------------------------===//
+// stencil.dyn_access
+//===----------------------------------------------------------------------===//
+
+std::tuple<stencil::Index, stencil::Index>
+stencil::DynAccessOp::getAccessExtent() {
+  Index lowerBound, upperBound;
+  for (auto it : llvm::zip(lb(), ub())) {
+    lowerBound.push_back(
+        std::get<0>(it).cast<IntegerAttr>().getValue().getSExtValue());
+    upperBound.push_back(
+        std::get<1>(it).cast<IntegerAttr>().getValue().getSExtValue());
+  }
+  return std::make_tuple(lowerBound, upperBound);
 }
 
 //===----------------------------------------------------------------------===//

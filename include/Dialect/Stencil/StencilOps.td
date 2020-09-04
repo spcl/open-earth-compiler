@@ -9,7 +9,8 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 // Concrete Operations
 //===----------------------------------------------------------------------===//
 
-def Stencil_CastOp : Stencil_Op<"cast", [DeclareOpInterfaceMethods<ShapeOp>]> {
+def Stencil_CastOp : Stencil_Op<"cast", [
+  DeclareOpInterfaceMethods<ShapeOp>]> {
   let summary = "cast the dynamiclly shaped input fields";
   let description = [{
     This operation casts dynamically shaped input fields to statically shaped fields.
@@ -81,7 +82,8 @@ def Stencil_CastOp : Stencil_Op<"cast", [DeclareOpInterfaceMethods<ShapeOp>]> {
   }];
 }
 
-def Stencil_IndexOp : Stencil_Op<"index", [DeclareOpInterfaceMethods<OffsetOp>,
+def Stencil_IndexOp : Stencil_Op<"index", [
+    DeclareOpInterfaceMethods<OffsetOp>,
     NoSideEffect]> {
   let summary = "stencil index operation";
   let description = [{
@@ -114,7 +116,9 @@ def Stencil_IndexOp : Stencil_Op<"index", [DeclareOpInterfaceMethods<OffsetOp>,
   }];
 }
 
-def Stencil_AccessOp : Stencil_Op<"access", [DeclareOpInterfaceMethods<OffsetOp>,
+def Stencil_AccessOp : Stencil_Op<"access", [
+    DeclareOpInterfaceMethods<OffsetOp>,
+    DeclareOpInterfaceMethods<ExtentOp>,
     NoSideEffect]> {
   let summary = "stencil access operation";
   let description = [{
@@ -156,7 +160,9 @@ def Stencil_AccessOp : Stencil_Op<"access", [DeclareOpInterfaceMethods<OffsetOp>
   }];
 }
 
-def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [NoSideEffect]> {
+def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [
+  DeclareOpInterfaceMethods<ExtentOp, ["getAccessExtent"]>,
+  NoSideEffect]> {
   let summary = "stencil dyn_access operation";
   let description = [{
     This operation accesses a temporary element given a dynamic offset. 
@@ -206,7 +212,8 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [NoSideEffect]> {
   }];
 }
 
-def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>,
+def Stencil_DependOp : Stencil_Op<"depend", [
+    DeclareOpInterfaceMethods<OffsetOp>,
     NoSideEffect]> {
   let summary = "stencil depend operation";
   let description = [{
@@ -260,8 +267,9 @@ def Stencil_DependOp : Stencil_Op<"depend", [DeclareOpInterfaceMethods<OffsetOp>
   }];
 }
 
-def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeOp>,
-                                         NoSideEffect]> {
+def Stencil_LoadOp : Stencil_Op<"load", [
+  DeclareOpInterfaceMethods<ShapeOp>,
+  NoSideEffect]> {
   let summary = "load operation";
   let description = [{
     This operation takes a field and returns a temporary values.
@@ -313,7 +321,8 @@ def Stencil_LoadOp : Stencil_Op<"load", [DeclareOpInterfaceMethods<ShapeOp>,
   }];
 }
 
-def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeOp>]> {
+def Stencil_StoreOp : Stencil_Op<"store", [
+  DeclareOpInterfaceMethods<ShapeOp>]> {
   let summary = "store operation";
   let description = [{
     This operation takes a temp and writes a field on a user defined range.
@@ -376,10 +385,11 @@ def Stencil_StoreOp : Stencil_Op<"store", [DeclareOpInterfaceMethods<ShapeOp>]> 
   }];
 }
 
-def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["setOperandShape"]>,
-                                           IsolatedFromAbove, 
-                                           SingleBlockImplicitTerminator<"ReturnOp">,
-                                           NoSideEffect]> {
+def Stencil_ApplyOp : Stencil_Op<"apply", [
+  DeclareOpInterfaceMethods<ShapeOp, ["setOperandShape"]>,
+  IsolatedFromAbove, 
+  SingleBlockImplicitTerminator<"ReturnOp">,
+  NoSideEffect]> {
   let summary = "apply operation";
   let description = [{
     This operation takes a stencil function plus parameters and applies 
@@ -466,8 +476,9 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [DeclareOpInterfaceMethods<ShapeOp, ["
   }];
 }
 
-def Stencil_ReturnOp : Stencil_Op<"return", [Terminator,
-                                             HasParent<"ApplyOp">]> {
+def Stencil_ReturnOp : Stencil_Op<"return", [
+  Terminator,
+  HasParent<"ApplyOp">]> {
   let summary = "return operation";
   let description = [{
     The return operation terminates the the stencil apply and writes

@@ -37,20 +37,21 @@ public:
       for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
         argToOperand[applyOp.getBody()->getArgument(i)] = applyOp.operands()[i];
       }
-      // Walk the access ops and update the extent
-      applyOp.walk([&](stencil::AccessOp accessOp) {
-        Index offset = cast<OffsetOp>(accessOp.getOperation()).getOffset();
-        auto argument = accessOp.getOperand();
+      // Walk the access operations and update the extent
+      applyOp.walk([&](ExtentOp extentOp) {
+        Index lb, ub;
+        std::tie(lb, ub) = extentOp.getAccessExtent();
+        auto argument = extentOp.getAccessedValue();
         if (extents[operation].count(argToOperand[argument]) == 0) {
           // Initialize the extents with the current offset
-          extents[operation][argToOperand[argument]].negative = offset;
-          extents[operation][argToOperand[argument]].positive = offset;
+          extents[operation][argToOperand[argument]].negative = lb;
+          extents[operation][argToOperand[argument]].positive = ub;
         } else {
           // Extend the extents with the current offset
           auto &negative = extents[operation][argToOperand[argument]].negative;
           auto &positive = extents[operation][argToOperand[argument]].positive;
-          negative = applyFunElementWise(negative, offset, min);
-          positive = applyFunElementWise(positive, offset, max);
+          negative = applyFunElementWise(negative, lb, min);
+          positive = applyFunElementWise(positive, ub, max);
         }
       });
       // Subtract the unroll factor minus one from the positive extent
