@@ -84,6 +84,7 @@ def Stencil_CastOp : Stencil_Op<"cast", [
 
 def Stencil_IndexOp : Stencil_Op<"index", [
     DeclareOpInterfaceMethods<OffsetOp>,
+    DeclareOpInterfaceMethods<ShiftOp>,
     NoSideEffect]> {
   let summary = "stencil index operation";
   let description = [{
@@ -118,6 +119,7 @@ def Stencil_IndexOp : Stencil_Op<"index", [
 
 def Stencil_AccessOp : Stencil_Op<"access", [
     DeclareOpInterfaceMethods<OffsetOp>,
+    DeclareOpInterfaceMethods<ShiftOp>,
     DeclareOpInterfaceMethods<ExtentOp>,
     NoSideEffect]> {
   let summary = "stencil access operation";
@@ -161,6 +163,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [
 }
 
 def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [
+  DeclareOpInterfaceMethods<ShiftOp, ["shiftByOffset"]>,
   DeclareOpInterfaceMethods<ExtentOp, ["getAccessExtent"]>,
   NoSideEffect]> {
   let summary = "stencil dyn_access operation";
@@ -214,6 +217,7 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [
 
 def Stencil_DependOp : Stencil_Op<"depend", [
     DeclareOpInterfaceMethods<OffsetOp>,
+    DeclareOpInterfaceMethods<ShiftOp>,
     NoSideEffect]> {
   let summary = "stencil depend operation";
   let description = [{

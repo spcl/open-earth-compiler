@@ -216,14 +216,11 @@ struct InliningRewrite : public StencilInliningPattern {
       auto pos = std::find(repArgs.begin(), repArgs.end(), accessOp.temp());
       if (pos != repArgs.end()) {
         // Get the shift offset
-        auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
-        Index offset = offsetOp.getOffset();
+        Index offset = cast<OffsetOp>(accessOp.getOperation()).getOffset();
         // Clone the entire producer and shift all accesses
         auto clonedOp = cast<stencil::ApplyOp>(rewriter.clone(*producerOp));
-        clonedOp.walk([&](stencil::OffsetOp offsetOp) {
-          offsetOp.setOffset(applyFunElementWise(offsetOp.getOffset(), offset,
-                                                 std::plus<int64_t>()));
-        });
+        clonedOp.walk(
+            [&](stencil::ShiftOp shiftOp) { shiftOp.shiftByOffset(offset); });
         // Merge into to build op and erase the clone
         rewriter.mergeBlockBefore(clonedOp.getBody(), accessOp,
                                   buildOp.getBody()->getArguments().take_front(

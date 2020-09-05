@@ -197,8 +197,8 @@ func @root(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG1:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>) ->
 //  CHECK-DAG: %{{.*}} = stencil.index 0 [-1, 0, 0] : index
 //  CHECK-DAG: %{{.*}} = stencil.index 0 [1, 0, 0] : index
-//  CHECK-DAG: %{{.*}} = stencil.dyn_access [[ARG1]](%{{.*}}, %{{.*}}, %{{.*}}) in [-1, -1, -1] : [1, 1, 1] : (!stencil.temp<?x?x?xf64>) -> f64
-//  CHECK-DAG: %{{.*}} = stencil.dyn_access [[ARG1]](%{{.*}}, %{{.*}}, %{{.*}}) in [-1, -1, -1] : [1, 1, 1] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-DAG: %{{.*}} = stencil.dyn_access [[ARG1]](%{{.*}}, %{{.*}}, %{{.*}}) in [-2, -1, -1] : [0, 1, 1] : (!stencil.temp<?x?x?xf64>) -> f64
+//  CHECK-DAG: %{{.*}} = stencil.dyn_access [[ARG1]](%{{.*}}, %{{.*}}, %{{.*}}) in [0, -1, -1] : [2, 1, 1] : (!stencil.temp<?x?x?xf64>) -> f64
 //  CHECK-DAG: stencil.return %{{.*}} : f64
 //  CHECK-NEXT: }
 //  CHECK-NEXT: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>

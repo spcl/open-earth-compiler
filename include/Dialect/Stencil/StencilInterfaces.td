@@ -68,7 +68,7 @@ def ShapeOp : OpInterface<"ShapeOp"> {
 
 def OffsetOp : OpInterface<"OffsetOp"> {
   let description = [{
-    Interface to get and set offsets.
+    Interface to get the operation offset.
   }];
 
   let methods = [
@@ -76,32 +76,44 @@ def OffsetOp : OpInterface<"OffsetOp"> {
       "Index", "getOffset", (ins), [{
         Index result;
         ArrayAttr offset = $_op.offset();
-        for (auto &elem : offset.getValue())
+        for (auto &elem : offset)
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
-    }]>,
-    InterfaceMethod<"/*Set the offset of the operation*/",
-      "void", "setOffset", (ins "ArrayRef<int64_t>":$index), [{
-        SmallVector<Attribute, kIndexSize> offsetAttr;
-        for(auto value : index)
-          offsetAttr.push_back(IntegerAttr::get(IntegerType::get(64, $_op.getContext()), value));
-        $_op.offsetAttr(ArrayAttr::get(offsetAttr, $_op.getContext()));
     }]>,
   ];
 }
 
+def ShiftOp : OpInterface<"ShiftOp"> {
+  let description = [{
+    Interface to shift the operation offset.
+  }];
+
+  let methods = [
+    InterfaceMethod<"/*Shift operation by a constant offset*/",
+      "void", "shiftByOffset", (ins "ArrayRef<int64_t>":$offset), [{}],
+        /*defaultImplementation=*/[{
+        SmallVector<Attribute, kIndexSize> offsetAttr;
+        for (auto elem : llvm::zip(offset, $_op.offset())) {
+          offsetAttr.push_back(IntegerAttr::get(
+              IntegerType::get(64, $_op.getContext()),
+              std::get<1>(elem).template cast<IntegerAttr>().getValue().getSExtValue() + 
+              std::get<0>(elem)));
+        }
+        $_op.offsetAttr(ArrayAttr::get(offsetAttr, $_op.getContext()));
+    }]>,
+  ];
+}
 def ExtentOp : OpInterface<"ExtentOp"> {
   let description = [{
     Interface to get the access extent.
   }];
 
   let methods = [
-    InterfaceMethod<"/*Get the offset of the operation*/",
-      "Value", "getAccessedValue", (ins), [{}],
-        /*defaultImplementation=*/[{
+    InterfaceMethod<"/*Get the accessed temporary*/",
+      "Value", "getTemp", (ins), [{
         return $_op.temp();
     }]>,
-    InterfaceMethod<"/*Get the offset of the operation*/",
+    InterfaceMethod<"/*Get the access extent*/",
       "std::tuple<Index, Index>", "getAccessExtent", (ins), [{}],
         /*defaultImplementation=*/[{
         Index result;

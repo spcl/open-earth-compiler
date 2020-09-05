@@ -175,6 +175,26 @@ void stencil::ApplyOp::setOperandShape(Value operand, TempType newType) {
 // stencil.dyn_access
 //===----------------------------------------------------------------------===//
 
+void stencil::DynAccessOp::shiftByOffset(ArrayRef<int64_t> offset) {
+  SmallVector<Attribute, kIndexSize> lowerBound, upperBound;
+  for (auto elem : llvm::zip(offset, lb(), ub())) {
+    lowerBound.push_back(IntegerAttr::get(IntegerType::get(64, getContext()),
+                                          std::get<1>(elem)
+                                                  .template cast<IntegerAttr>()
+                                                  .getValue()
+                                                  .getSExtValue() +
+                                              std::get<0>(elem)));
+    upperBound.push_back(IntegerAttr::get(IntegerType::get(64, getContext()),
+                                          std::get<2>(elem)
+                                                  .template cast<IntegerAttr>()
+                                                  .getValue()
+                                                  .getSExtValue() +
+                                              std::get<0>(elem)));
+  }
+  lbAttr(ArrayAttr::get(lowerBound, getContext()));
+  ubAttr(ArrayAttr::get(upperBound, getContext()));
+}
+
 std::tuple<stencil::Index, stencil::Index>
 stencil::DynAccessOp::getAccessExtent() {
   Index lowerBound, upperBound;

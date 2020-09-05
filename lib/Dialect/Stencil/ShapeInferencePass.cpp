@@ -41,15 +41,15 @@ public:
       applyOp.walk([&](ExtentOp extentOp) {
         Index lb, ub;
         std::tie(lb, ub) = extentOp.getAccessExtent();
-        auto argument = extentOp.getAccessedValue();
-        if (extents[operation].count(argToOperand[argument]) == 0) {
+        auto temp = extentOp.getTemp();
+        if (extents[operation].count(argToOperand[temp]) == 0) {
           // Initialize the extents with the current offset
-          extents[operation][argToOperand[argument]].negative = lb;
-          extents[operation][argToOperand[argument]].positive = ub;
+          extents[operation][argToOperand[temp]].negative = lb;
+          extents[operation][argToOperand[temp]].positive = ub;
         } else {
           // Extend the extents with the current offset
-          auto &negative = extents[operation][argToOperand[argument]].negative;
-          auto &positive = extents[operation][argToOperand[argument]].positive;
+          auto &negative = extents[operation][argToOperand[temp]].negative;
+          auto &positive = extents[operation][argToOperand[temp]].positive;
           negative = applyFunElementWise(negative, lb, min);
           positive = applyFunElementWise(positive, ub, max);
         }
