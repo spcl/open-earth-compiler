@@ -142,15 +142,16 @@ public:
       newResults.push_back(allocOp.getResult());
     }
 
-    // Get the sequential dimension if there is one
-    Value lb, ub, step;
-    Optional<int64_t> sequential = None;
-    if (applyOp.seq().hasValue()) {
-      sequential = applyOp.getSeqDim();
-      lb = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqLB());
-      ub = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqUB());
-      step = rewriter.create<ConstantIndexOp>(loc, 1);
-    }
+    // TODO fix the sequential loop lowering
+    // // Get the sequential dimension if there is one
+    // Value lb, ub, step;
+    // Optional<int64_t> sequential = None;
+    // if (applyOp.seq().hasValue()) {
+    //   sequential = applyOp.getSeqDim();
+    //   lb = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqLB());
+    //   ub = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqUB());
+    //   step = rewriter.create<ConstantIndexOp>(loc, 1);
+    // }
 
     // Compute the loop bounds starting from zero
     // (in case of loop unrolling adjust the step of the loop)
@@ -158,13 +159,13 @@ public:
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
     for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
       int64_t lb = shapeOp.getLB()[i];
-      int64_t ub = sequential == i ? lb + 1 : shapeOp.getUB()[i];
+      int64_t ub = shapeOp.getUB()[i];
       int64_t step = returnOp.unroll().hasValue() ? returnOp.getUnroll()[i] : 1;
       lbs.push_back(rewriter.create<ConstantIndexOp>(loc, lb));
       ubs.push_back(rewriter.create<ConstantIndexOp>(loc, ub));
       steps.push_back(rewriter.create<ConstantIndexOp>(loc, step));
-      assert(sequential != i ||
-             step == 1 && "expect sequential dimension to have step one");
+      // assert(sequential != i ||
+      //        step == 1 && "expect sequential dimension to have step one");
     }
 
     // Convert the signature of the apply op body
@@ -182,49 +183,49 @@ public:
     // Replace the stencil apply operation by a loop nest
     // (clone the innermost loop to remove the existing body)
     ParallelOp parallelOp = rewriter.create<ParallelOp>(loc, lbs, ubs, steps);
-    // Add a sequential of parallel loop nest
-    if (sequential) {
-      rewriter.setInsertionPointToStart(parallelOp.getBody());
-      auto forOp = rewriter.create<ForOp>(loc, lb, ub, step);
-      rewriter.mergeBlockBefore(
-          applyOp.getBody(),
-          forOp.getLoopBody().getBlocks().back().getTerminator());
+    // // Add a sequential of parallel loop nest
+    // if (sequential) {
+    //   rewriter.setInsertionPointToStart(parallelOp.getBody());
+    //   auto forOp = rewriter.create<ForOp>(loc, lb, ub, step);
+    //   rewriter.mergeBlockBefore(
+    //       applyOp.getBody(),
+    //       forOp.getLoopBody().getBlocks().back().getTerminator());
 
-      // Insert index variables at the beginning of the loop body
-      rewriter.setInsertionPointToStart(forOp.getBody());
-      for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
-        if (sequential == i) {
-          if (applyOp.getSeqDir() == 1) {
-            // Access the iv of the sequential loop
-            rewriter.create<AffineApplyOp>(loc, fwdMap,
-                                           ValueRange(forOp.getInductionVar()));
-          } else {
-            // Reverse the iv of the sequential loop
-            auto bwdExpr = rewriter.getAffineDimExpr(0) - 1 +
-                           rewriter.getAffineDimExpr(1) -
-                           rewriter.getAffineDimExpr(2);
-            auto bwdMap = AffineMap::get(3, 0, bwdExpr);
-            rewriter.create<AffineApplyOp>(
-                loc, bwdMap, ValueRange({ub, lb, forOp.getInductionVar()}));
-          }
-          continue;
-        }
-        // Handle the parallel loop dimensions
-        rewriter.create<AffineApplyOp>(
-            loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
-      }
-    } else {
-      rewriter.mergeBlockBefore(
-          applyOp.getBody(),
-          parallelOp.getLoopBody().getBlocks().back().getTerminator());
+    //   // Insert index variables at the beginning of the loop body
+    //   rewriter.setInsertionPointToStart(forOp.getBody());
+    //   for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
+    //     if (sequential == i) {
+    //       if (applyOp.getSeqDir() == 1) {
+    //         // Access the iv of the sequential loop
+    //         rewriter.create<AffineApplyOp>(loc, fwdMap,
+    //                                        ValueRange(forOp.getInductionVar()));
+    //       } else {
+    //         // Reverse the iv of the sequential loop
+    //         auto bwdExpr = rewriter.getAffineDimExpr(0) - 1 +
+    //                        rewriter.getAffineDimExpr(1) -
+    //                        rewriter.getAffineDimExpr(2);
+    //         auto bwdMap = AffineMap::get(3, 0, bwdExpr);
+    //         rewriter.create<AffineApplyOp>(
+    //             loc, bwdMap, ValueRange({ub, lb, forOp.getInductionVar()}));
+    //       }
+    //       continue;
+    //     }
+    //     // Handle the parallel loop dimensions
+    //     rewriter.create<AffineApplyOp>(
+    //         loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
+    //   }
+    // } else {
+    rewriter.mergeBlockBefore(
+        applyOp.getBody(),
+        parallelOp.getLoopBody().getBlocks().back().getTerminator());
 
-      // Insert index variables at the beginning of the loop body
-      rewriter.setInsertionPointToStart(parallelOp.getBody());
-      for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
-        rewriter.create<AffineApplyOp>(
-            loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
-      }
+    // Insert index variables at the beginning of the loop body
+    rewriter.setInsertionPointToStart(parallelOp.getBody());
+    for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
+      rewriter.create<AffineApplyOp>(
+          loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
     }
+    // }
 
     // Replace the applyOp
     rewriter.replaceOp(applyOp, newResults);

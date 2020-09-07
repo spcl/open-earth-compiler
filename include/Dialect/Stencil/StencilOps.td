@@ -236,8 +236,9 @@ def Stencil_DependOp : Stencil_Op<"depend", [
 
   let verifier = [{
     auto applyOp = getParentOfType<stencil::ApplyOp>();
-    if(!applyOp || !applyOp.seq().hasValue())
-      return emitOpError("expected parent that executes sequentially");
+    // TODO check parent is a sequential apply / loop op
+    // if(!applyOp || !applyOp.seq().hasValue())
+    //   return emitOpError("expected parent that executes sequentially");
     
     // Check the output offset exists and the result type matches
     if(!(output() >= 0 && output() < applyOp.getNumResults()))
@@ -246,18 +247,19 @@ def Stencil_DependOp : Stencil_Op<"depend", [
     if(resultType.getElementType() != res().getType())
       return emitOpError("result type does not match the output element type");
     
-    // Check the offset
-    auto offsetOp = cast<OffsetOp>(this->getOperation());
-    for (auto &en : llvm::enumerate(offsetOp.getOffset())) {
-      if(en.value() != 0) {
-        if(applyOp.getSeqDim() != en.index())
-          return emitOpError("unexpected non-zero offset in parallel dimension");
-        if(applyOp.getSeqDir() == 1 && en.value() > -1)
-          return emitOpError("expected offset in the negative direction");
-        if(applyOp.getSeqDir() == -1 && en.value() < 1)
-          return emitOpError("expected offset in the positive direction");
-      }
-    }
+    // TODO check parent apply op / loop op
+    // // Check the offset
+    // auto offsetOp = cast<OffsetOp>(this->getOperation());
+    // for (auto &en : llvm::enumerate(offsetOp.getOffset())) {
+    //   if(en.value() != 0) {
+    //     if(applyOp.getSeqDim() != en.index())
+    //       return emitOpError("unexpected non-zero offset in parallel dimension");
+    //     if(applyOp.getSeqDir() == 1 && en.value() > -1)
+    //       return emitOpError("expected offset in the negative direction");
+    //     if(applyOp.getSeqDir() == -1 && en.value() < 1)
+    //       return emitOpError("expected offset in the positive direction");
+    //   }
+    // }
     return success();
   }];
 
@@ -403,24 +405,19 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
 
   let arguments = (ins Variadic<AnyType>:$operands,
                         OptionalAttr<Stencil_Index>:$lb, 
-                        OptionalAttr<Stencil_Index>:$ub,
-                        OptionalAttr<Stencil_Loop>:$seq);
+                        OptionalAttr<Stencil_Index>:$ub);
   let results = (outs Variadic<Stencil_Temp>:$res);
   let regions = (region SizedRegion<1>:$region);
   let hasCanonicalizer = 1;
   
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "ValueRange operands, ValueRange results, "
-              "Optional<ArrayAttr> seq", [{
+              "ValueRange operands, ValueRange results", [{
       state.addOperands(operands);
       auto region = state.addRegion(); 
       region->push_back(new Block());
       for(auto operand : operands) {
         region->front().addArgument(operand.getType());
-      }
-      if(seq.hasValue()) {
-        state.addAttribute(getSeqAttrName(), seq.getValue());
       }
       SmallVector<Type, 10> resultTypes;
       resultTypes.resize(results.size());
@@ -446,31 +443,12 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
       if(shapeOp.hasShape() && shapeOp.getRank() != tempType.getRank())
         return emitOpError("expected result rank to match the operation rank");
     }
-
-    // Check the sequential loop attributes
-    if(seq().hasValue()) {
-      if(getSeqDim() < 0)
-        return emitOpError("expected seqential loop dimension to be positive");
-      if(getSeqDir() != 1 && getSeqDir() != -1)
-        return emitOpError("expected sequential loop direction to be -1 or 1");
-      if(shapeOp.hasShape()) {
-        if(getSeqDim() >= shapeOp.getRank())
-          return emitOpError("expected sequential loop dimension to match shape");
-        if(getSeqLB() != shapeOp.getLB()[getSeqDim()] || getSeqUB() != shapeOp.getUB()[getSeqDim()])
-          return emitOpError("expected sequential loop range to match shape");
-      }
-    }
     return success();
   }];
 
   let extraClassDeclaration = [{
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    static StringRef getSeqAttrName() { return "seq"; }
-    int64_t getSeqDim() { return seq().getValue()[0].cast<IntegerAttr>().getValue().getSExtValue(); }
-    int64_t getSeqLB() { return seq().getValue()[1].cast<IntegerAttr>().getValue().getSExtValue(); }
-    int64_t getSeqUB() { return seq().getValue()[2].cast<IntegerAttr>().getValue().getSExtValue(); }
-    int64_t getSeqDir() { return seq().getValue()[3].cast<IntegerAttr>().getValue().getSExtValue(); }
     Block *getBody() { return &region().front(); }
   }];
 }
