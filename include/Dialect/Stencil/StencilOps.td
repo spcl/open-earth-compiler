@@ -111,9 +111,6 @@ def Stencil_IndexOp : Stencil_Op<"index", [
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
     static StringRef getDimAttrName() { return "dim";}
-    int64_t getDim() {
-      return dim().getSExtValue();
-    }
   }];
 }
 
@@ -243,10 +240,9 @@ def Stencil_DependOp : Stencil_Op<"depend", [
       return emitOpError("expected parent that executes sequentially");
     
     // Check the output offset exists and the result type matches
-    int64_t output = getOutput();
-    if(!(output >= 0 && output < applyOp.getNumResults()))
+    if(!(output() >= 0 && output() < applyOp.getNumResults()))
       return emitOpError("output index out of range");
-    auto resultType = applyOp.getResult(output).getType().cast<stencil::GridType>();
+    auto resultType = applyOp.getResult(output()).getType().cast<stencil::GridType>();
     if(resultType.getElementType() != res().getType())
       return emitOpError("result type does not match the output element type");
     
@@ -267,7 +263,6 @@ def Stencil_DependOp : Stencil_Op<"depend", [
 
   let extraClassDeclaration = [{
     static StringRef getOffsetAttrName() { return "offset"; }
-    int64_t getOutput() { return output().getSExtValue(); }
   }];
 }
 

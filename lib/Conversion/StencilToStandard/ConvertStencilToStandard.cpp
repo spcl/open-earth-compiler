@@ -377,7 +377,6 @@ public:
     auto loc = operation->getLoc();
     auto dependOp = cast<stencil::DependOp>(operation);
     auto offsetOp = cast<OffsetOp>(dependOp.getOperation());
-    auto output = dependOp.getOutput();
 
     // Get the loop operation
     auto parallelOp = operation->getParentOfType<ParallelOp>();
@@ -402,7 +401,7 @@ public:
       }
       node = node->getPrevNode();
     }
-    assert(allocValues.size() > output &&
+    assert(allocValues.size() > dependOp.output() &&
            "expected allocation for output index");
 
     // Get the induction variables
@@ -410,15 +409,15 @@ public:
 
     // Add the lower bound of the result to the access offset
     auto totalOffset = applyFunElementWise(
-        offsetOp.getOffset(), valueToLB[returnOp.getOperand(output)],
+        offsetOp.getOffset(), valueToLB[returnOp.getOperand(dependOp.output())],
         std::minus<int64_t>());
     SmallVector<bool, 3> allocation(totalOffset.size(), true);
     auto loadOffset =
         computeIndexValues(inductionVars, totalOffset, allocation, rewriter);
 
     // Replace the access op by a load op
-    rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, allocValues[output],
-                                              loadOffset);
+    rewriter.replaceOpWithNewOp<mlir::LoadOp>(
+        operation, allocValues[dependOp.output()], loadOffset);
     return success();
   }
 };
@@ -442,12 +441,12 @@ public:
            "expected loop nest and access offset to have the same size");
 
     // Shift the induction variable by the offset
-    auto dim = indexOp.getDim();
     auto expr = rewriter.getAffineDimExpr(0) + rewriter.getAffineDimExpr(1);
     auto map = AffineMap::get(2, 0, expr);
     SmallVector<Value, 2> params = {
-        inductionVars[dim],
-        rewriter.create<ConstantIndexOp>(loc, offsetOp.getOffset()[dim])
+        inductionVars[indexOp.dim()],
+        rewriter
+            .create<ConstantIndexOp>(loc, offsetOp.getOffset()[indexOp.dim()])
             .getResult()};
 
     // replace the index ob by an affine apply op
