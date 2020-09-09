@@ -16,6 +16,7 @@ namespace detail {
 struct GridTypeStorage;
 struct FieldTypeStorage;
 struct TempTypeStorage;
+struct ResultTypeStorage;
 } // namespace detail
 
 //===----------------------------------------------------------------------===//
@@ -117,6 +118,23 @@ public:
   using Base::Base;
 
   static TempType get(Type elementType, ArrayRef<int64_t> shape);
+};
+
+//===----------------------------------------------------------------------===//
+// ResultType
+//===----------------------------------------------------------------------===//
+
+/// Temporaries keep multi-dimensional intermediate results
+class ResultType
+    : public Type::TypeBase<ResultType, Type, detail::ResultTypeStorage> {
+public:
+  using Base::Base;
+
+  static ResultType get(Type resultType);
+
+  /// Return the result type
+  Type getResultType() const;
+
 };
 
 } // namespace stencil

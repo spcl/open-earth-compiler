@@ -31,6 +31,7 @@ public:
 
   static StringRef getFieldTypeName() { return "field"; }
   static StringRef getTempTypeName() { return "temp"; }
+  static StringRef getResultTypeName() { return "result"; }
 
   static bool isStencilFunction(FuncOp funcOp) {
     return !!funcOp.getAttr(getStencilFunctionAttrName());

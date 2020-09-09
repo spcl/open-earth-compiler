@@ -41,25 +41,40 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
     return Type();
   }
 
-  // Parse the shape
-  SmallVector<int64_t, 3> shape;
-  if (parser.parseLess() || parser.parseDimensionList(shape)) {
-    parser.emitError(parser.getNameLoc(), "expected valid dimension list");
-    return Type();
+  // Parse a result type
+  if (prefix == getResultTypeName()) {
+    // Parse the element type
+    Type resultType;
+    if (parser.parseLess() || parser.parseType(resultType) ||
+        parser.parseGreater()) {
+      parser.emitError(parser.getNameLoc(), "expected valid result type");
+      return Type();
+    }
+    return ResultType::get(resultType);
   }
 
-  // Parse the element type
-  Type elementType;
-  if (parser.parseType(elementType) || parser.parseGreater()) {
-    parser.emitError(parser.getNameLoc(), "expected valid element type");
-    return Type();
-  }
+  // Parse a field or temp type
+  if (prefix == getFieldTypeName() || prefix == getTempTypeName()) {
+    // Parse the shape
+    SmallVector<int64_t, 3> shape;
+    if (parser.parseLess() || parser.parseDimensionList(shape)) {
+      parser.emitError(parser.getNameLoc(), "expected valid dimension list");
+      return Type();
+    }
 
-  // Return the Stencil type
-  if (prefix == getFieldTypeName())
-    return FieldType::get(elementType, shape);
-  if (prefix == getTempTypeName())
-    return TempType::get(elementType, shape);
+    // Parse the element type
+    Type elementType;
+    if (parser.parseType(elementType) || parser.parseGreater()) {
+      parser.emitError(parser.getNameLoc(), "expected valid element type");
+      return Type();
+    }
+
+    // Return the Stencil type
+    if (prefix == getFieldTypeName())
+      return FieldType::get(elementType, shape);
+    else
+      return TempType::get(elementType, shape);
+  }
 
   // Failed to parse a stencil type
   parser.emitError(parser.getNameLoc(), "unknown stencil type ")
@@ -73,7 +88,7 @@ Type StencilDialect::parseType(DialectAsmParser &parser) const {
 
 namespace {
 
-void print(StringRef name, Type type, DialectAsmPrinter &printer) {
+void printGridType(StringRef name, Type type, DialectAsmPrinter &printer) {
   printer << name;
   printer << "<";
   for (auto size : type.cast<GridType>().getShape()) {
@@ -86,11 +101,20 @@ void print(StringRef name, Type type, DialectAsmPrinter &printer) {
   printer << type.cast<GridType>().getElementType() << ">";
 }
 
+void printResultType(StringRef name, Type type, DialectAsmPrinter &printer) {
+  printer << name;
+  printer << "<" << type.cast<ResultType>().getResultType() << ">";
+}
+
 } // namespace
 
 void StencilDialect::printType(Type type, DialectAsmPrinter &printer) const {
   TypeSwitch<Type>(type)
-      .Case<FieldType>([&](Type) { print("field", type, printer); })
-      .Case<TempType>([&](Type) { print("temp", type, printer); })
+      .Case<FieldType>(
+          [&](Type) { printGridType(getFieldTypeName(), type, printer); })
+      .Case<TempType>(
+          [&](Type) { printGridType(getTempTypeName(), type, printer); })
+      .Case<ResultType>(
+          [&](Type) { printResultType(getResultTypeName(), type, printer); })
       .Default([](Type) { llvm_unreachable("unexpected 'shape' type kind"); });
 }

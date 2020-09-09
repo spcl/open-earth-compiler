@@ -59,6 +59,25 @@ struct TempTypeStorage : public GridTypeStorage {
   }
 };
 
+struct ResultTypeStorage : public TypeStorage {
+  ResultTypeStorage(Type resultTy) : TypeStorage(), resultType(resultTy) {}
+
+  /// Hash key used for uniquing
+  using KeyTy = Type;
+
+  bool operator==(const KeyTy &key) const { return key == KeyTy(resultType); }
+
+  Type getResultType() const { return resultType; }
+
+  /// Construction
+  static ResultTypeStorage *construct(TypeStorageAllocator &allocator,
+                                      const KeyTy &key) {
+    return new (allocator.allocate<TempTypeStorage>()) ResultTypeStorage(key);
+  }
+
+  Type resultType;
+};
+
 } // namespace detail
 } // namespace stencil
 } // namespace mlir
@@ -85,8 +104,7 @@ ArrayRef<int64_t> GridType::getShape() const {
 //===----------------------------------------------------------------------===//
 
 FieldType FieldType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
-  mlir::MLIRContext *ctx = elementType.getContext();
-  return Base::get(ctx, elementType, shape);
+  return Base::get(elementType.getContext(), elementType, shape);
 }
 
 //===----------------------------------------------------------------------===//
@@ -94,6 +112,17 @@ FieldType FieldType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
 //===----------------------------------------------------------------------===//
 
 TempType TempType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
-  mlir::MLIRContext *ctx = elementType.getContext();
-  return Base::get(ctx, elementType, shape);
+  return Base::get(elementType.getContext(), elementType, shape);
+}
+
+//===----------------------------------------------------------------------===//
+// ResultType
+//===----------------------------------------------------------------------===//
+
+ResultType ResultType::get(Type resultType) {
+  return Base::get(resultType.getContext(), resultType);
+}
+
+Type ResultType::getResultType() const {
+  return getImpl()->getResultType();
 }
