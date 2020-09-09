@@ -320,6 +320,45 @@ def Stencil_LoadOp : Stencil_Op<"load", [
   }];
 }
 
+def Stencil_BufferOp : Stencil_Op<"buffer", [DeclareOpInterfaceMethods<ShapeOp>]> {
+  let summary = "buffer operation";
+  let description = [{
+    Prevents fusion of consecutive stencil.apply operations.
+
+    Example:
+      %0 = stencil.buffer %buffered : (!stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  }];
+
+  let arguments = (ins Stencil_Temp:$temp,
+                       OptionalAttr<Stencil_Index>:$lb,
+                       OptionalAttr<Stencil_Index>:$ub);
+  let results = (outs Stencil_Temp:$res);
+
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &state, Value temp", [{
+      state.addOperands(temp);
+      state.addTypes(temp.getType());
+    }]>
+  ];
+
+  let assemblyFormat = [{
+    $temp (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` functional-type($temp, $res)
+  }];
+
+  let verifier = [{
+    if(!isa<stencil::ApplyOp>(temp().getDefiningOp()))
+      return emitOpError("expected input to buffer to be apply op");
+    if(!temp().hasOneUse())
+      return emitOpError("expected input to buffer to be only used once");
+    return success();
+  }];
+
+  let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    static StringRef getUBAttrName() { return "ub"; }
+  }];
+}
+
 def Stencil_StoreOp : Stencil_Op<"store", [
   DeclareOpInterfaceMethods<ShapeOp>]> {
   let summary = "store operation";

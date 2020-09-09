@@ -306,3 +306,24 @@ func @dyn_access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.
   } to ([0, 0, 0] : [7, 7, 7])
   return
 }
+
+// -----
+
+// CHECK-LABEL: @buffer_lowering
+func @buffer_lowering(%arg0 : f64) attributes {stencil.program} {
+  // CHECK: [[A0:%.*]] = alloc()
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  %0 = stencil.apply (%arg1 = %arg0 : f64) -> !stencil.temp<7x7x7xf64> {
+    stencil.return %arg1 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  %1 = stencil.buffer %0([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
+  // CHECK: [[A1:%.*]] = alloc()
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  // CHECK: %{{.*}} = load [[A0]]
+  %2 = stencil.apply (%arg1 = %1 : !stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64> {
+    %4 = stencil.access %arg1[0,0,0] : (!stencil.temp<7x7x7xf64>) -> f64
+    stencil.return %4 : f64
+  } to ([0, 0, 0]:[7, 7, 7])
+  // CHECK: dealloc [[TEMP]] : memref<7x7x7xf64>
+  return
+}

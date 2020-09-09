@@ -120,6 +120,19 @@ public:
   }
 };
 
+class BufferOpLowering : public StencilOpToStdPattern<stencil::BufferOp> {
+public:
+  using StencilOpToStdPattern<stencil::BufferOp>::StencilOpToStdPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto bufferOp = cast<stencil::BufferOp>(operation);
+    rewriter.replaceOp(operation, bufferOp.temp());
+    return success();
+  }
+};
+
 class ApplyOpLowering : public StencilOpToStdPattern<stencil::ApplyOp> {
 public:
   using StencilOpToStdPattern<stencil::ApplyOp>::StencilOpToStdPattern;
@@ -585,9 +598,9 @@ void populateStencilToStdConversionPatterns(
     mlir::OwningRewritePatternList &patterns) {
   patterns
       .insert<FuncOpLowering, CastOpLowering, LoadOpLowering, ApplyOpLowering,
-              ReturnOpLowering, AccessOpLowering, DynAccessOpLowering,
-              DependOpLowering, IndexOpLowering, StoreOpLowering>(typeConveter,
-                                                                  valueToLB);
+              BufferOpLowering, ReturnOpLowering, AccessOpLowering,
+              DynAccessOpLowering, DependOpLowering, IndexOpLowering,
+              StoreOpLowering>(typeConveter, valueToLB);
 }
 
 //===----------------------------------------------------------------------===//

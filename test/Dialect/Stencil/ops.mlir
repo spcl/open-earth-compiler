@@ -55,7 +55,20 @@ func @load(%in1 : !stencil.field<?x?x?xf64>, %in2 : !stencil.field<?x?x?xf64>) {
   return
 }
 
-// // -----
+// -----
+
+// CHECK-LABEL: func @buffer() {
+func @buffer() {
+  %0 = "stencil.apply"() ({
+    %1 = constant 1.0 : f64
+    "stencil.return"(%1) : (f64) -> ()
+  }) : () -> !stencil.temp<?x?x?xf64>
+  // CHECK: %{{.*}} = stencil.buffer %{{.*}} : (!stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  %1 = "stencil.buffer"(%0): (!stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  return
+}
+
+// -----
 
 // CHECK-LABEL: func @store(%{{.*}}: !stencil.field<?x?x?xf64>) {
 func @store(%out : !stencil.field<?x?x?xf64>) {
