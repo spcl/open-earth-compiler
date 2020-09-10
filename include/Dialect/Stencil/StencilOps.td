@@ -514,35 +514,50 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   }];
 }
 
-def Stencil_MakeResultOp : Stencil_Op<"make_result", []> {
-  let summary = "make_result operation";
+def Stencil_StoreResultOp : Stencil_Op<"store_result", []> {
+  let summary = "store_result operation";
   let description = [{
-    The make_result operation wraps a result in a result type.
+    The store_result operation either stores an operand value or nothing.
 
     Examples:
-      stencil.make_resuöt %0 : !stencil.result<f64>
+      stencil.store_result %0 : !stencil.result<f64>
+      stencil.store_result : !stencil.result<f64>      
   }];
 
-  let arguments = (ins Stencil_Element:$operand);
+  let arguments = (ins Variadic<Stencil_Element>:$operands);
   let results = (outs Stencil_Result:$res);
 
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "Value operand", [{
-      state.addOperands({operand});
-      state.addTypes(stencil::ResultType::get(operand.getType()));
+              "Value value", [{
+      state.addOperands({value});
+      state.addTypes(stencil::ResultType::get(value.getType()));
     }]>
   ];
 
   let assemblyFormat = [{
-    $operand attr-dict-with-keyword `:` functional-type($operand, $res)
+    ($operands^)? attr-dict-with-keyword `:` functional-type($operands, $res)
   }];
 
   let verifier = [{
+    // Check at most one operand
+    if(operands().size() > 1)
+      return emitOpError("expected at most one operand");
+
+    // Check the return type
+    auto resultType = res().getType().cast<stencil::ResultType>().getResultType();
+    if(operands().size() == 1 && resultType != operands()[0].getType())
+      return emitOpError("operand type and result type are inconsistent");
+      
+    // Check the result mapping
+    if(!getReturnOpOperand())
+      return emitOpError("result not mapped to a unique stencil.return operand");
     return success();
   }];
 
   let extraClassDeclaration = [{
+    OpOperand* getReturnOpOperand(); 
+
   }];
 }
 
@@ -560,10 +575,10 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
     unrolling at the stencil dialect level.
 
     Examples:
-      stencil.return %0 : f64
+      stencil.return %0 : !stencil.result<f64>
   }];
 
-  let arguments = (ins Variadic<Stencil_Element>:$operands,
+  let arguments = (ins Variadic<Stencil_Result>:$operands,
                    OptionalAttr<Stencil_Index>:$unroll);
 
   let builders = [
@@ -598,7 +613,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
     for (unsigned i = 0, e = results.size(); i != e; ++i) {
       auto tempType = applyOp.getResult(i).getType().cast<GridType>();
       for (unsigned j = 0; j < unrollFactor; j++)
-        if (getOperand(i * unrollFactor + j).getType() != tempType.getElementType())
+        if (getOperand(i * unrollFactor + j).getType().cast<stencil::ResultType>().getResultType() != tempType.getElementType())
           return emitOpError("the operand and apply result element types do not match");
     }
     return success();

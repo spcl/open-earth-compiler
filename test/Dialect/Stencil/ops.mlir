@@ -61,7 +61,8 @@ func @load(%in1 : !stencil.field<?x?x?xf64>, %in2 : !stencil.field<?x?x?xf64>) {
 func @buffer() {
   %0 = "stencil.apply"() ({
     %1 = constant 1.0 : f64
-    "stencil.return"(%1) : (f64) -> ()
+    %2 = "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%2) : (!stencil.result<f64>) -> ()
   }) : () -> !stencil.temp<?x?x?xf64>
   // CHECK: %{{.*}} = stencil.buffer %{{.*}} : (!stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
   %1 = "stencil.buffer"(%0): (!stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
@@ -73,13 +74,10 @@ func @buffer() {
 // CHECK-LABEL: func @store(%{{.*}}: !stencil.field<?x?x?xf64>) {
 func @store(%out : !stencil.field<?x?x?xf64>) {
   %0 = "stencil.cast"(%out) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<?x?x?xf64>) -> (!stencil.field<70x70x60xf64>) 
-  // CHECK %{{.*}} = stencil.apply -> !stencil.temp<?x?x?xf64> {
   %1 = "stencil.apply"() ({
-    //  CHECK: %{{.*}} = constant 
-    %2 = constant 1.0 : f64
-    //  CHECK: stencil.return %{{.*}} : f64
-    //  CHECK: }
-    "stencil.return"(%2) : (f64) -> ()
+    %1 = constant 1.0 : f64
+    %2 = "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%2) : (!stencil.result<f64>) -> ()
   }) : () -> !stencil.temp<?x?x?xf64>
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([-3, -3, 0] : [67, 67, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
   "stencil.store"(%1, %0)  {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.temp<?x?x?xf64>, !stencil.field<70x70x60xf64>) -> () 
@@ -88,80 +86,96 @@ func @store(%out : !stencil.field<?x?x?xf64>) {
 
 // -----
 
-// CHECK-LABEL: func @return(%{{.*}}: f64, %{{.*}}: !stencil.field<?x?x?xf64>) 
-func @return(%in : f64, %out : !stencil.field<?x?x?xf64>)
+// CHECK-LABEL: func @return(%{{.*}}: f64) 
+func @return(%in : f64)
   attributes { stencil.program } {
-  // CHECK %{{.*}} = stencil.apply (%{{.*}}: f64) -> !stencil.temp<1x2x3xf64>
+  // CHECK %{{.*}} = stencil.apply (%{{.*}}: f64) -> !stencil.temp<?x?x?xf64>
   %0 = "stencil.apply"(%in) ({
     ^bb0(%1 : f64):
-    //  CHECK: stencil.return %{{.*}} : f64
-    "stencil.return"(%1) : (f64) -> ()
-  }) : (f64) -> !stencil.temp<1x2x3xf64>
-  return
-}
-
-// -----
-
-func @unroll(%in : f64, %out : !stencil.field<?x?x?xf64>)
-  attributes { stencil.program } {
-  %0 = "stencil.apply"(%in) ({
-    ^bb0(%1 : f64):
-    //  CHECK: stencil.return unroll [1, 2, 1] %{{.*}}, %{{.*}} : f64, f64
-    "stencil.return"(%1, %1) {unroll = [1, 2, 1]} : (f64, f64) -> ()
+    //  CHECK: stencil.store_result %{{.*}} : (f64) -> !stencil.result<f64>
+    %2 = "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    //  CHECK: stencil.return %{{.*}} : !stencil.result<f64>
+    "stencil.return"(%2) : (!stencil.result<f64>) -> ()
   }) : (f64) -> !stencil.temp<?x?x?xf64>
   return
 }
 
 // -----
 
+// CHECK-LABEL: func @unroll(%{{.*}}: f64) 
+func @unroll(%in : f64)
+  attributes { stencil.program } {
+  %0 = "stencil.apply"(%in) ({
+    ^bb0(%1 : f64):
+    %2 = "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    %3 = "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    //  CHECK: stencil.return unroll [1, 2, 1] %{{.*}}, %{{.*}} : !stencil.result<f64>, !stencil.result<f64>
+    "stencil.return"(%2, %3) {unroll = [1, 2, 1]} : (!stencil.result<f64>, !stencil.result<f64>) -> ()
+  }) : (f64) -> !stencil.temp<?x?x?xf64>
+  return
+}
+
+// -----
+
+// CHECK-LABEL: func @unroll_2(%{{.*}}: f64, %{{.*}}: f32, %{{.*}}: !stencil.field<?x?x?xf64>)
 func @unroll_2(%in_0 : f64, %in_1 : f32, %out : !stencil.field<?x?x?xf64>)
   attributes { stencil.program } {
   %0 = "stencil.cast"(%out) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<?x?x?xf64>) -> (!stencil.field<70x70x60xf64>)
   %1 = "stencil.load"(%0) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<70x70x60xf64>) -> (!stencil.temp<70x70x60xf64>)  
   %2, %3 = "stencil.apply"(%in_0, %in_1) ({
     ^bb0(%4 : f64, %5 : f32):
-    //  CHECK: stencil.return unroll [1, 2, 1] %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : f64, f64, f32, f32
-    "stencil.return"(%4, %4, %5, %5) {unroll = [1, 2, 1]} : (f64, f64, f32, f32) -> ()
+    %6 = "stencil.store_result"(%4) : (f64) -> !stencil.result<f64>
+    %7 = "stencil.store_result"(%4) : (f64) -> !stencil.result<f64>
+    %8 = "stencil.store_result"(%5) : (f32) -> !stencil.result<f32>
+    %9 = "stencil.store_result"(%5) : (f32) -> !stencil.result<f32>
+    //  CHECK: stencil.return unroll [1, 2, 1] %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f32>, !stencil.result<f32>
+    "stencil.return"(%6, %7, %8, %9) {unroll = [1, 2, 1]} : (!stencil.result<f64>, !stencil.result<f64>, !stencil.result<f32>, !stencil.result<f32>) -> ()
   }) : (f64, f32) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf32>)
   return
 }
 
 // -----
 
-// CHECK-LABEL: func @sequential(%{{.*}}: f64, %{{.*}}: !stencil.field<?x?x?xf64>) 
-func @sequential(%in : f64, %out : !stencil.field<?x?x?xf64>)
+// CHECK-LABEL: func @sequential(%{{.*}}: f64) 
+func @sequential(%in : f64)
   attributes { stencil.program } {
   // CHECK %{{.*}} = stencil.apply seq(dim = 2, range = 0 to 60, dir = 1) (%{{.*}}: f64) -> !stencil.temp<1x2x3xf64>
   %0 = "stencil.apply"(%in) ({
     ^bb0(%1 : f64):
-    //  CHECK: stencil.return %{{.*}} : f64
-    "stencil.return"(%1) : (f64) -> ()
-  }) {seq=[2, 0, 60, 1]} : (f64) -> !stencil.temp<1x2x3xf64>
+    %2 = "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%2) : (!stencil.result<f64>) -> ()
+  }) {seq=[2, 0, 60, 1]} : (f64) -> !stencil.temp<?x?x?xf64>
   return
 }
 
 // -----
 
-// CHECK-LABEL: func @depend(%{{.*}}: f64, %{{.*}}: !stencil.field<?x?x?xf64>) 
-func @depend(%in : f64, %out : !stencil.field<?x?x?xf64>)
+// CHECK-LABEL: func @depend(%{{.*}}: f64) 
+func @depend(%in : f64)
   attributes { stencil.program } {
   // CHECK %{{.*}} = stencil.apply seq(dim = 2, range = 0 to 60, dir = 1) (%{{.*}}: f64) -> !stencil.temp<1x2x3xf64>
   %0 = "stencil.apply"(%in) ({
     ^bb0(%1 : f64):
     //  CHECK: %{{.*}} = stencil.depend 0 [0, 0, -3] : f64
     %2 = "stencil.depend"() {output = 0, offset = [0, 0, -3]} : () -> f64
-    //  CHECK: stencil.return %{{.*}} : f64
-    "stencil.return"(%1) : (f64) -> ()
-  }) {seq=[2, 0, 60, 1]} : (f64) -> !stencil.temp<1x2x3xf64>
+    %3 = "stencil.store_result"(%2) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%3) : (!stencil.result<f64>) -> ()
+  }) {seq=[2, 0, 60, 1]} : (f64) -> !stencil.temp<?x?x?xf64>
   return
 }
 
 // -----
 
-// CHECK-LABEL: func @make_result(%{{.*}}: f64) -> !stencil.result<f64>
-func @make_result(%in : f64) -> !stencil.result<f64>
+// CHECK-LABEL: func @store_result(%{{.*}}: f64) 
+func @store_result(%in : f64)
   attributes { stencil.program } {
-  //  CHECK: %{{.*}} = stencil.make_result %{{.*}} : (f64) -> !stencil.result<f64>
-  %0 = "stencil.make_result"(%in) : (f64) -> !stencil.result<f64>
-  return %0 : !stencil.result<f64>
+  %0, %1 = "stencil.apply"(%in) ({
+    ^bb0(%1 : f64):
+    //  CHECK: %{{.*}} = stencil.store_result %{{.*}} : (f64) -> !stencil.result<f64>
+    %2= "stencil.store_result"(%1) : (f64) -> !stencil.result<f64>
+    //  CHECK: %{{.*}} = stencil.store_result : () -> !stencil.result<f64>
+    %3 = "stencil.store_result"() : () -> !stencil.result<f64>
+    "stencil.return"(%2, %3) : (!stencil.result<f64>, !stencil.result<f64>) -> ()
+  }) : (f64) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>)
+  return
 }

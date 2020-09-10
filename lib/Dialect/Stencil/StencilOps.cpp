@@ -1,6 +1,7 @@
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -10,6 +11,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
+#include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -205,6 +207,27 @@ stencil::DynAccessOp::getAccessExtent() {
         std::get<1>(it).cast<IntegerAttr>().getValue().getSExtValue());
   }
   return std::make_tuple(lowerBound, upperBound);
+}
+
+//===----------------------------------------------------------------------===//
+// stencil.make_result
+//===----------------------------------------------------------------------===//
+
+OpOperand *stencil::StoreResultOp::getReturnOpOperand() {
+  auto current = res();
+  while (current.hasOneUse()) {
+    // Return the use if in case it is
+    OpOperand *use = current.getUses().begin().getOperand();
+    if (isa<stencil::ReturnOp>(use->getOwner())) {
+      return use;
+    }
+    auto yieldOp = dyn_cast<scf::YieldOp>(use->getOwner());
+    if (!yieldOp)
+      return nullptr;
+    // Find uses in the parent region
+    current = yieldOp.getParentOp()->getResult(use->getOperandNumber());
+  };
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
