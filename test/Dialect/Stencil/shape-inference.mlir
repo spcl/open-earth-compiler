@@ -13,7 +13,8 @@ func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>)
     %4 = stencil.access %arg2 [-1, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %5 = stencil.access %arg2 [1, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %6 = addf %4, %5 : f64
-    stencil.return %6 : f64
+    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    stencil.return %7 : !stencil.result<f64>
   //  CHECK: } to ([0, 0, 0] : [64, 64, 60])
   }
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
@@ -34,10 +35,12 @@ func @unroll(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>)
     %4 = stencil.access %arg2 [-1, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %5 = stencil.access %arg2 [1, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %6 = addf %4, %5 : f64
-    %7 = stencil.access %arg2 [-1, 3, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    %8 = stencil.access %arg2 [1, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    %9 = addf %7, %8 : f64
-    stencil.return unroll [1, 2, 1] %6, %9 : f64, f64
+    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    %8 = stencil.access %arg2 [-1, 3, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %9 = stencil.access %arg2 [1, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %10 = addf %8, %9 : f64
+    %11 = stencil.store_result %10 : (f64) -> !stencil.result<f64>
+    stencil.return unroll [1, 2, 1] %7, %11 : !stencil.result<f64>, !stencil.result<f64>
   //  CHECK: } to ([0, 0, 0] : [64, 64, 60])
   }
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
@@ -58,15 +61,17 @@ func @multiple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64
     %5 = stencil.access %arg2 [0, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %6 = stencil.access %arg2 [0, -2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %7 = addf %5, %6 : f64
-    stencil.return %7 : f64
+    %8 = stencil.store_result %7 : (f64) -> !stencil.result<f64>
+    stencil.return %8 : !stencil.result<f64>
   //  CHECK: } to ([-1, 0, 0] : [65, 64, 60])
   }
   //  CHECK: %{{.*}} = stencil.apply (%{{.*}} = %{{.*}} : !stencil.temp<66x64x60xf64>) -> !stencil.temp<64x64x60xf64> {
   %4 = stencil.apply (%arg2 = %3 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
-    %8 = stencil.access %arg2 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    %9 = stencil.access %arg2 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    %10 = addf %8, %9 : f64
-    stencil.return %10 : f64
+    %9 = stencil.access %arg2 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %10 = stencil.access %arg2 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %11 = addf %9, %10 : f64
+    %12 = stencil.store_result %11 : (f64) -> !stencil.result<f64>
+    stencil.return %12 : !stencil.result<f64>
   //  CHECK: } to ([0, 0, 0] : [64, 64, 60])
   }
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
@@ -87,7 +92,8 @@ func @lower(%arg0: !stencil.field<?x?x0xf64>, %arg1: !stencil.field<?x?x?xf64>) 
     %4 = stencil.access %arg2 [-1, 2, 0] : (!stencil.temp<?x?x0xf64>) -> f64
     %5 = stencil.access %arg2 [1, -2, 0] : (!stencil.temp<?x?x0xf64>) -> f64
     %6 = addf %4, %5 : f64
-    stencil.return %6 : f64
+    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    stencil.return %7 : !stencil.result<f64>
   //  CHECK: } to ([0, 0, 0] : [64, 64, 60])
   }
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
@@ -104,7 +110,9 @@ func @twostores(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf6
   //  CHECK: %{{.*}}:2 = stencil.apply -> (!stencil.temp<64x66x60xf64>, !stencil.temp<64x66x60xf64>) {
   %2,%3 = stencil.apply -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
     %4 = constant 1.0 : f64
-    stencil.return %4, %4 : f64, f64
+    %5 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
+    %6 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
+    stencil.return %5, %6 : !stencil.result<f64>, !stencil.result<f64>
   //  CHECK: } to ([0, -1, 0] : [64, 65, 60])
   }
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
@@ -126,7 +134,8 @@ func @dyn_access(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf
   %3 = stencil.apply (%arg2 = %2 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
     %cst = constant 0 : index
     %4 = stencil.dyn_access %arg2(%cst, %cst, %cst) in [-1, -2, 0] : [1, 2, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-    stencil.return %4 : f64
+    %5 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
+    stencil.return %5 : !stencil.result<f64>
   //  CHECK: } to ([0, 0, 0] : [64, 64, 60])
   }
   //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
