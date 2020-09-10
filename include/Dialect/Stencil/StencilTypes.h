@@ -134,7 +134,6 @@ public:
 
   /// Return the result type
   Type getResultType() const;
-
 };
 
 } // namespace stencil

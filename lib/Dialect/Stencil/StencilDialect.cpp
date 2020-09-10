@@ -18,7 +18,7 @@ using namespace mlir::stencil;
 
 StencilDialect::StencilDialect(mlir::MLIRContext *context)
     : Dialect(getDialectNamespace(), context, TypeID::get<StencilDialect>()) {
-  addTypes<FieldType, TempType>();
+  addTypes<FieldType, TempType, ResultType>();
 
   addOperations<
 #define GET_OP_LIST

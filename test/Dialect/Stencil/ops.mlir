@@ -155,3 +155,13 @@ func @depend(%in : f64, %out : !stencil.field<?x?x?xf64>)
   }) {seq=[2, 0, 60, 1]} : (f64) -> !stencil.temp<1x2x3xf64>
   return
 }
+
+// -----
+
+// CHECK-LABEL: func @make_result(%{{.*}}: f64) -> !stencil.result<f64>
+func @make_result(%in : f64) -> !stencil.result<f64>
+  attributes { stencil.program } {
+  //  CHECK: %{{.*}} = stencil.make_result %{{.*}} : (f64) -> !stencil.result<f64>
+  %0 = "stencil.make_result"(%in) : (f64) -> !stencil.result<f64>
+  return %0 : !stencil.result<f64>
+}

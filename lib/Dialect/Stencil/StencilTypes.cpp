@@ -60,19 +60,19 @@ struct TempTypeStorage : public GridTypeStorage {
 };
 
 struct ResultTypeStorage : public TypeStorage {
-  ResultTypeStorage(Type resultTy) : TypeStorage(), resultType(resultTy) {}
+  ResultTypeStorage(Type resultType) : TypeStorage(), resultType(resultType) {}
 
   /// Hash key used for uniquing
   using KeyTy = Type;
 
-  bool operator==(const KeyTy &key) const { return key == KeyTy(resultType); }
+  bool operator==(const KeyTy &key) const { return key == resultType; }
 
   Type getResultType() const { return resultType; }
 
   /// Construction
   static ResultTypeStorage *construct(TypeStorageAllocator &allocator,
                                       const KeyTy &key) {
-    return new (allocator.allocate<TempTypeStorage>()) ResultTypeStorage(key);
+    return new (allocator.allocate<ResultTypeStorage>()) ResultTypeStorage(key);
   }
 
   Type resultType;
@@ -123,6 +123,4 @@ ResultType ResultType::get(Type resultType) {
   return Base::get(resultType.getContext(), resultType);
 }
 
-Type ResultType::getResultType() const {
-  return getImpl()->getResultType();
-}
+Type ResultType::getResultType() const { return getImpl()->getResultType(); }

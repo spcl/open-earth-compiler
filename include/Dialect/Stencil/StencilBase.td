@@ -19,10 +19,13 @@ def Stencil_Dialect : Dialect {
 
 def Stencil_IsTempType : CPred<"$_self.isa<::mlir::stencil::TempType>()">;
 def Stencil_IsFieldType : CPred<"$_self.isa<::mlir::stencil::FieldType>()">;
+def Stencil_IsResultType : CPred<"$_self.isa<::mlir::stencil::ResultType>()">;
 
 def Stencil_Temp : Type<Stencil_IsTempType, "a temporary value">;
 def Stencil_Field : Type<Stencil_IsFieldType, "a input/output array">;
-def Stencil_ElementType : AnyTypeOf<[F32, F64]>;
+def Stencil_Result : Type<Stencil_IsResultType, "a result">;
+
+def Stencil_Element : AnyTypeOf<[F32, F64]>;
 
 def Stencil_Index : Confined<I64ArrayAttr, [ArrayCount<3>]>;
 def Stencil_Loop : Confined<I64ArrayAttr, [ArrayCount<4>]>;

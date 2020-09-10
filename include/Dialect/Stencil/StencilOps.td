@@ -129,7 +129,7 @@ def Stencil_AccessOp : Stencil_Op<"access", [
   }];
 
   let arguments = (ins Stencil_Temp:$temp, Stencil_Index:$offset);
-  let results = (outs Stencil_ElementType:$res);
+  let results = (outs Stencil_Element:$res);
   
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
@@ -178,7 +178,7 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [
                        Variadic<Index>:$offset, 
                        Stencil_Index:$lb, 
                        Stencil_Index:$ub);
-  let results = (outs Stencil_ElementType:$res);
+  let results = (outs Stencil_Element:$res);
   
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
@@ -228,7 +228,7 @@ def Stencil_DependOp : Stencil_Op<"depend", [
   }];
 
   let arguments = (ins I64Attr:$output, Stencil_Index:$offset);
-  let results = (outs Stencil_ElementType:$res);
+  let results = (outs Stencil_Element:$res);
   
   let assemblyFormat = [{
     $output $offset attr-dict-with-keyword `:` type($res)
@@ -514,6 +514,38 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   }];
 }
 
+def Stencil_MakeResultOp : Stencil_Op<"make_result", []> {
+  let summary = "make_result operation";
+  let description = [{
+    The make_result operation wraps a result in a result type.
+
+    Examples:
+      stencil.make_resuöt %0 : !stencil.result<f64>
+  }];
+
+  let arguments = (ins Stencil_Element:$operand);
+  let results = (outs Stencil_Result:$res);
+
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "Value operand", [{
+      state.addOperands({operand});
+      state.addTypes(stencil::ResultType::get(operand.getType()));
+    }]>
+  ];
+
+  let assemblyFormat = [{
+    $operand attr-dict-with-keyword `:` functional-type($operand, $res)
+  }];
+
+  let verifier = [{
+    return success();
+  }];
+
+  let extraClassDeclaration = [{
+  }];
+}
+
 def Stencil_ReturnOp : Stencil_Op<"return", [
   Terminator,
   HasParent<"ApplyOp">]> {
@@ -531,7 +563,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
       stencil.return %0 : f64
   }];
 
-  let arguments = (ins Variadic<Stencil_ElementType>:$operands,
+  let arguments = (ins Variadic<Stencil_Element>:$operands,
                    OptionalAttr<Stencil_Index>:$unroll);
 
   let builders = [
