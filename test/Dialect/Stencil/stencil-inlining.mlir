@@ -59,6 +59,43 @@ func @simple_index(%arg0: f64, %arg1: !stencil.field<?x?x?xf64>) attributes {ste
 
 // -----
 
+//  CHECK-LABEL: func @simple_ifelse(%{{.*}}: f64, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
+//  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+//  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : f64) -> !stencil.temp<?x?x?xf64> {
+//  CHECK-NEXT: [[TRUE:%.*]] = constant true
+//  CHECK-NEXT: [[RES:%.*]] = scf.if [[TRUE]] -> (f64) {
+//  CHECK-NEXT: scf.yield [[ARG0]] : f64
+//  CHECK-NEXT: } else {
+//  CHECK-NEXT: scf.yield [[ARG0]] : f64
+//  CHECK-NEXT: }
+//  CHECK-NEXT: %{{.*}} = stencil.store_result [[RES]] : (f64) -> !stencil.result<f64>
+//  CHECK-NEXT: stencil.return %{{.*}} : !stencil.result<f64>
+//  CHECK-NEXT: }
+//  CHECK-NEXT: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
+func @simple_ifelse(%arg0: f64, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  %0 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  %1 = stencil.apply (%arg2 = %arg0 : f64) -> !stencil.temp<?x?x?xf64> {
+    %cond = constant 1 : i1
+    %3 = scf.if %cond -> !stencil.result<f64> {
+      %4 = stencil.store_result %arg2 : (f64) -> !stencil.result<f64>
+      scf.yield %4 : !stencil.result<f64>
+    } else {
+      %4 = stencil.store_result %arg2 : (f64) -> !stencil.result<f64>
+      scf.yield %4 : !stencil.result<f64>
+    }
+    stencil.return %3 : !stencil.result<f64>
+  }
+  %2 = stencil.apply (%arg3 = %1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %3 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %4 = stencil.store_result %3 : (f64) -> !stencil.result<f64>
+    stencil.return %4 : !stencil.result<f64>
+  }
+   stencil.store %2 to %0([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
+  return
+}
+
+// -----
+
 // CHECK-LABEL: func @multiple_edges(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
