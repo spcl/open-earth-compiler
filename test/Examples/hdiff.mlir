@@ -19,7 +19,8 @@ module {
       %cst = constant -4.000000e+00 : f64
       %17 = mulf %13, %cst : f64
       %18 = addf %17, %16 : f64
-      stencil.return %18 : f64
+      %19 = stencil.store_result %18 : (f64) -> !stencil.result<f64>
+      stencil.return %19 : !stencil.result<f64>
     }
     %6 = stencil.apply (%arg3 = %3 : !stencil.temp<?x?x?xf64>, %arg4 = %5 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %9 = stencil.access %arg4 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -32,7 +33,8 @@ module {
       %cst = constant 0.000000e+00 : f64
       %16 = cmpf "ogt", %15, %cst : f64
       %17 = select %16, %cst, %11 : f64
-      stencil.return %17 : f64
+      %18 = stencil.store_result %17 : (f64) -> !stencil.result<f64>
+      stencil.return %18 : !stencil.result<f64>
     }
     %7 = stencil.apply (%arg3 = %3 : !stencil.temp<?x?x?xf64>, %arg4 = %5 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %9 = stencil.access %arg4 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -45,7 +47,8 @@ module {
       %cst = constant 0.000000e+00 : f64
       %16 = cmpf "ogt", %15, %cst : f64
       %17 = select %16, %cst, %11 : f64
-      stencil.return %17 : f64
+      %18 = stencil.store_result %17 : (f64) -> !stencil.result<f64>
+      stencil.return %18 : !stencil.result<f64>
     }
     %8 = stencil.apply (%arg3 = %3 : !stencil.temp<?x?x?xf64>, %arg4 = %6 : !stencil.temp<?x?x?xf64>, %arg5 = %7 : !stencil.temp<?x?x?xf64>, %arg6 = %4 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %9 = stencil.access %arg4 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -59,7 +62,8 @@ module {
       %17 = mulf %16, %15 : f64
       %18 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %19 = addf %17, %18 : f64
-      stencil.return %19 : f64
+      %20 = stencil.store_result %19 : (f64) -> !stencil.result<f64>
+      stencil.return %20 : !stencil.result<f64>
     }
     stencil.store %8 to %2([0, 0, 0] : [64, 64, 64]) : !stencil.temp<?x?x?xf64> to !stencil.field<72x72x72xf64>
     return

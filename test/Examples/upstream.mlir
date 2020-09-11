@@ -10,15 +10,16 @@ module {
       %4 = stencil.access %arg2 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %5 = cmpf "ogt", %4, %cst : f64
       %6 = scf.if %5 -> (f64) {
-        %7 = stencil.access %arg2 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %8 = subf %7, %4 : f64
-        scf.yield %8 : f64
+        %8 = stencil.access %arg2 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+        %9 = subf %8, %4 : f64
+        scf.yield %9 : f64
       } else {
-        %7 = stencil.access %arg2 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
-        %8 = subf %4, %7 : f64
-        scf.yield %8 : f64
+        %8 = stencil.access %arg2 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+        %9 = subf %4, %8 : f64
+        scf.yield %9 : f64
       }
-      stencil.return %6 : f64
+      %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+      stencil.return %7 : !stencil.result<f64>
     }
     stencil.store %3 to %1([0, 0, 0] : [64, 64, 64]) : !stencil.temp<?x?x?xf64> to !stencil.field<72x72x72xf64>
     return

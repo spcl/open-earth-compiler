@@ -29,7 +29,8 @@ module {
       %26 = mulf %24, %22 : f64
       %27 = addf %25, %18 : f64
       %28 = addf %27, %26 : f64
-      stencil.return %28 : f64
+      %29 = stencil.store_result %28 : (f64) -> !stencil.result<f64>
+      stencil.return %29 : !stencil.result<f64>
     }
     %10 = stencil.apply (%arg5 = %5 : !stencil.temp<?x?x?xf64>, %arg6 = %9 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %13 = stencil.access %arg6 [1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -42,7 +43,8 @@ module {
       %cst = constant 0.000000e+00 : f64
       %20 = cmpf "ogt", %19, %cst : f64
       %21 = select %20, %cst, %15 : f64
-      stencil.return %21 : f64
+      %22 = stencil.store_result %21 : (f64) -> !stencil.result<f64>
+      stencil.return %22 : !stencil.result<f64>
     }
     %11 = stencil.apply (%arg5 = %5 : !stencil.temp<?x?x?xf64>, %arg6 = %9 : !stencil.temp<?x?x?xf64>, %arg7 = %7 : !stencil.temp<0x?x0xf64>) -> !stencil.temp<?x?x?xf64> {
       %13 = stencil.access %arg6 [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -57,7 +59,8 @@ module {
       %cst = constant 0.000000e+00 : f64
       %22 = cmpf "ogt", %21, %cst : f64
       %23 = select %22, %cst, %17 : f64
-      stencil.return %23 : f64
+      %24 = stencil.store_result %23 : (f64) -> !stencil.result<f64>
+      stencil.return %24 : !stencil.result<f64>
     }
     %12 = stencil.apply (%arg5 = %5 : !stencil.temp<?x?x?xf64>, %arg6 = %10 : !stencil.temp<?x?x?xf64>, %arg7 = %11 : !stencil.temp<?x?x?xf64>, %arg8 = %6 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
       %13 = stencil.access %arg6 [-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -71,7 +74,8 @@ module {
       %21 = mulf %20, %19 : f64
       %22 = stencil.access %arg5 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
       %23 = addf %21, %22 : f64
-      stencil.return %23 : f64
+      %24 = stencil.store_result %23 : (f64) -> !stencil.result<f64>
+      stencil.return %24 : !stencil.result<f64>
     }
     stencil.store %12 to %2([0, 0, 0] : [64, 64, 64]) : !stencil.temp<?x?x?xf64> to !stencil.field<72x72x72xf64>
     return

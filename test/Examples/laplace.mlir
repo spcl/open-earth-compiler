@@ -17,7 +17,8 @@ module {
       %cst = constant -4.000000e+00 : f64
       %12 = mulf %8, %cst : f64
       %13 = addf %12, %11 : f64
-      stencil.return %13 : f64
+      %14 = stencil.store_result %13 : (f64) -> !stencil.result<f64>
+      stencil.return %14 : !stencil.result<f64>
     }
     stencil.store %3 to %1([0, 0, 0] : [64, 64, 64]) : !stencil.temp<?x?x?xf64> to !stencil.field<72x72x72xf64>
     return
