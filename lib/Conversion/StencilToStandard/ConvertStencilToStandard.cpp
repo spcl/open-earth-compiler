@@ -264,11 +264,7 @@ public:
       rewriter.create<mlir::StoreOp>(loc, result, allocOp, storeOffset);
     }
 
-    parallelOp.dump();
-
     rewriter.eraseOp(operation);
-
-    
     return success();
   }
 };
