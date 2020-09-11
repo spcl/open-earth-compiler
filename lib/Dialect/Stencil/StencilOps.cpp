@@ -22,10 +22,8 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <iterator>
 #include <tuple>
 
 using namespace mlir;
@@ -38,26 +36,6 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::OperandType, 8> operands;
   SmallVector<OpAsmParser::OperandType, 8> arguments;
   SmallVector<Type, 8> operandTypes;
-
-  // Parse the optional loop attribute
-  IntegerAttr dim, lb, ub, dir;
-  NamedAttrList attrStorage;
-  if (succeeded(parser.parseOptionalKeyword("seq"))) {
-    if (parser.parseLParen() || parser.parseKeyword("dim") ||
-        parser.parseEqual() || parser.parseAttribute(dim, "dim", attrStorage) ||
-        parser.parseComma() || parser.parseKeyword("range") ||
-        parser.parseEqual() || parser.parseAttribute(lb, "lb", attrStorage) ||
-        parser.parseKeyword("to") ||
-        parser.parseAttribute(ub, "ub", attrStorage) || parser.parseComma() ||
-        parser.parseKeyword("dir") || parser.parseEqual() ||
-        parser.parseAttribute(dir, "dir", attrStorage) || parser.parseRParen())
-      return failure();
-    // Create the attribute list
-    auto seqAttr = parser.getBuilder().getI64ArrayAttr(
-        {dim.getValue().getSExtValue(), lb.getValue().getSExtValue(),
-         ub.getValue().getSExtValue(), dir.getValue().getSExtValue()});
-    state.addAttribute(stencil::ApplyOp::getSeqAttrName(), seqAttr);
-  }
 
   // Parse the assignment list
   if (succeeded(parser.parseOptionalLParen())) {
@@ -114,14 +92,6 @@ static ParseResult parseApplyOp(OpAsmParser &parser, OperationState &state) {
 
 static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   printer << stencil::ApplyOp::getOperationName() << ' ';
-
-  // Print the loop attribute
-  if (applyOp.seq().hasValue()) {
-    printer << "seq(dim = " << applyOp.getSeqDim()
-            << ", range = " << applyOp.getSeqLB() << " to "
-            << applyOp.getSeqUB() << ", dir = " << applyOp.getSeqDir() << ") ";
-  }
-
   // Print the region arguments
   SmallVector<Value, 10> operands = applyOp.getOperands();
   if (!applyOp.region().empty() && !operands.empty()) {
@@ -146,8 +116,7 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   // Print optional attributes
   printer.printOptionalAttrDictWithKeyword(
       applyOp.getAttrs(), /*elidedAttrs=*/{stencil::ApplyOp::getLBAttrName(),
-                                           stencil::ApplyOp::getUBAttrName(),
-                                           stencil::ApplyOp::getSeqAttrName()});
+                                           stencil::ApplyOp::getUBAttrName()});
 
   // Print region, bounds, and return type
   printer.printRegion(applyOp.region(),
@@ -261,8 +230,8 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
   // Create a new operation with shorther argument list
   if (newOperands.size() < applyOp.getNumOperands()) {
     auto loc = applyOp.getLoc();
-    auto newOp = rewriter.create<stencil::ApplyOp>(
-        loc, newOperands, applyOp.getResults(), applyOp.seq());
+    auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
+                                                   applyOp.getResults());
 
     // Compute the argument mapping and move the block
     SmallVector<Value, 10> newArgs(applyOp.getNumOperands());

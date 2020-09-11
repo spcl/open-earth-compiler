@@ -150,22 +150,6 @@ func @sequential(%in : f64)
 
 // -----
 
-// CHECK-LABEL: func @depend(%{{.*}}: f64) 
-func @depend(%in : f64)
-  attributes { stencil.program } {
-  // CHECK %{{.*}} = stencil.apply seq(dim = 2, range = 0 to 60, dir = 1) (%{{.*}}: f64) -> !stencil.temp<1x2x3xf64>
-  %0 = "stencil.apply"(%in) ({
-    ^bb0(%1 : f64):
-    //  CHECK: %{{.*}} = stencil.depend 0 [0, 0, -3] : f64
-    %2 = "stencil.depend"() {output = 0, offset = [0, 0, -3]} : () -> f64
-    %3 = "stencil.store_result"(%2) : (f64) -> !stencil.result<f64>
-    "stencil.return"(%3) : (!stencil.result<f64>) -> ()
-  }) {seq=[2, 0, 60, 1]} : (f64) -> !stencil.temp<?x?x?xf64>
-  return
-}
-
-// -----
-
 // CHECK-LABEL: func @store_result(%{{.*}}: f64) 
 func @store_result(%in : f64)
   attributes { stencil.program } {
