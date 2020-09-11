@@ -212,62 +212,6 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [
   }];
 }
 
-def Stencil_DependOp : Stencil_Op<"depend", [
-    DeclareOpInterfaceMethods<OffsetOp>,
-    DeclareOpInterfaceMethods<ShiftOp>,
-    NoSideEffect]> {
-  let summary = "stencil depend operation";
-  let description = [{
-    This operation accesses an output at a previously updated offset. The operation
-    takes an index that specifies the output to access and an offset relative
-    to the current position. The operation only works in an apply that implements
-    a sequential loop and only offset in the negative loop direction are supported.
-    
-    Example:
-      %0 = stencil.depend 0 [-1, 0, 0] :  f64
-  }];
-
-  let arguments = (ins I64Attr:$output, Stencil_Index:$offset);
-  let results = (outs Stencil_ElementType:$res);
-  
-  let assemblyFormat = [{
-    $output $offset attr-dict-with-keyword `:` type($res)
-  }];
-
-  let verifier = [{
-    auto applyOp = getParentOfType<stencil::ApplyOp>();
-    // TODO check parent is a sequential apply / loop op
-    // if(!applyOp || !applyOp.seq().hasValue())
-    //   return emitOpError("expected parent that executes sequentially");
-    
-    // Check the output offset exists and the result type matches
-    if(!(output() >= 0 && output() < applyOp.getNumResults()))
-      return emitOpError("output index out of range");
-    auto resultType = applyOp.getResult(output()).getType().cast<stencil::GridType>();
-    if(resultType.getElementType() != res().getType())
-      return emitOpError("result type does not match the output element type");
-    
-    // TODO check parent apply op / loop op
-    // // Check the offset
-    // auto offsetOp = cast<OffsetOp>(this->getOperation());
-    // for (auto &en : llvm::enumerate(offsetOp.getOffset())) {
-    //   if(en.value() != 0) {
-    //     if(applyOp.getSeqDim() != en.index())
-    //       return emitOpError("unexpected non-zero offset in parallel dimension");
-    //     if(applyOp.getSeqDir() == 1 && en.value() > -1)
-    //       return emitOpError("expected offset in the negative direction");
-    //     if(applyOp.getSeqDir() == -1 && en.value() < 1)
-    //       return emitOpError("expected offset in the positive direction");
-    //   }
-    // }
-    return success();
-  }];
-
-  let extraClassDeclaration = [{
-    static StringRef getOffsetAttrName() { return "offset"; }
-  }];
-}
-
 def Stencil_LoadOp : Stencil_Op<"load", [
   DeclareOpInterfaceMethods<ShapeOp>,
   NoSideEffect]> {
