@@ -216,17 +216,20 @@ stencil::DynAccessOp::getAccessExtent() {
 OpOperand *stencil::StoreResultOp::getReturnOpOperand() {
   auto current = res();
   while (current.hasOneUse()) {
-    // Return the use if in case it is
-    OpOperand *use = current.getUses().begin().getOperand();
-    if (isa<stencil::ReturnOp>(use->getOwner())) {
-      return use;
-    }
-    auto yieldOp = dyn_cast<scf::YieldOp>(use->getOwner());
+    // Return the operand if we found the return op
+    OpOperand *operand = current.getUses().begin().getOperand();
+    if (isa<stencil::ReturnOp>(operand->getOwner()))
+      return operand;
+    // Otherwise we expect a yield op
+    auto yieldOp = dyn_cast<scf::YieldOp>(operand->getOwner());
     if (!yieldOp)
       return nullptr;
-    // Find uses in the parent region
-    current = yieldOp.getParentOp()->getResult(use->getOperandNumber());
-  };
+    if (isa<scf::ForOp>(yieldOp.getParentOp()) &&
+        yieldOp.getParentOfType<stencil::ApplyOp>())
+      nullptr;
+    // Continue the search in the parent region
+    current = yieldOp.getParentOp()->getResult(operand->getOperandNumber());
+  }
   return nullptr;
 }
 

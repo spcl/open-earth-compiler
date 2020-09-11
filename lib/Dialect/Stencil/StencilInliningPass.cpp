@@ -1,8 +1,10 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "Dialect/Stencil/StencilTypes.h"
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Function.h"
@@ -48,6 +50,15 @@ struct StencilInliningPattern : public ApplyOpPattern {
                                  stencil::ApplyOp consumerOp) const {
     // Do not inline sequential producers or consumers currently
     if (producerOp.seq().hasValue() || consumerOp.seq().hasValue())
+      return false;
+
+    // Do not inline producer ops that return void values
+    bool containsEmptyStores = false;
+    producerOp.walk([&](stencil::StoreResultOp resultOp) {
+      if (resultOp.operands().size() == 0)
+        containsEmptyStores = true;
+    });
+    if (containsEmptyStores)
       return false;
 
     // Do not inline producers accessed at dynamic offsets
@@ -130,8 +141,10 @@ struct RerouteRewrite : public StencilInliningPattern {
     SmallVector<Value, 10> retOperands = returnOp.getOperands();
     for (auto arg : newOp.getBody()->getArguments().take_back(rerouteCount)) {
       Index zeroOffset = {0, 0, 0};
-      retOperands.push_back(rewriter.create<stencil::AccessOp>(
-          returnOp.getLoc(), arg, zeroOffset));
+      auto resultOp = rewriter.create<stencil::StoreResultOp>(
+          returnOp.getLoc(), rewriter.create<stencil::AccessOp>(
+                                 returnOp.getLoc(), arg, zeroOffset));
+      retOperands.push_back(resultOp);
     }
     rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), retOperands, nullptr);
     rewriter.eraseOp(returnOp);
@@ -210,8 +223,37 @@ struct InliningRewrite : public StencilInliningPattern {
         repIdx.push_back(std::distance(producerOp.getResults().begin(), pos));
       }
     }
-
+    // Remove the store results ops in the producer to make it inlineable
+    producerOp.walk([&](Operation *op) {
+      // Remove the store result ops
+      if (auto resultOp = dyn_cast<stencil::StoreResultOp>(op)) {
+        assert(resultOp.operands().size() == 1 &&
+               "expected store result ops to store a value");
+        rewriter.replaceOp(resultOp, resultOp.operands());
+      }
+      // Remove the result types from the signature of the if ops.
+      if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
+        if (llvm::any_of(ifOp.getResultTypes(),
+                         [](Type type) { return type.isa<ResultType>(); })) {
+          SmallVector<Type, 10> newTypes(ifOp.getNumResults());
+          llvm::transform(
+              ifOp.getResultTypes(), newTypes.begin(), [](Type type) {
+                if (auto resultType = type.dyn_cast<stencil::ResultType>())
+                  return resultType.getResultType();
+                return type;
+              });
+          rewriter.setInsertionPoint(ifOp);
+          scf::IfOp newOp = rewriter.create<scf::IfOp>(ifOp.getLoc(), newTypes,
+                                                       ifOp.condition(), true);
+          // All if operations returning a result have both results.
+          rewriter.mergeBlocks(ifOp.getBody(0), newOp.getBody(0));
+          rewriter.mergeBlocks(ifOp.getBody(1), newOp.getBody(1));
+          rewriter.replaceOp(ifOp, newOp.getResults());
+        }
+      }
+    });
     // Walk accesses of producer results and replace them by computation
+    rewriter.setInsertionPoint(buildOp);
     buildOp.walk([&](stencil::AccessOp accessOp) {
       auto pos = std::find(repArgs.begin(), repArgs.end(), accessOp.temp());
       if (pos != repArgs.end()) {
