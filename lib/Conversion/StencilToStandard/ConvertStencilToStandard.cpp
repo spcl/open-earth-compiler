@@ -25,8 +25,6 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include <bits/stdint-intn.h>
-#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <tuple>
@@ -155,29 +153,17 @@ public:
       newResults.push_back(allocOp.getResult());
     }
 
-    // Get the sequential dimension if there is one
-    Value lb, ub, step;
-    Optional<int64_t> sequential = None;
-    if (applyOp.seq().hasValue()) {
-      sequential = applyOp.getSeqDim();
-      lb = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqLB());
-      ub = rewriter.create<ConstantIndexOp>(loc, applyOp.getSeqUB());
-      step = rewriter.create<ConstantIndexOp>(loc, 1);
-    }
-
     // Compute the loop bounds starting from zero
     // (in case of loop unrolling adjust the step of the loop)
     SmallVector<Value, 3> lbs, ubs, steps;
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
     for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
       int64_t lb = shapeOp.getLB()[i];
-      int64_t ub = sequential == i ? lb + 1 : shapeOp.getUB()[i];
+      int64_t ub = shapeOp.getUB()[i];
       int64_t step = returnOp.unroll().hasValue() ? returnOp.getUnroll()[i] : 1;
       lbs.push_back(rewriter.create<ConstantIndexOp>(loc, lb));
       ubs.push_back(rewriter.create<ConstantIndexOp>(loc, ub));
       steps.push_back(rewriter.create<ConstantIndexOp>(loc, step));
-      assert(sequential != i ||
-             step == 1 && "expect sequential dimension to have step one");
     }
 
     // Convert the signature of the apply op body
@@ -193,50 +179,16 @@ public:
     auto fwdMap = AffineMap::get(1, 0, fwdExpr);
 
     // Replace the stencil apply operation by a loop nest
-    // (clone the innermost loop to remove the existing body)
     ParallelOp parallelOp = rewriter.create<ParallelOp>(loc, lbs, ubs, steps);
-    // Add a sequential of parallel loop nest
-    if (sequential) {
-      rewriter.setInsertionPointToStart(parallelOp.getBody());
-      auto forOp = rewriter.create<ForOp>(loc, lb, ub, step);
-      rewriter.mergeBlockBefore(
-          applyOp.getBody(),
-          forOp.getLoopBody().getBlocks().back().getTerminator());
+    rewriter.mergeBlockBefore(
+        applyOp.getBody(),
+        parallelOp.getLoopBody().getBlocks().back().getTerminator());
 
-      // Insert index variables at the beginning of the loop body
-      rewriter.setInsertionPointToStart(forOp.getBody());
-      for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
-        if (sequential == i) {
-          if (applyOp.getSeqDir() == 1) {
-            // Access the iv of the sequential loop
-            rewriter.create<AffineApplyOp>(loc, fwdMap,
-                                           ValueRange(forOp.getInductionVar()));
-          } else {
-            // Reverse the iv of the sequential loop
-            auto bwdExpr = rewriter.getAffineDimExpr(0) - 1 +
-                           rewriter.getAffineDimExpr(1) -
-                           rewriter.getAffineDimExpr(2);
-            auto bwdMap = AffineMap::get(3, 0, bwdExpr);
-            rewriter.create<AffineApplyOp>(
-                loc, bwdMap, ValueRange({ub, lb, forOp.getInductionVar()}));
-          }
-          continue;
-        }
-        // Handle the parallel loop dimensions
-        rewriter.create<AffineApplyOp>(
-            loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
-      }
-    } else {
-      rewriter.mergeBlockBefore(
-          applyOp.getBody(),
-          parallelOp.getLoopBody().getBlocks().back().getTerminator());
-
-      // Insert index variables at the beginning of the loop body
-      rewriter.setInsertionPointToStart(parallelOp.getBody());
-      for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
-        rewriter.create<AffineApplyOp>(
-            loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
-      }
+    // Insert index variables at the beginning of the loop body
+    rewriter.setInsertionPointToStart(parallelOp.getBody());
+    for (int64_t i = 0, e = shapeOp.getRank(); i != e; ++i) {
+      rewriter.create<AffineApplyOp>(
+          loc, fwdMap, ValueRange(parallelOp.getInductionVars()[i]));
     }
 
     // Replace the applyOp
@@ -376,61 +328,6 @@ public:
     // Replace the access op by a load op
     rewriter.replaceOpWithNewOp<mlir::LoadOp>(operation, operands[0],
                                               loadOffset);
-    return success();
-  }
-};
-
-class DependOpLowering : public StencilOpToStdPattern<stencil::DependOp> {
-public:
-  using StencilOpToStdPattern<stencil::DependOp>::StencilOpToStdPattern;
-
-  LogicalResult
-  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto loc = operation->getLoc();
-    auto dependOp = cast<stencil::DependOp>(operation);
-    auto offsetOp = cast<OffsetOp>(dependOp.getOperation());
-
-    // Get the loop operation
-    auto parallelOp = operation->getParentOfType<ParallelOp>();
-    auto forOp = operation->getParentOfType<ForOp>();
-    if (!parallelOp || !forOp)
-      return failure();
-
-    // Get the return operation
-    auto returnOp = dyn_cast<stencil::ReturnOp>(
-        forOp.getBody()->getTerminator()->getPrevNode());
-    if (!returnOp)
-      return failure();
-    assert(returnOp.getUnrollFactor() == 1 &&
-           "expect sequential loops to have no unrolling");
-
-    // Get allocations of result buffers
-    SmallVector<Value, 3> allocValues;
-    auto *node = parallelOp.getOperation();
-    while (node && allocValues.size() < returnOp.getNumOperands()) {
-      if (auto allocOp = dyn_cast<AllocOp>(node)) {
-        allocValues.insert(allocValues.begin(), allocOp.getResult());
-      }
-      node = node->getPrevNode();
-    }
-    assert(allocValues.size() > dependOp.output() &&
-           "expected allocation for output index");
-
-    // Get the induction variables
-    auto inductionVars = getInductionVars(operation);
-
-    // Add the lower bound of the result to the access offset
-    auto totalOffset = applyFunElementWise(
-        offsetOp.getOffset(), valueToLB[returnOp.getOperand(dependOp.output())],
-        std::minus<int64_t>());
-    SmallVector<bool, 3> allocation(totalOffset.size(), true);
-    auto loadOffset =
-        computeIndexValues(inductionVars, totalOffset, allocation, rewriter);
-
-    // Replace the access op by a load op
-    rewriter.replaceOpWithNewOp<mlir::LoadOp>(
-        operation, allocValues[dependOp.output()], loadOffset);
     return success();
   }
 };
@@ -599,8 +496,8 @@ void populateStencilToStdConversionPatterns(
   patterns
       .insert<FuncOpLowering, CastOpLowering, LoadOpLowering, ApplyOpLowering,
               BufferOpLowering, ReturnOpLowering, AccessOpLowering,
-              DynAccessOpLowering, DependOpLowering, IndexOpLowering,
-              StoreOpLowering>(typeConveter, valueToLB);
+              DynAccessOpLowering, IndexOpLowering, StoreOpLowering>(
+          typeConveter, valueToLB);
 }
 
 //===----------------------------------------------------------------------===//

@@ -22,10 +22,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
-#include <bits/stdint-intn.h>
-#include <cstddef>
 #include <cstdint>
-#include <iterator>
 
 using namespace mlir;
 using namespace stencil;
@@ -46,10 +43,6 @@ struct StencilInliningPattern : public ApplyOpPattern {
   // Check if inlining is possible
   bool isStencilInliningPossible(stencil::ApplyOp producerOp,
                                  stencil::ApplyOp consumerOp) const {
-    // Do not inline sequential producers or consumers currently
-    if (producerOp.seq().hasValue() || consumerOp.seq().hasValue())
-      return false;
-
     // Do not inline producers accessed at dynamic offsets
     for (auto operand : llvm::enumerate(consumerOp.operands())) {
       if (operand.value().getDefiningOp() == producerOp &&
@@ -116,7 +109,7 @@ struct RerouteRewrite : public StencilInliningPattern {
 
     // Create new consumer op right after the producer op
     auto newOp = rewriter.create<stencil::ApplyOp>(
-        consumerOp.getLoc(), newOperands, newResults, None);
+        consumerOp.getLoc(), newOperands, newResults);
     rewriter.mergeBlocks(consumerOp.getBody(), newOp.getBody(),
                          newOp.getBody()->getArguments().take_front(
                              consumerOp.getNumOperands()));
@@ -193,7 +186,7 @@ struct InliningRewrite : public StencilInliningPattern {
     // Create a build op to assemble the body of the inlined stencil
     auto loc = consumerOp.getLoc();
     auto buildOp = rewriter.create<stencil::ApplyOp>(
-        loc, buildOperands, consumerOp.getResults(), None);
+        loc, buildOperands, consumerOp.getResults());
     rewriter.mergeBlocks(consumerOp.getBody(), buildOp.getBody(),
                          buildOp.getBody()->getArguments().take_back(
                              consumerOp.getNumOperands()));

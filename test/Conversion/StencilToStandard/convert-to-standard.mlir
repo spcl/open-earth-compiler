@@ -229,59 +229,6 @@ func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
-// CHECK: [[MAP2:#map[0-9]+]] = affine_map<(d0, d1, d2) -> (d0 + d1 - d2 - 1)>
-
-// CHECK-LABEL: @sequential_loop
-func @sequential_loop(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
-  %1 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
-  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
-  // CHECK: scf.for [[ARG3:%.*]] =
-  %2 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
-    // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP0]]([[ARG3]])
-    // CHECK-DAG: [[C2:%.*]] = constant 2 : index
-    // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
-    %3 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
-    stencil.return %3 : f64
-  } to ([0, 0, 0]:[7, 7, 7])
-  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
-  // CHECK: scf.for [[ARG3:%.*]] = [[LB:%.*]] to [[UB:%.*]]
-  %4 = stencil.apply seq(dim = 2, range = 0 to 7, dir = -1) (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
-    // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP2]]([[UB:%.*]], [[LB:%.*]], [[ARG3]])
-    // CHECK-DAG: [[C2:%.*]] = constant 2 : index
-    // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
-    %5 = stencil.access %arg1[0, 1, 2] : (!stencil.temp<10x10x10xf64>) -> f64
-    stencil.return %5 : f64
-  } to ([0, 0, 0]:[7, 7, 7])
-  return
-}
-
-// -----
-
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
-
-// CHECK-LABEL: @depend_op
-func @depend_op(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
-  %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
-  %1 = stencil.load %0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<10x10x10xf64>) -> !stencil.temp<10x10x10xf64>
-  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
-  // CHECK: scf.for [[ARG3:%.*]] =
-  %2 = stencil.apply seq(dim = 2, range = 0 to 7, dir = 1) (%arg1 = %1 : !stencil.temp<10x10x10xf64>) -> !stencil.temp<7x7x7xf64> {
-    // CHECK-DAG: [[IV2:%.*]] = affine.apply [[MAP0]]([[ARG3]])
-    // CHECK-DAG: [[C2:%.*]] = constant -1 : index
-    // CHECK-DAG: [[O2:%.*]] = affine.apply [[MAP1]]([[IV2]], [[C2]])
-    // CHECK: %{{.*}} = load %{{.*}}{{\[}}[[O2]], %{{.*}}, %{{.*}}{{[]]}}
-    %3 = stencil.depend 0 [0, 0, -1] : f64
-    stencil.return %3 : f64
-  } to ([0, 0, 0]:[7, 7, 7])
-  return
-}
-
-// -----
-
 // CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @dyn_access_lowering
