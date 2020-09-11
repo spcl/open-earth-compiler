@@ -427,10 +427,17 @@ public:
 
   bool isDynamicallyLegal(Operation *op) const override {
     if (auto funcOp = dyn_cast<FuncOp>(op)) {
-      return !funcOp.getAttr(
-                 stencil::StencilDialect::getStencilProgramAttrName()) &&
-             !funcOp.getAttr(
-                 stencil::StencilDialect::getStencilFunctionAttrName());
+      return !StencilDialect::isStencilProgram(funcOp);
+    }
+    if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
+      return llvm::none_of(ifOp.getResultTypes(), [](Type type) {
+        return type.isa<stencil::ResultType>();
+      });
+    }
+    if (auto forOp = dyn_cast<scf::ForOp>(op)) {
+      return llvm::none_of(forOp.getResultTypes(), [](Type type) {
+        return type.isa<stencil::ResultType>();
+      });
     }
     return true;
   }

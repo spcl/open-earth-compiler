@@ -479,7 +479,6 @@ def Stencil_StoreResultOp : Stencil_Op<"store_result", []> {
 
   let extraClassDeclaration = [{
     OpOperand* getReturnOpOperand(); 
-
   }];
 }
 

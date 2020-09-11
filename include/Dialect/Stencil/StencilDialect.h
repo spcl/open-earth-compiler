@@ -26,16 +26,12 @@ public:
   /// Returns the prefix used in the textual IR to refer to stencil operations
   static StringRef getDialectNamespace() { return "stencil"; }
 
-  static StringRef getStencilFunctionAttrName() { return "stencil.function"; }
   static StringRef getStencilProgramAttrName() { return "stencil.program"; }
 
   static StringRef getFieldTypeName() { return "field"; }
   static StringRef getTempTypeName() { return "temp"; }
   static StringRef getResultTypeName() { return "result"; }
 
-  static bool isStencilFunction(FuncOp funcOp) {
-    return !!funcOp.getAttr(getStencilFunctionAttrName());
-  }
   static bool isStencilProgram(FuncOp funcOp) {
     return !!funcOp.getAttr(getStencilProgramAttrName());
   }
