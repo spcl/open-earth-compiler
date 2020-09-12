@@ -25,9 +25,11 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <tuple>
 
 using namespace mlir;
@@ -67,6 +69,75 @@ public:
     // Convert the signature and delete the original operation
     rewriter.applySignatureConversion(&newFuncOp.getBody(), result);
     rewriter.eraseOp(funcOp);
+    return success();
+  }
+};
+
+class YieldOpLowering : public StencilOpToStdPattern<scf::YieldOp> {
+public:
+  using StencilOpToStdPattern<scf::YieldOp>::StencilOpToStdPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto yieldOp = cast<YieldOp>(operation);
+
+    // Remove all result types from the operand list
+    SmallVector<Value, 4> newOperands;
+    llvm::copy_if(yieldOp.getOperands(), std::back_inserter(newOperands),
+                  [](Value value) {
+                    return !value.getType().isa<stencil::ResultType>();
+                  });
+    assert(newOperands.size() < yieldOp.getNumOperands() &&
+           "expected if op to return results");
+
+    rewriter.create<YieldOp>(loc, newOperands);
+    rewriter.eraseOp(yieldOp);
+    return success();
+  }
+};
+
+class IfOpLowering : public StencilOpToStdPattern<scf::IfOp> {
+public:
+  using StencilOpToStdPattern<scf::IfOp>::StencilOpToStdPattern;
+
+  LogicalResult
+  matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
+    auto ifOp = cast<IfOp>(operation);
+
+    // TODO if op is lowered before the store
+    // TODO compute the return op indexes before the pattern rewriter runs!
+
+    // Remove all result types from the result list
+    SmallVector<Type, 4> newTypes;
+    llvm::copy_if(ifOp.getResultTypes(), std::back_inserter(newTypes),
+                  [](Type type) { return !type.isa<stencil::ResultType>(); });
+    assert(newTypes.size() < ifOp.getNumResults() &&
+           "expected if op to return results");
+
+    auto newOp = rewriter.create<scf::IfOp>(ifOp.getLoc(), newTypes,
+                                            ifOp.condition(), true);
+    // All if operations returning a result have both results
+    rewriter.mergeBlocks(ifOp.getBody(0), newOp.getBody(0), llvm::None);
+    rewriter.mergeBlocks(ifOp.getBody(1), newOp.getBody(1), llvm::None);
+
+    // Erase the if op and replace its uses if necessary
+    if (newOp.getNumResults() == 0) {
+      rewriter.eraseOp(ifOp);
+    } else {
+      SmallVector<Value, 4> newResults(ifOp.getNumResults(),
+                                       newOp.getResults().front());
+      auto it = newOp.getResults().begin();
+      for (auto en : llvm::enumerate(ifOp.getResults())) {
+        if (!en.value().getType().isa<stencil::ResultType>())
+          newResults[en.index()] = *it++;
+      }
+      rewriter.replaceOp(ifOp, newResults);
+    }
+
     return success();
   }
 };
@@ -216,44 +287,42 @@ public:
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
-    auto storeResultOp = cast<stencil::StoreResultOp>(operation);
+    auto resultOp = cast<stencil::StoreResultOp>(operation);
 
     // Get the return op and the parallel loop
-    OpOperand *returnOpOperand = storeResultOp.getReturnOpOperand();
-    assert(returnOpOperand &&
-           "expected store result op to have valid return operand");
-    if (!isa<ParallelOp>(returnOpOperand->getOwner()->getParentOp()))
+    OpOperand *operand = valueToOperand[resultOp.res()];
+    assert(operand && "expected store result op to have valid return operand");
+    if (!isa<ParallelOp>(operand->getOwner()->getParentOp()))
       return failure();
-    auto returnOp = cast<stencil::ReturnOp>(returnOpOperand->getOwner());
+    auto returnOp = cast<stencil::ReturnOp>(operand->getOwner());
     auto parallelOp = returnOp.getParentOfType<ParallelOp>();
 
     // Store the result in case there is something to stor
-    if (storeResultOp.operands().size() == 1) {
+    if (resultOp.operands().size() == 1) {
       // Compute unroll factor and dimension
       auto unrollFac = returnOp.getUnrollFactor();
       size_t unrollDim = returnOp.getUnrollDimension();
-      unsigned operandNumber = returnOpOperand->getOperandNumber();
 
       // Get the output buffer
       AllocOp allocOp;
-      unsigned bufferCount =
-          (returnOp.getNumOperands() / unrollFac) - (operandNumber / unrollFac);
+      unsigned bufferCount = (returnOp.getNumOperands() / unrollFac) -
+                             (operand->getOperandNumber() / unrollFac);
       auto *node = parallelOp.getOperation();
       while (bufferCount != 0 && (node = node->getPrevNode())) {
         if (allocOp = dyn_cast<AllocOp>(node))
           bufferCount--;
       }
-      assert(allocOp && "expected to find a valid output buffer allocation");
+      assert(bufferCount == 0 && "expected valid buffer allocation");
 
       // Compute the static store offset
-      auto offset = valueToLB[returnOpOperand->get()];
+      auto offset = valueToLB[operand->get()];
       llvm::transform(offset, offset.begin(), std::negate<int64_t>());
-      offset[unrollDim] += operandNumber % unrollFac;
+      offset[unrollDim] += operand->getOperandNumber() % unrollFac;
 
       // Set the insertion point to the defining op if possible
-      auto result = storeResultOp.operands().front();
+      auto result = resultOp.operands().front();
       if (result.getDefiningOp() &&
-          result.getDefiningOp()->getParentOp() == storeResultOp.getParentOp())
+          result.getDefiningOp()->getParentOp() == resultOp.getParentOp())
         rewriter.setInsertionPointAfter(result.getDefiningOp());
 
       // Compute the index values and introduce the store operation
@@ -429,13 +498,13 @@ public:
     if (auto funcOp = dyn_cast<FuncOp>(op)) {
       return !StencilDialect::isStencilProgram(funcOp);
     }
-    if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
+    if (auto ifOp = dyn_cast<IfOp>(op)) {
       return llvm::none_of(ifOp.getResultTypes(), [](Type type) {
         return type.isa<stencil::ResultType>();
       });
     }
-    if (auto forOp = dyn_cast<scf::ForOp>(op)) {
-      return llvm::none_of(forOp.getResultTypes(), [](Type type) {
+    if (auto yieldOp = dyn_cast<YieldOp>(op)) {
+      return llvm::none_of(yieldOp.getOperandTypes(), [](Type type) {
         return type.isa<stencil::ResultType>();
       });
     }
@@ -490,14 +559,23 @@ void StencilToStandardPass::runOnOperation() {
     }
   });
 
+  // Store the return op operands for the result values
+  DenseMap<Value, OpOperand *> valueToOperand;
+  module.walk([&](stencil::StoreResultOp resultOp) {
+    valueToOperand[resultOp.res()] = resultOp.getReturnOpOperand();
+  });
+
   StencilTypeConverter typeConverter(module.getContext());
-  populateStencilToStdConversionPatterns(typeConverter, valueToLB, patterns);
+  populateStencilToStdConversionPatterns(typeConverter, valueToLB,
+                                         valueToOperand, patterns);
 
   StencilToStdTarget target(*(module.getContext()));
   target.addLegalDialect<AffineDialect>();
   target.addLegalDialect<StandardOpsDialect>();
   target.addLegalDialect<SCFDialect>();
   target.addDynamicallyLegalOp<FuncOp>();
+  target.addDynamicallyLegalOp<scf::IfOp>();
+  target.addDynamicallyLegalOp<scf::YieldOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
   if (failed(applyFullConversion(module, target, patterns))) {
     signalPassFailure();
@@ -512,11 +590,13 @@ namespace stencil {
 // Populate the conversion pattern list
 void populateStencilToStdConversionPatterns(
     StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
+    DenseMap<Value, OpOperand *> &valueToOperand,
     mlir::OwningRewritePatternList &patterns) {
-  patterns.insert<FuncOpLowering, CastOpLowering, LoadOpLowering,
-                  ApplyOpLowering, BufferOpLowering, ReturnOpLowering,
-                  StoreResultOpLowering, AccessOpLowering, DynAccessOpLowering,
-                  IndexOpLowering, StoreOpLowering>(typeConveter, valueToLB);
+  patterns.insert<FuncOpLowering, IfOpLowering, YieldOpLowering, CastOpLowering,
+                  LoadOpLowering, ApplyOpLowering, BufferOpLowering,
+                  ReturnOpLowering, StoreResultOpLowering, AccessOpLowering,
+                  DynAccessOpLowering, IndexOpLowering, StoreOpLowering>(
+      typeConveter, valueToLB, valueToOperand);
 }
 
 //===----------------------------------------------------------------------===//
@@ -540,12 +620,13 @@ StencilTypeConverter::StencilTypeConverter(MLIRContext *context_)
 // Stencil Pattern Base Class
 //===----------------------------------------------------------------------===//
 
-StencilToStdPattern::StencilToStdPattern(StringRef rootOpName,
-                                         StencilTypeConverter &typeConverter_,
-                                         DenseMap<Value, Index> &valueToLB_,
-                                         PatternBenefit benefit)
-    : ConversionPattern(rootOpName, benefit, typeConverter_.getContext()),
-      typeConverter(typeConverter_), valueToLB(valueToLB_) {}
+StencilToStdPattern::StencilToStdPattern(
+    StringRef rootOpName, StencilTypeConverter &typeConverter,
+    DenseMap<Value, Index> &valueToLB,
+    DenseMap<Value, OpOperand *> &valueToOperand, PatternBenefit benefit)
+    : ConversionPattern(rootOpName, benefit, typeConverter.getContext()),
+      typeConverter(typeConverter), valueToLB(valueToLB),
+      valueToOperand(valueToOperand) {}
 
 Index StencilToStdPattern::computeShape(ShapeOp shapeOp) const {
   return applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),

@@ -6,8 +6,8 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include <tuple>
 #include <cstdint>
+#include <tuple>
 
 namespace mlir {
 namespace stencil {
@@ -31,6 +31,7 @@ class StencilToStdPattern : public ConversionPattern {
 public:
   StencilToStdPattern(StringRef rootOpName, StencilTypeConverter &typeConverter,
                       DenseMap<Value, Index> &valueToLB,
+                      DenseMap<Value, OpOperand *> &valueToOperand,
                       PatternBenefit benefit = 1);
 
   // Return the induction variables of the parent loop nest
@@ -65,6 +66,9 @@ protected:
 
   /// Map storing the lower bounds of the original program
   DenseMap<Value, Index> &valueToLB;
+
+  /// Map the result values to the return op operand
+  DenseMap<Value, OpOperand *> &valueToOperand;
 };
 
 /// Helper class to implement patterns that match one source operation
@@ -73,15 +77,17 @@ class StencilOpToStdPattern : public StencilToStdPattern {
 public:
   StencilOpToStdPattern(StencilTypeConverter &typeConverter,
                         DenseMap<Value, Index> &valueToLB,
+                        DenseMap<Value, OpOperand *> &valueToOperand,
                         PatternBenefit benefit = 1)
       : StencilToStdPattern(OpTy::getOperationName(), typeConverter, valueToLB,
-                            benefit) {}
+                            valueToOperand, benefit) {}
 };
 
 /// Helper method to populate the conversion pattern list
-void populateStencilToStdConversionPatterns(StencilTypeConverter &typeConveter,
-                                            DenseMap<Value, Index> &valueToLB,
-                                            OwningRewritePatternList &patterns);
+void populateStencilToStdConversionPatterns(
+    StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
+    DenseMap<Value, OpOperand *> &valueToOperand,
+    OwningRewritePatternList &patterns);
 
 } // namespace stencil
 } // namespace mlir

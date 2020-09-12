@@ -163,6 +163,31 @@ func @return_lowering(%arg0: f64) attributes {stencil.program} {
 
 // -----
 
+// CHECK-LABEL: @if_lowering
+func @if_lowering(%arg0: f64) attributes {stencil.program} {
+  // CHECK: scf.parallel (%{{.*}}, %{{.*}}, %{{.*}}) =
+  %0:2 = stencil.apply (%arg1 = %arg0 : f64) -> (!stencil.temp<7x7x7xf64>, !stencil.temp<7x7x7xf64>) {
+    %cond = constant 1 : i1
+    // CHECK: %{{.*}} = scf.if %{{.*}} -> (f64) { 
+    %1, %2 = scf.if %cond -> (!stencil.result<f64>, f64) {
+      // CHECK: store %{{.*}}, %{{.*}}{{\[}}%{{.*}}, %{{.*}}, %{{.*}} : memref<7x7x7xf64> 
+      // CHECK: scf.yield %{{.*}} : f64 
+      %3 = stencil.store_result %arg1 : (f64) -> !stencil.result<f64>
+      scf.yield %3, %arg1 : !stencil.result<f64>, f64
+    } else {
+      // CHECK: } else { 
+      // CHECK-NEXT: scf.yield %{{.*}} : f64
+      %3 = stencil.store_result : () -> !stencil.result<f64>
+      scf.yield %3, %arg1 : !stencil.result<f64>, f64
+    }
+    %4 = stencil.store_result %2 : (f64) -> !stencil.result<f64>
+    stencil.return %1, %4 : !stencil.result<f64>, !stencil.result<f64>
+  } to ([0, 0, 0]:[7, 7, 7])
+  return
+}
+
+// -----
+
 // CHECK-LABEL: @load_lowering
 func @load_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0 ([0, 0, 0]:[11, 12, 13]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<11x12x13xf64>

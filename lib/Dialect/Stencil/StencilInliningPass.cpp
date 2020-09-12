@@ -236,7 +236,7 @@ struct InliningRewrite : public StencilInliningPattern {
                 return type;
               });
           rewriter.setInsertionPoint(ifOp);
-          scf::IfOp newOp = rewriter.create<scf::IfOp>(ifOp.getLoc(), newTypes,
+          auto newOp = rewriter.create<scf::IfOp>(ifOp.getLoc(), newTypes,
                                                        ifOp.condition(), true);
           // All if operations returning a result have both results.
           rewriter.mergeBlocks(ifOp.getBody(0), newOp.getBody(0));
