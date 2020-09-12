@@ -92,8 +92,7 @@ public:
     assert(newOperands.size() < yieldOp.getNumOperands() &&
            "expected if op to return results");
 
-    rewriter.create<YieldOp>(loc, newOperands);
-    rewriter.eraseOp(yieldOp);
+    rewriter.replaceOpWithNewOp<YieldOp>(yieldOp, newOperands);
     return success();
   }
 };
@@ -108,9 +107,6 @@ public:
     auto loc = operation->getLoc();
     auto ifOp = cast<IfOp>(operation);
 
-    // TODO if op is lowered before the store
-    // TODO compute the return op indexes before the pattern rewriter runs!
-
     // Remove all result types from the result list
     SmallVector<Type, 4> newTypes;
     llvm::copy_if(ifOp.getResultTypes(), std::back_inserter(newTypes),
@@ -124,19 +120,21 @@ public:
     rewriter.mergeBlocks(ifOp.getBody(0), newOp.getBody(0), llvm::None);
     rewriter.mergeBlocks(ifOp.getBody(1), newOp.getBody(1), llvm::None);
 
-    // Erase the if op and replace its uses if necessary
+    // Erase the if op if there are no results to replace
     if (newOp.getNumResults() == 0) {
       rewriter.eraseOp(ifOp);
-    } else {
-      SmallVector<Value, 4> newResults(ifOp.getNumResults(),
-                                       newOp.getResults().front());
-      auto it = newOp.getResults().begin();
-      for (auto en : llvm::enumerate(ifOp.getResults())) {
-        if (!en.value().getType().isa<stencil::ResultType>())
-          newResults[en.index()] = *it++;
-      }
-      rewriter.replaceOp(ifOp, newResults);
+      return success();
     }
+
+    // Replace the if op by the results of the new op
+    SmallVector<Value, 4> newResults(ifOp.getNumResults(),
+                                     newOp.getResults().front());
+    auto it = newOp.getResults().begin();
+    for (auto en : llvm::enumerate(ifOp.getResultTypes())) {
+      if (!en.value().isa<stencil::ResultType>())
+        newResults[en.index()] = *it++;
+    }
+    rewriter.replaceOp(ifOp, newResults);
 
     return success();
   }
@@ -291,7 +289,7 @@ public:
 
     // Get the return op and the parallel loop
     OpOperand *operand = valueToOperand[resultOp.res()];
-    assert(operand && "expected store result op to have valid return operand");
+    assert(operand && "expected valid return op operand");
     if (!isa<ParallelOp>(operand->getOwner()->getParentOp()))
       return failure();
     auto returnOp = cast<stencil::ReturnOp>(operand->getOwner());
