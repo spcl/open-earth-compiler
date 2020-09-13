@@ -12,10 +12,10 @@ index 78aefec00bf..220d901fc8b 100644
  
  def ParallelOp : SCF_Op<"parallel",
 diff --git a/mlir/lib/Dialect/SCF/SCF.cpp b/mlir/lib/Dialect/SCF/SCF.cpp
-index 6f3f1e4dc0d..701ce42975d 100644
+index 6f3f1e4dc0d..b68fa412e6f 100644
 --- a/mlir/lib/Dialect/SCF/SCF.cpp
 +++ b/mlir/lib/Dialect/SCF/SCF.cpp
-@@ -10,7 +10,12 @@
+@@ -10,7 +10,13 @@
  #include "mlir/Dialect/StandardOps/IR/Ops.h"
  #include "mlir/IR/BlockAndValueMapping.h"
  #include "mlir/IR/PatternMatch.h"
@@ -25,10 +25,11 @@ index 6f3f1e4dc0d..701ce42975d 100644
 +#include "llvm/ADT/STLExtras.h"
 +#include "llvm/ADT/SmallVector.h"
 +#include "llvm/ADT/iterator_range.h"
++#include <iterator>
  
  using namespace mlir;
  using namespace mlir::scf;
-@@ -508,6 +513,63 @@ void IfOp::getSuccessorRegions(Optional<unsigned> index,
+@@ -508,6 +514,63 @@ void IfOp::getSuccessorRegions(Optional<unsigned> index,
    regions.push_back(RegionSuccessor(condition ? &thenRegion() : elseRegion));
  }
  
@@ -46,39 +47,39 @@ index 6f3f1e4dc0d..701ce42975d 100644
 +        usedResults.push_back(en.index());
 +    }
 +
-+    // Only replace operations that have unused and used resutls.
++    // Only replace operations that have unused results.
 +    if (usedResults.size() == op.getNumResults())
 +      return failure();
 +
-+    // Walk all yield operations and remove the operands that have no use.
-+    op.walk([&](YieldOp yieldOp) {
-+      SmallVector<Value, 4> newOperands;
-+      for (auto index : usedResults)
-+        newOperands.push_back(yieldOp.getOperand(index));
-+      rewriter.setInsertionPoint(yieldOp);
-+      rewriter.replaceOpWithNewOp<YieldOp>(yieldOp, newOperands);
-+    });
-+    rewriter.setInsertionPoint(op);
-+
 +    // Create a new operation that returns only the used results.
 +    SmallVector<Type, 4> newTypes;
-+    for (auto index : usedResults)
-+      newTypes.push_back(op.getResult(index).getType());
++    llvm::transform(usedResults, std::back_inserter(newTypes),
++                    [&](unsigned idx) { return op.getResult(idx).getType(); });
 +    auto newOp =
 +        rewriter.create<IfOp>(op.getLoc(), newTypes, op.condition(), true);
 +    rewriter.mergeBlocks(op.getBody(0), newOp.getBody(0));
 +    rewriter.mergeBlocks(op.getBody(1), newOp.getBody(1));
 +
-+    // Replace the old operation.
-+    if (newOp.getNumResults() == 0) {
-+      rewriter.eraseOp(op);
-+    } else {
++    // Walk all yield operations and remove the operands that have no use.
++    newOp.walk([&](YieldOp yieldOp) {
++      SmallVector<Value, 4> newOperands;
++      llvm::transform(usedResults, std::back_inserter(newOperands),
++                      [&](unsigned idx) { return yieldOp.getOperand(idx); });
++      rewriter.setInsertionPoint(yieldOp);
++      rewriter.replaceOpWithNewOp<YieldOp>(yieldOp, newOperands);
++    });
++
++    // Replace the operation if there are results.
++    if (newOp.getNumResults() != 0) {
 +      SmallVector<Value, 4> newResults(op.getNumResults(),
-+                                       newOp.getResults().front());
++                                      newOp.getResults().front());
 +      for (auto en : llvm::enumerate(usedResults))
 +        newResults[en.value()] = newOp.getResult(en.index());
 +      rewriter.replaceOp(op, newResults);
-+    }
++      return success();
++    } 
++    // Otherwise erase the operation.
++    rewriter.eraseOp(op);
 +    return success();
 +  }
 +};
