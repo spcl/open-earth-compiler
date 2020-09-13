@@ -81,7 +81,7 @@ public:
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
-    auto yieldOp = cast<YieldOp>(operation);
+    auto yieldOp = cast<scf::YieldOp>(operation);
 
     // Remove all result types from the operand list
     SmallVector<Value, 4> newOperands;
@@ -92,7 +92,7 @@ public:
     assert(newOperands.size() < yieldOp.getNumOperands() &&
            "expected if op to return results");
 
-    rewriter.replaceOpWithNewOp<YieldOp>(yieldOp, newOperands);
+    rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, newOperands);
     return success();
   }
 };
@@ -105,7 +105,7 @@ public:
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = operation->getLoc();
-    auto ifOp = cast<IfOp>(operation);
+    auto ifOp = cast<scf::IfOp>(operation);
 
     // Remove all result types from the result list
     SmallVector<Type, 4> newTypes;
@@ -494,12 +494,12 @@ public:
     if (auto funcOp = dyn_cast<FuncOp>(op)) {
       return !StencilDialect::isStencilProgram(funcOp);
     }
-    if (auto ifOp = dyn_cast<IfOp>(op)) {
+    if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
       return llvm::none_of(ifOp.getResultTypes(), [](Type type) {
         return type.isa<stencil::ResultType>();
       });
     }
-    if (auto yieldOp = dyn_cast<YieldOp>(op)) {
+    if (auto yieldOp = dyn_cast<scf::YieldOp>(op)) {
       return llvm::none_of(yieldOp.getOperandTypes(), [](Type type) {
         return type.isa<stencil::ResultType>();
       });

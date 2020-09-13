@@ -1,5 +1,5 @@
 diff --git a/mlir/include/mlir/Dialect/SCF/SCFOps.td b/mlir/include/mlir/Dialect/SCF/SCFOps.td
-index 78aefec00bf..220d901fc8b 100644
+index 59ba50fbe23..70e0e6b53ce 100644
 --- a/mlir/include/mlir/Dialect/SCF/SCFOps.td
 +++ b/mlir/include/mlir/Dialect/SCF/SCFOps.td
 @@ -265,6 +265,8 @@ def IfOp : SCF_Op<"if",
@@ -12,7 +12,7 @@ index 78aefec00bf..220d901fc8b 100644
  
  def ParallelOp : SCF_Op<"parallel",
 diff --git a/mlir/lib/Dialect/SCF/SCF.cpp b/mlir/lib/Dialect/SCF/SCF.cpp
-index 6f3f1e4dc0d..b68fa412e6f 100644
+index 498246315d6..ed64357df40 100644
 --- a/mlir/lib/Dialect/SCF/SCF.cpp
 +++ b/mlir/lib/Dialect/SCF/SCF.cpp
 @@ -10,7 +10,13 @@
@@ -61,12 +61,12 @@ index 6f3f1e4dc0d..b68fa412e6f 100644
 +    rewriter.mergeBlocks(op.getBody(1), newOp.getBody(1));
 +
 +    // Walk all yield operations and remove the operands that have no use.
-+    newOp.walk([&](YieldOp yieldOp) {
++    newOp.walk([&](scf::YieldOp yieldOp) {
 +      SmallVector<Value, 4> newOperands;
 +      llvm::transform(usedResults, std::back_inserter(newOperands),
 +                      [&](unsigned idx) { return yieldOp.getOperand(idx); });
 +      rewriter.setInsertionPoint(yieldOp);
-+      rewriter.replaceOpWithNewOp<YieldOp>(yieldOp, newOperands);
++      rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, newOperands);
 +    });
 +
 +    // Replace the operation if there are results.
