@@ -25,7 +25,7 @@ namespace stencil {
 
 // Base class for the stencil apply op canonicalization
 struct ApplyOpPattern : public OpRewritePattern<stencil::ApplyOp> {
-  ApplyOpPattern(MLIRContext *context);
+  ApplyOpPattern(MLIRContext *context, PatternBenefit benefit = 1);
 
   stencil::ApplyOp cleanupOpArguments(stencil::ApplyOp applyOp,
                                       PatternRewriter &rewriter) const;

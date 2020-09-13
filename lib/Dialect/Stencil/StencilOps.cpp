@@ -206,8 +206,9 @@ OpOperand *stencil::StoreResultOp::getReturnOpOperand() {
 // Canonicalization
 //===----------------------------------------------------------------------===//
 
-stencil::ApplyOpPattern::ApplyOpPattern(MLIRContext *context)
-    : OpRewritePattern<stencil::ApplyOp>(context, /*benefit=*/1) {}
+stencil::ApplyOpPattern::ApplyOpPattern(MLIRContext *context,
+                                        PatternBenefit benefit)
+    : OpRewritePattern<stencil::ApplyOp>(context, benefit) {}
 
 stencil::ApplyOp
 stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,

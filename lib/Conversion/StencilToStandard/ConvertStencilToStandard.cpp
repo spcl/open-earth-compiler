@@ -135,7 +135,6 @@ public:
         newResults[en.index()] = *it++;
     }
     rewriter.replaceOp(ifOp, newResults);
-
     return success();
   }
 };
@@ -271,7 +270,6 @@ public:
     for (auto newResult : newResults) {
       rewriter.create<DeallocOp>(loc, newResult);
     }
-
     return success();
   }
 };
