@@ -19,6 +19,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
@@ -33,9 +34,9 @@ namespace {
 
 // Base class for the stencil inlining patterns
 struct StencilInliningPattern : public ApplyOpPattern {
-    StencilInliningPattern(MLIRContext *context, PatternBenefit benefit = 1) :
-      ApplyOpPattern(context, benefit) {};
-  
+  StencilInliningPattern(MLIRContext *context, PatternBenefit benefit = 1)
+      : ApplyOpPattern(context, benefit){};
+
   // Check if the the apply operation is the only consumer
   bool hasSingleConsumer(stencil::ApplyOp producerOp,
                          stencil::ApplyOp applyOp) const {
@@ -171,8 +172,8 @@ struct RerouteRewrite : public StencilInliningPattern {
                 !user->isBeforeInBlock(applyOp))
               continue;
 
-            if (isStencilReroutingPossible(producerOp, applyOp) &&
-                isStencilInliningPossible(producerOp, applyOp))
+            if (isStencilInliningPossible(producerOp, applyOp) &&
+                isStencilReroutingPossible(producerOp, applyOp))
               return redirectStore(producerOp, applyOp, rewriter);
           }
         }
@@ -206,18 +207,16 @@ struct InliningRewrite : public StencilInliningPattern {
                              consumerOp.getNumOperands()));
 
     // Compute the producer result arguments and the replacement offset
-    SmallVector<Value, 10> replacementArgs;
-    SmallVector<size_t, 10> replacementIdx;
-    for (auto it :
-         llvm::zip(buildOperands, buildOp.getBody()->getArguments())) {
+    DenseMap<Value, size_t> replacementIndex;
+    for (auto en : llvm::enumerate(buildOperands)) {
       auto pos = std::find(producerOp.getResults().begin(),
-                           producerOp.getResults().end(), std::get<0>(it));
+                           producerOp.getResults().end(), en.value());
       if (pos != producerOp.getResults().end()) {
-        replacementArgs.push_back(std::get<1>(it));
-        replacementIdx.push_back(
-            std::distance(producerOp.getResults().begin(), pos));
+        replacementIndex[buildOp.getBody()->getArgument(en.index())] =
+            std::distance(producerOp.getResults().begin(), pos);
       }
     }
+
     // Remove the store results ops in the producer to make it inlineable
     producerOp.walk([&](Operation *op) {
       // Remove the store result ops
@@ -248,15 +247,26 @@ struct InliningRewrite : public StencilInliningPattern {
         }
       }
     });
-    rewriter.setInsertionPoint(buildOp);
+
     // Walk accesses of producer results and replace them by computation
+    DenseMap<Value, SmallVector<std::tuple<Index, Value>, 10>> inliningCache;
+    rewriter.setInsertionPoint(buildOp);
     buildOp.walk([&](stencil::AccessOp accessOp) {
-      auto pos = std::find(replacementArgs.begin(), replacementArgs.end(),
-                           accessOp.temp());
-      if (pos != replacementArgs.end()) {
+      if (replacementIndex.count(accessOp.temp()) != 0) {
         // Get the shift offset
         Index offset = cast<OffsetOp>(accessOp.getOperation()).getOffset();
-        // Clone the entire producer and shift all accesses
+        // Check if the given producer offset has been inlined before
+        if (inliningCache.count(accessOp.temp()) != 0) {
+          for (auto it : inliningCache[accessOp.temp()]) {
+            if (std::get<0>(it) == offset &&
+                std::get<1>(it).getParentRegion()->isAncestor(
+                    accessOp.getParentRegion())) {
+              rewriter.replaceOp(accessOp, std::get<1>(it));
+              return;
+            }
+          }
+        }
+        // Otherwise clone the producer in place and shift the offsets
         auto clonedOp = cast<stencil::ApplyOp>(rewriter.clone(*producerOp));
         clonedOp.walk(
             [&](stencil::ShiftOp shiftOp) { shiftOp.shiftByOffset(offset); });
@@ -266,11 +276,14 @@ struct InliningRewrite : public StencilInliningPattern {
                                       producerOp.getNumOperands()));
         rewriter.eraseOp(clonedOp);
         // Replace the access operation by the result of return operation
-        auto idx = replacementIdx[std::distance(replacementArgs.begin(), pos)];
-        stencil::ReturnOp returnOp =
-            cast<stencil::ReturnOp>(*std::prev(Block::iterator(accessOp)));
-        rewriter.replaceOp(accessOp, returnOp.getOperand(idx));
+        auto returnOp =
+            cast<stencil::ReturnOp>(accessOp.getOperation()->getPrevNode());
+        auto operand = returnOp.getOperand(replacementIndex[accessOp.temp()]);
+        rewriter.replaceOp(accessOp, operand);
         rewriter.eraseOp(returnOp);
+        // Cache the result of the inlined producer
+        inliningCache[accessOp.temp()].push_back(
+            std::make_tuple(offset, operand));
       }
     });
 
