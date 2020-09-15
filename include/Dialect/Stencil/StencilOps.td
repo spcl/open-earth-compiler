@@ -589,7 +589,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
   }];
 }
 
-def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp>]> {
+def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp>, SameVariadicOperandSize]> {
   let summary = "combine operation";
   let description = [{
     Prevents fusion of consecutive stencil.apply operations.
@@ -600,13 +600,14 @@ def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp
 
   let arguments = (ins Confined<I64Attr, [IntMinValue<0>, IntMaxValue<2>]>:$dim,
                        I64Attr:$index,
-                       Variadic<Stencil_Temp>:$args,
+                       Variadic<Stencil_Temp>:$lower,
+                       Variadic<Stencil_Temp>:$upper,
                        OptionalAttr<Stencil_Index>:$lb,
                        OptionalAttr<Stencil_Index>:$ub);
   let results = (outs Variadic<Stencil_Temp>:$res);
 
   let assemblyFormat = [{
-    $dim `at` $index $args (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` functional-type($args, $res)
+    $dim `at` $index `(`$lower `:` type($lower)`)` `(`$upper `:` type($upper)`)` (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` type($res)
   }];
 
   let verifier = [{
