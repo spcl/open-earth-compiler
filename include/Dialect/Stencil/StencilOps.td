@@ -589,4 +589,35 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
   }];
 }
 
+def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp>]> {
+  let summary = "combine operation";
+  let description = [{
+    Prevents fusion of consecutive stencil.apply operations.
+
+    Example:
+      %result = stencil.combine 2 at 11 %lower, %upper : (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  }];
+
+  let arguments = (ins Confined<I64Attr, [IntMinValue<0>, IntMaxValue<2>]>:$dim,
+                       I64Attr:$index,
+                       Variadic<Stencil_Temp>:$args,
+                       OptionalAttr<Stencil_Index>:$lb,
+                       OptionalAttr<Stencil_Index>:$ub);
+  let results = (outs Variadic<Stencil_Temp>:$res);
+
+  let assemblyFormat = [{
+    $dim `at` $index $args (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` functional-type($args, $res)
+  }];
+
+  let verifier = [{
+    return success();
+  }];
+
+  let extraClassDeclaration = [{
+    static StringRef getLBAttrName() { return "lb"; }
+    static StringRef getUBAttrName() { return "ub"; }
+    // introduce range function with args.take_front
+  }];
+}
+
 #endif // STENCIL_OPS
