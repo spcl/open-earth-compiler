@@ -101,7 +101,8 @@ struct RerouteRewrite : public StencilInliningPattern {
 
     // Compute operand and result lists for the new consumer
     SmallVector<Value, 10> newOperands = consumerOp.getOperands();
-    SmallVector<Value, 10> newResults = consumerOp.getResults();
+    SmallVector<Type, 10> newResultTypes(consumerOp.getResultTypes().begin(),
+                                         consumerOp.getResultTypes().end());
     unsigned rerouteCount = 0;
     for (auto results :
          llvm::zip(producerOp.getResults(), clonedOp.getResults())) {
@@ -110,7 +111,7 @@ struct RerouteRewrite : public StencilInliningPattern {
       // Add the results that have uses to the consumer results
       if (llvm::any_of(original.getUsers(),
                        [&](Operation *op) { return op != consumerOp; })) {
-        newResults.push_back(cloned);
+        newResultTypes.push_back(cloned.getType());
         newOperands.push_back(cloned);
         rerouteCount++;
       }
@@ -122,7 +123,7 @@ struct RerouteRewrite : public StencilInliningPattern {
 
     // Create new consumer op right after the producer op
     auto newOp = rewriter.create<stencil::ApplyOp>(consumerOp.getLoc(),
-                                                   newOperands, newResults);
+                                                   newOperands, newResultTypes);
     rewriter.mergeBlocks(consumerOp.getBody(), newOp.getBody(),
                          newOp.getBody()->getArguments().take_front(
                              consumerOp.getNumOperands()));
@@ -200,8 +201,8 @@ struct InliningRewrite : public StencilInliningPattern {
 
     // Create a build op to assemble the body of the inlined stencil
     auto loc = consumerOp.getLoc();
-    auto buildOp = rewriter.create<stencil::ApplyOp>(loc, buildOperands,
-                                                     consumerOp.getResults());
+    auto buildOp = rewriter.create<stencil::ApplyOp>(
+        loc, buildOperands, consumerOp.getResultTypes());
     rewriter.mergeBlocks(consumerOp.getBody(), buildOp.getBody(),
                          buildOp.getBody()->getArguments().take_back(
                              consumerOp.getNumOperands()));

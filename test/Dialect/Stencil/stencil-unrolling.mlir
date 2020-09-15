@@ -68,3 +68,38 @@ func @dyn_access(%arg0 : !stencil.field<?x?x?xf64>, %arg1 : !stencil.field<?x?x?
   stencil.store %3 to %1([0, 0, 0]:[64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
   return
 }
+
+// -----
+
+// CHECK-LABEL: func @peel_loop
+func @peel_loop(%arg0 : !stencil.field<?x?x?xf64>, %arg1 : !stencil.field<?x?x?xf64>) attributes { stencil.program } {
+  %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  %2 = stencil.load %0 : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
+  %3 = stencil.apply (%arg2 = %2 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    // CHECK: [[IDX:%.*]] = stencil.index 1 [0, 0, 0] : index
+    // CHECK: [[C60:%.*]] = constant 60 : index
+    // CHECK: [[COND:%.*]] = cmpi "ult", [[IDX]], [[C60]] : index
+    // CHECK: [[RES:%.*]]:4 = scf.if [[COND]] -> (!stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>) {
+    // CHECK-DAG: [[RES1:%.*]] = stencil.store_result {{%.*}} : (f64) -> !stencil.result<f64>
+    // CHECK-DAG: [[RES2:%.*]] = stencil.store_result {{%.*}} : (f64) -> !stencil.result<f64>
+    // CHECK-DAG: [[RES3:%.*]] = stencil.store_result {{%.*}} : (f64) -> !stencil.result<f64>
+    // CHECK-DAG: [[RES4:%.*]] = stencil.store_result {{%.*}} : (f64) -> !stencil.result<f64>
+    // CHECK: scf.yield [[RES1]], [[RES2]], [[RES3]], [[RES4]]
+    // CHECK: } else {
+    // CHECK-DAG: [[RES1:%.*]] = stencil.store_result {{%.*}} : (f64) -> !stencil.result<f64>
+    // CHECK-DAG: [[RES2:%.*]] = stencil.store_result : () -> !stencil.result<f64>
+    // CHECK-DAG: [[RES3:%.*]] = stencil.store_result : () -> !stencil.result<f64>
+    // CHECK-DAG: [[RES4:%.*]] = stencil.store_result : () -> !stencil.result<f64>
+    // CHECK: scf.yield [[RES1]], [[RES2]], [[RES3]], [[RES4]]
+    // CHECK: }
+    %4 = stencil.access %arg2[0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %5 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
+    // CHECK: stencil.return unroll [1, 4, 1] [[RES]]#0, [[RES]]#1, [[RES]]#2, [[RES]]#3 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
+    stencil.return %5 : !stencil.result<f64>
+	// CHECK: } to ([0, 0, 0] : [64, 61, 64])
+  } to ([0, 0, 0]:[64, 61, 64])
+  stencil.store %3 to %1([0, 0, 0]:[64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
+  return
+}
+

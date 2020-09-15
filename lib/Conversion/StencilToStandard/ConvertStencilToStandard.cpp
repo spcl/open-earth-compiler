@@ -114,9 +114,10 @@ public:
     assert(newTypes.size() < ifOp.getNumResults() &&
            "expected if op to return results");
 
+    // Create a new if op and move the bodies
     auto newOp = rewriter.create<scf::IfOp>(ifOp.getLoc(), newTypes,
                                             ifOp.condition(), true);
-    // All if operations returning a result have both results
+    newOp.walk([&](scf::YieldOp yieldOp) { rewriter.eraseOp(yieldOp); });
     rewriter.mergeBlocks(ifOp.getBody(0), newOp.getBody(0), llvm::None);
     rewriter.mergeBlocks(ifOp.getBody(1), newOp.getBody(1), llvm::None);
 

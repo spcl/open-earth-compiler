@@ -232,7 +232,7 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
   if (newOperands.size() < applyOp.getNumOperands()) {
     auto loc = applyOp.getLoc();
     auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
-                                                   applyOp.getResults());
+                                                   applyOp.getResultTypes());
 
     // Compute the argument mapping and move the block
     SmallVector<Value, 10> newArgs(applyOp.getNumOperands());

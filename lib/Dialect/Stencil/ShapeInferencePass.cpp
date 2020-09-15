@@ -4,6 +4,7 @@
 #include "Dialect/Stencil/StencilTypes.h"
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
@@ -11,7 +12,6 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
-#include <cstddef>
 
 using namespace mlir;
 using namespace stencil;
@@ -54,20 +54,6 @@ public:
           positive = applyFunElementWise(positive, ub, max);
         }
       });
-      // Subtract the unroll factor minus one from the positive extent
-      // (TODO shall we run shape inference before unrolling / inlining)
-      auto returnOp =
-          cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-      if (returnOp.unroll().hasValue()) {
-        for (size_t i = 0, e = applyOp.operands().size(); i != e; ++i) {
-          if (extents[operation].count(applyOp.getOperand(i)) == 1) {
-            auto &positive = extents[operation][applyOp.getOperand(i)].positive;
-            positive = applyFunElementWise(
-                positive, returnOp.getUnroll(),
-                [](int64_t x, int64_t y) { return x - y + 1; });
-          }
-        }
-      }
     });
   }
 
@@ -146,8 +132,7 @@ LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
       if (GridType::isScalar(oldType.getShape()[i]))
         shape[i] = GridType::kScalarDimension;
     }
-    auto newType =
-        TempType::get(oldType.getElementType(), shape);
+    auto newType = TempType::get(oldType.getElementType(), shape);
     result.setType(newType);
     for (OpOperand &use : result.getUses()) {
       if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner()))
@@ -165,6 +150,17 @@ void ShapeInferencePass::runOnFunction() {
   // Only run on functions marked as stencil programs
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
     return;
+
+  // Ensure shape inference runs before stencil unrolling
+  bool hasUnrolledStencils = false;
+  funcOp.walk([&](stencil::ReturnOp returnOp) {
+    if (returnOp.unroll().hasValue())
+      hasUnrolledStencils = true;
+  });
+  if (hasUnrolledStencils) {
+    funcOp.emitOpError("execute shape inference before stencil unrolling");
+    signalPassFailure();
+  }
 
   // Compute the extent analysis
   AccessExtents &extents = getAnalysis<AccessExtents>();

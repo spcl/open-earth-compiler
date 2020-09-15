@@ -100,6 +100,15 @@ def Stencil_IndexOp : Stencil_Op<"index", [
                      Stencil_Index:$offset);
   let results = (outs Index:$idx);
 
+  let builders = [
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "int64_t dim, ArrayRef<int64_t> offset", [{
+      state.addAttribute(getDimAttrName(), builder.getI64IntegerAttr(dim));
+      state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
+      state.addTypes(builder.getIndexType());
+    }]>
+  ];
+
   let assemblyFormat = [{
     $dim $offset attr-dict-with-keyword `:` type($idx)
   }];
@@ -395,17 +404,27 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "ValueRange operands, ValueRange results", [{
+              "ValueRange operands, TypeRange resultTypes", [{
       state.addOperands(operands);
       auto region = state.addRegion(); 
       region->push_back(new Block());
       for(auto operand : operands) {
         region->front().addArgument(operand.getType());
       }
-      SmallVector<Type, 10> resultTypes;
-      resultTypes.resize(results.size());
-      llvm::transform(results, resultTypes.begin(),
-                      [](Value value) { return value.getType(); });
+      state.addTypes(resultTypes);
+    }]>,    
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "ValueRange operands, "
+              "ArrayRef<int64_t> lb, ArrayRef<int64_t> ub," 
+              "TypeRange resultTypes", [{
+      state.addOperands(operands);
+      state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
+      state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub)); 
+      auto region = state.addRegion(); 
+      region->push_back(new Block());
+      for(auto operand : operands) {
+        region->front().addArgument(operand.getType());
+      }
       state.addTypes(resultTypes);
     }]>
   ];
@@ -519,11 +538,6 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
     auto applyOp = cast<stencil::ApplyOp>(getParentOp());
     unsigned unrollFactor = getUnrollFactor();
     size_t unrollDim = getUnrollDimension();
-
-    // Verify the size of the unroll dimension is a multiple of the unroll factor
-    auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
-    if(shapeOp.hasShape() && (shapeOp.getUB()[unrollDim] - shapeOp.getLB()[unrollDim]) % unrollFactor != 0)
-      return emitOpError("expected domain size to be a multiple of the unroll factor");
 
     // Verify the number of operands matches the number of apply results
     auto results = applyOp.res();

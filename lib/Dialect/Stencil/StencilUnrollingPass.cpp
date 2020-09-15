@@ -1,8 +1,10 @@
 #include "Dialect/Stencil/Passes.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilOps.h"
+#include "Dialect/Stencil/StencilTypes.h"
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
@@ -24,73 +26,153 @@ using namespace stencil;
 
 namespace {
 
-// Method updating the loop body of the apply op
-void unrollStencilApply(stencil::ApplyOp applyOp, unsigned unrollFactor,
-                        unsigned unrollIndex) {
+struct StencilUnrollingPass
+    : public StencilUnrollingPassBase<StencilUnrollingPass> {
+
+  void runOnFunction() override;
+
+protected:
+  void unrollStencilApply(stencil::ApplyOp applyOp);
+  void addPeelIteration(stencil::ApplyOp applyOp);
+
+  stencil::ReturnOp makePeelIteration(stencil::ReturnOp returnOp,
+                                      unsigned tripCount);
+  stencil::ReturnOp cloneBody(stencil::ApplyOp from, stencil::ApplyOp to,
+                              OpBuilder &builder);
+};
+
+stencil::ReturnOp StencilUnrollingPass::cloneBody(stencil::ApplyOp from,
+                                                  stencil::ApplyOp to,
+                                                  OpBuilder &builder) {
+  // Setup the argument mapper
+  BlockAndValueMapping mapper;
+  for (auto it : llvm::zip(from.getBody()->getArguments(),
+                           to.getBody()->getArguments())) {
+    mapper.map(std::get<0>(it), std::get<1>(it));
+  }
+  // Clone the apply op body
+  Operation *last = nullptr;
+  for (auto &op : from.getBody()->getOperations()) {
+    last = builder.clone(op, mapper);
+  }
+  return cast<stencil::ReturnOp>(last);
+}
+
+void StencilUnrollingPass::unrollStencilApply(stencil::ApplyOp applyOp) {
   // Setup the builder and
   OpBuilder b(applyOp);
 
-  // Set the insertion point before the return operation
-  auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-  b.setInsertionPoint(returnOp);
-
-  // Allocate container to store the results of the unrolled iterations
-  // (Store the results of the first iteration)
-  std::vector<SmallVector<Value, 4>> resultBuffer;
-  resultBuffer.push_back(SmallVector<Value, 4>(returnOp.getOperands()));
-  // Clone the body of the apply op and replicate it multiple times
+  // Prepare a clone containing a single iteration and an argument mapper
   auto clonedOp = applyOp.clone();
-  // construct mapper
-  BlockAndValueMapping mapper;
-  for (size_t i = 0, e = clonedOp.getBody()->getNumArguments(); i < e; ++i) {
-    mapper.map(clonedOp.getBody()->getArgument(i),
-               applyOp.getBody()->getArgument(i));
-  }
-  for (unsigned i = 1, e = unrollFactor; i != e; ++i) {
-    // Update offsets on function clone
+
+  // Keep a list of the return ops for all unrolled loop iterations
+  SmallVector<stencil::ReturnOp, 4> loopIterations = {
+      cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator())};
+
+  // Keep unrolling until there is one returnOp for every iteration
+  b.setInsertionPointToEnd(applyOp.getBody());
+  while (loopIterations.size() < unrollFactor) {
+    // Update the offsets of the clone
     clonedOp.getBody()->walk([&](stencil::ShiftOp shiftOp) {
       Index offset(kIndexSize, 0);
       offset[unrollIndex] = 1;
       shiftOp.shiftByOffset(offset);
     });
-    // Clone the body except of the shifted apply op
-    for (auto &op : clonedOp.getBody()->getOperations()) {
-      auto currentOp = b.clone(op, mapper);
-      // Store the results after cloning the return op
-      if (auto returnOp = dyn_cast<stencil::ReturnOp>(currentOp)) {
-        resultBuffer.push_back(SmallVector<Value, 10>(returnOp.operands()));
-        currentOp->erase();
-      }
-    }
+    // Clone the body and store the return op
+    loopIterations.push_back(cloneBody(clonedOp, applyOp, b));
   }
   clonedOp.erase();
 
-  // Create a new return op returning all results
+  // Compute the results for the unrolled apply op
   SmallVector<Value, 16> newResults;
-  SmallVector<Attribute, kIndexSize> unrollAttr;
-  for (unsigned i = 0, e = returnOp.getNumOperands(); i != e; ++i) {
-    for (unsigned j = 0; j != unrollFactor; ++j) {
-      newResults.push_back(resultBuffer[j][i]);
-    }
+  for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
+    llvm::transform(
+        loopIterations, std::back_inserter(newResults),
+        [&](stencil::ReturnOp returnOp) { return returnOp.getOperand(i); });
   }
-  for (int64_t i = 0, e = kIndexSize; i != e; ++i) {
-    unrollAttr.push_back(
-        IntegerAttr::get(IntegerType::get(64, returnOp.getContext()),
-                         i == unrollIndex ? unrollFactor : 1));
+  for (auto returnOp : loopIterations) {
+    returnOp.erase();
   }
-  b.create<stencil::ReturnOp>(
-      returnOp.getLoc(), newResults,
-      ArrayAttr::get(unrollAttr, returnOp.getContext()));
 
-  // Erase the original return op
-  returnOp.erase();
+  // Create a new return op returning all results
+  SmallVector<int64_t, kIndexSize> unroll(kIndexSize, 1);
+  unroll[unrollIndex] = unrollFactor;
+  b.create<stencil::ReturnOp>(loopIterations.front().getLoc(), newResults,
+                              b.getI64ArrayAttr(unroll));
 }
 
-struct StencilUnrollingPass
-    : public StencilUnrollingPassBase<StencilUnrollingPass> {
+stencil::ReturnOp
+StencilUnrollingPass::makePeelIteration(stencil::ReturnOp returnOp,
+                                        unsigned tripCount) {
+  // Setup the builder and
+  OpBuilder b(returnOp);
 
-  void runOnFunction() override;
-};
+  // Create empty store for all iterations that exceed the trip count
+  SmallVector<Value, 16> newOperands;
+  for (auto en : llvm::enumerate(returnOp.getOperands())) {
+    if (en.index() % unrollFactor >= tripCount) {
+      newOperands.push_back(b.create<stencil::StoreResultOp>(
+          returnOp.getLoc(), returnOp.getOperand(0).getType(), ValueRange()));
+      en.value().getDefiningOp()->erase();
+    } else {
+      newOperands.push_back(en.value());
+    }
+  }
+
+  // Replace the return op
+  auto newOp = b.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
+                                           returnOp.unrollAttr());
+  returnOp.erase();
+  return newOp;
+}
+
+void StencilUnrollingPass::addPeelIteration(stencil::ApplyOp applyOp) {
+  // Check if the domain size is not a multiple of the unroll factor
+  auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
+  auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+  auto domainSize = shapeOp.getUB()[unrollIndex] - shapeOp.getLB()[unrollIndex];
+  if (domainSize % unrollFactor != 0) {
+    if (domainSize < unrollFactor) {
+      makePeelIteration(returnOp, domainSize);
+    } else {
+      // Setup the builder
+      OpBuilder b(applyOp);
+      auto loc = applyOp.getLoc();
+
+      // Create a new operation to implement the case distinction
+      auto newOp = b.create<stencil::ApplyOp>(loc, applyOp.getOperands(),
+                                              shapeOp.getLB(), shapeOp.getUB(),
+                                              applyOp.getResultTypes());
+      // Introduce branch condition
+      b.setInsertionPointToStart(newOp.getBody());
+      SmallVector<int64_t, 3> offset(kIndexSize, 0);
+      auto indexOp = b.create<stencil::IndexOp>(loc, unrollIndex, offset);
+      auto constOp = b.create<ConstantOp>(
+          loc, b.getIndexAttr(domainSize - domainSize % unrollFactor));
+      auto cmpOp = b.create<CmpIOp>(loc, CmpIPredicate::ult, indexOp, constOp);
+
+      // Use an if else to distinguish the peel and body execution
+      auto ifOp =
+          b.create<scf::IfOp>(loc, returnOp.getOperandTypes(), cmpOp, true);
+      auto thenBuilder = ifOp.getThenBodyBuilder();
+      auto thenReturnOp = cloneBody(applyOp, newOp, thenBuilder);
+      thenBuilder.create<scf::YieldOp>(returnOp.getLoc(),
+                                       thenReturnOp.getOperands());
+      thenReturnOp.erase();
+      auto elseBuilder = ifOp.getElseBodyBuilder();
+      auto elseReturnOp = cloneBody(applyOp, newOp, elseBuilder);
+      elseReturnOp = makePeelIteration(elseReturnOp, domainSize % unrollFactor);
+      elseBuilder.create<scf::YieldOp>(returnOp.getLoc(),
+                                       elseReturnOp.getOperands());
+      elseReturnOp.erase();
+
+      // Create the new return operation and replace the old apply
+      b.create<stencil::ReturnOp>(loc, ifOp.getResults(), returnOp.unroll());
+      applyOp.replaceAllUsesWith(newOp.getResults());
+      applyOp.erase();
+    }
+  }
+}
 
 void StencilUnrollingPass::runOnFunction() {
   FuncOp funcOp = getFunction();
@@ -99,17 +181,28 @@ void StencilUnrollingPass::runOnFunction() {
     return;
 
   // Check for valid unrolling indexes
-  if (!(unrollIndex == 1 || unrollIndex == 2)) {
-    funcOp.emitError("unrolling is only supported in the j-dimension (=1) or "
-                     "k-dimension (=2)");
+  if (unrollIndex == 0) {
+    funcOp.emitError("unrolling the innermost loop is not supported");
+    signalPassFailure();
+    return;
+  }
+
+  // Check shape inference has been executed
+  bool hasStencilWithoutShape = false;
+  funcOp.walk([&](stencil::ApplyOp applyOp) {
+    if (!cast<stencil::ShapeOp>(applyOp.getOperation()).hasShape())
+      hasStencilWithoutShape = true;
+  });
+  if (hasStencilWithoutShape) {
+    funcOp.emitOpError("execute shape inference before stencil unrolling");
     signalPassFailure();
     return;
   }
 
   // Unroll all stencil apply ops
   funcOp.walk([&](stencil::ApplyOp applyOp) {
-    unrollStencilApply(applyOp, unrollFactor.getValue(),
-                       unrollIndex.getValue());
+    unrollStencilApply(applyOp);
+    addPeelIteration(applyOp);
   });
 }
 
