@@ -40,7 +40,65 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
                                     PatternRewriter &rewriter) const {
     auto loc = combineOp.getLoc();
 
-    
+    // Compute the operands of the fused apply op
+    // (run canonicalization after the pass to cleanup arguments)
+    SmallVector<Value, 10> newOperands = lowerOp.getOperands();
+    newOperands.insert(newOperands.end(), upperOp.getOperands().begin(),
+                       upperOp.getOperands().end());
+
+    // Create a new apply op that updates the lower and upper domains
+    // (rerun shape inference after the pass to avoid bound computations)
+    auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
+                                                   combineOp.getResultTypes());
+    rewriter.setInsertionPointToStart(newOp.getBody());
+
+    // Introduce the branch condition
+    SmallVector<int64_t, 3> offset(kIndexSize, 0);
+    auto indexOp =
+        rewriter.create<stencil::IndexOp>(loc, combineOp.dim(), offset);
+    auto constOp = rewriter.create<ConstantOp>(
+        loc, rewriter.getIndexAttr(combineOp.index()));
+    auto cmpOp =
+        rewriter.create<CmpIOp>(loc, CmpIPredicate::ult, indexOp, constOp);
+
+    // Get the return operations and check to unroll factors match
+    auto lowerReturnOp =
+        cast<stencil::ReturnOp>(lowerOp.getBody()->getTerminator());
+    auto upperReturnOp =
+        cast<stencil::ReturnOp>(upperOp.getBody()->getTerminator());
+    // Check both apply operations have the same unroll configuration if any
+    if (lowerReturnOp.getUnroll() != upperReturnOp.getUnroll())
+      return failure();
+    assert(lowerReturnOp.getOperandTypes() == upperReturnOp.getOperandTypes() &&
+           "expected both apply ops to return the same types");
+    assert(!lowerReturnOp.getOperandTypes().empty() &&
+           "expected apply ops to return at least one value");
+
+    // Introduce the if else op and return the results
+    auto ifOp = rewriter.create<scf::IfOp>(loc, lowerReturnOp.getOperandTypes(),
+                                           cmpOp, true);
+    rewriter.create<stencil::ReturnOp>(loc, ifOp.getResults(),
+                                       lowerReturnOp.unroll());
+
+    // Replace the return ops by yield ops
+    rewriter.replaceOpWithNewOp<scf::YieldOp>(lowerReturnOp,
+                                              lowerReturnOp.getOperands());
+    rewriter.replaceOpWithNewOp<scf::YieldOp>(upperReturnOp,
+                                              upperReturnOp.getOperands());
+
+    // Move the computation to the new apply operation
+    rewriter.mergeBlocks(
+        lowerOp.getBody(), ifOp.getBody(0),
+        newOp.getBody()->getArguments().take_front(lowerOp.getNumOperands()));
+    rewriter.mergeBlocks(
+        upperOp.getBody(), ifOp.getBody(1),
+        newOp.getBody()->getArguments().take_front(upperOp.getNumOperands()));
+
+    // Remove the combine op and the attached apply ops
+    rewriter.replaceOp(combineOp, newOp.getResults());
+    rewriter.eraseOp(upperOp);
+    rewriter.eraseOp(lowerOp);
+    return success();
   }
 
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
