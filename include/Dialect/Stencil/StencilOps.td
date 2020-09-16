@@ -608,11 +608,11 @@ def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp
   let results = (outs Variadic<Stencil_Temp>:$res);
 
   let assemblyFormat = [{
-    $dim `at` $index `(`$lower `:` type($lower)`)` `(`$upper `:` type($upper)`)` (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` type($res)
+    $dim `at` $index `lower` `=` `(`$lower `:` type($lower)`)` `upper` `=` `(`$upper `:` type($upper)`)` (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` type($res)
   }];
 
   let verifier = [{
-    return success();
+    return ::verify(*this);
   }];
 
   let extraClassDeclaration = [{
