@@ -615,6 +615,8 @@ def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp
   }];
 
   let extraClassDeclaration = [{
+    Operation* getLowerOp() { return lower().front().getDefiningOp(); }
+    Operation* getUpperOp() { return upper().front().getDefiningOp(); }
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     // introduce range function with args.take_front

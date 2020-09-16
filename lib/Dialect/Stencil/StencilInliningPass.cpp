@@ -315,7 +315,7 @@ struct InliningRewrite : public StencilInliningPattern {
     }
     return failure();
   }
-}; // namespace
+};
 
 struct StencilInliningPass
     : public StencilInliningPassBase<StencilInliningPass> {
