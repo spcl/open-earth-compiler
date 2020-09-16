@@ -76,16 +76,23 @@ struct ShapeInferencePass : public ShapeInferencePassBase<ShapeInferencePass> {
 };
 
 /// Extend the loop bounds for the given use
-LogicalResult extendBounds(const OpOperand &use, const AccessExtents &extents,
+LogicalResult adjustBounds(const OpOperand &use, const AccessExtents &extents,
                            Index &lower, Index &upper) {
   // Copy the bounds of store ops
   if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner())) {
     auto lb = shapeOp.getLB();
     auto ub = shapeOp.getUB();
-    // Extend the operation bounds if extent info exists
+    // Adjust the bounds by the access extents if available
     if (auto opExtents = extents.lookupExtent(use.getOwner(), use.get())) {
       lb = applyFunElementWise(lb, opExtents->negative, std::plus<int64_t>());
       ub = applyFunElementWise(ub, opExtents->positive, std::plus<int64_t>());
+    }
+    // Adjust the bounds if the shape is split into subdomains
+    if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
+      if (llvm::is_contained(combineOp.lower(), use.get()))
+        ub[combineOp.dim()] = combineOp.index();
+      if (llvm::is_contained(combineOp.upper(), use.get()))
+        lb[combineOp.dim()] = combineOp.index();
     }
     // Update the lower and upper bounds
     if (lower.empty() && upper.empty()) {
@@ -104,10 +111,10 @@ LogicalResult extendBounds(const OpOperand &use, const AccessExtents &extents,
 
 LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
   Index lb, ub;
-  // Iterate all uses and extend the bounds
+  // Iterate over all uses and adjust the bounds
   for (auto result : shapeOp.getOperation()->getResults()) {
     for (OpOperand &use : result.getUses()) {
-      if (failed(extendBounds(use, extents, lb, ub)))
+      if (failed(adjustBounds(use, extents, lb, ub)))
         return failure();
     }
   }
