@@ -359,8 +359,9 @@ def Stencil_StoreOp : Stencil_Op<"store", [
     if (fieldType.getElementType() != tempType.getElementType())
       return emitOpError("the field and temp types have different element type");
     
-    if (!dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()))
-      return emitOpError("output temp not result of an apply");
+    if (!(dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()) || 
+          dyn_cast<stencil::CombineOp>(temp().getDefiningOp())))
+      return emitOpError("output temp not result of an apply or a combine op");
     if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::LoadOp>(op); }) != 0)
       return emitOpError("an output cannot be an input");  
     if (llvm::count_if(field().getUsers(), [](Operation *op) { return isa_and_nonnull<stencil::StoreOp>(op); }) != 1)
