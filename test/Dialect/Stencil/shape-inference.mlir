@@ -116,3 +116,29 @@ func @dyn_access(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf
   stencil.store %3 to %1([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
   return
 }
+
+// -----
+
+// CHECK-LABEL: func @combine
+func @combine(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  // CHECK: %{{.*}} = stencil.load %{{.*}}([0, 0, 0] : [64, 64, 60]) : (!stencil.field<70x70x60xf64>) -> !stencil.temp<64x64x60xf64>
+  %2 = stencil.load %0 : (!stencil.field<70x70x60xf64>) -> !stencil.temp<?x?x?xf64>
+  %3 = stencil.apply (%arg2 = %2 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %6 = stencil.access %arg2 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    stencil.return %7 : !stencil.result<f64>
+  // CHECK: } to ([0, 0, 0] : [32, 64, 60])
+  } 
+  %4 = stencil.apply (%arg2 = %2 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+    %6 = stencil.access %arg2 [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    stencil.return %7 : !stencil.result<f64>
+  // CHECK: } to ([32, 0, 0] : [64, 64, 60])
+  } 
+  // CHECK: %{{.*}} = stencil.combine 0 at 32 lower = (%{{.*}} : !stencil.temp<32x64x60xf64>) upper = (%{{.*}} : !stencil.temp<32x64x60xf64>) ([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64>
+  %5 = stencil.combine 0 at 32 lower = (%3 : !stencil.temp<?x?x?xf64>) upper = (%4 : !stencil.temp<?x?x?xf64>) : !stencil.temp<?x?x?xf64>
+  stencil.store %5 to %1([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
+  return
+}
