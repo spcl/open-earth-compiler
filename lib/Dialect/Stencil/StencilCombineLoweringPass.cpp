@@ -39,6 +39,7 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
                                     stencil::CombineOp combineOp,
                                     PatternRewriter &rewriter) const {
     auto loc = combineOp.getLoc();
+    auto shapeOp = cast<stencil::ShapeOp>(combineOp.getOperation());
 
     // Compute the operands of the fused apply op
     // (run canonicalization after the pass to cleanup arguments)
@@ -48,8 +49,9 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
 
     // Create a new apply op that updates the lower and upper domains
     // (rerun shape inference after the pass to avoid bound computations)
-    auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
-                                                   combineOp.getResultTypes());
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        loc, newOperands, shapeOp.getLB(), shapeOp.getUB(),
+        combineOp.getResultTypes());
     rewriter.setInsertionPointToStart(newOp.getBody());
 
     // Introduce the branch condition
@@ -69,8 +71,10 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
     // Check both apply operations have the same unroll configuration if any
     if (lowerReturnOp.getUnrollFactor() != upperReturnOp.getUnrollFactor() ||
         lowerReturnOp.getUnrollDimension() !=
-            upperReturnOp.getUnrollDimension())
+            upperReturnOp.getUnrollDimension()) {
+      combineOp.emitWarning("expected matching unroll configurations");
       return failure();
+    }
 
     assert(lowerReturnOp.getOperandTypes() == upperReturnOp.getOperandTypes() &&
            "expected both apply ops to return the same types");
@@ -100,6 +104,7 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
         newOp.getBody()->getArguments().take_front(upperOp.getNumOperands()));
 
     // Remove the combine op and the attached apply ops
+    // (assuming the apply ops have not other uses than the combine)
     rewriter.replaceOp(combineOp, newOp.getResults());
     rewriter.eraseOp(upperOp);
     rewriter.eraseOp(lowerOp);
@@ -130,6 +135,18 @@ void StencilCombineLoweringPass::runOnFunction() {
   // Only run on functions marked as stencil programs
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
+
+  // Check shape inference has been executed
+  bool hasShapeOpWithoutShape = false;
+  funcOp.walk([&](stencil::ShapeOp shapeOp) {
+    if (!shapeOp.hasShape())
+      hasShapeOpWithoutShape = true;
+  });
+  if (hasShapeOpWithoutShape) {
+    funcOp.emitOpError("execute shape inference before combine lowering");
+    signalPassFailure();
+    return;
+  }
 
   OwningRewritePatternList patterns;
   patterns.insert<IfElseRewrite>(&getContext());
