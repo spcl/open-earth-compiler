@@ -29,22 +29,37 @@ def ShapeOp : OpInterface<"ShapeOp"> {
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
     }]>,
-      InterfaceMethod<"/*Set the lower bound of the operation*/",
-      "void", "setLB", (ins "ArrayRef<int64_t>":$lb), [{
-        SmallVector<Attribute, kIndexSize> lbAttr;
-        for (size_t i = 0, e = lb.size(); i != e; ++i) { 
-          lbAttr.push_back(IntegerAttr::get(IntegerType::get(64, $_op.getContext()), lb[i]));
-        }
+    InterfaceMethod<"/*Set the shape of the operation*/",
+      "void", "updateShape", (ins "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), [{
+        // Update the shape
+        SmallVector<Attribute, kIndexSize> lbAttr, ubAttr;
+        llvm::transform(lb, std::back_inserter(lbAttr), [&](int64_t x) {
+          return IntegerAttr::get(IntegerType::get(64, $_op.getContext()), x);
+        });
+        llvm::transform(ub, std::back_inserter(ubAttr), [&](int64_t x) {
+          return IntegerAttr::get(IntegerType::get(64, $_op.getContext()), x);
+        });
         $_op.lbAttr(ArrayAttr::get(lbAttr, $_op.getContext()));
-    }]>,
-    InterfaceMethod<"/*Set the upper bound of the operation*/",
-      "void", "setUB", (ins "ArrayRef<int64_t>":$ub), [{
-        SmallVector<Attribute, kIndexSize> ubAttr;
-        for (size_t i = 0, e = ub.size(); i != e; ++i) { 
-          ubAttr.push_back(IntegerAttr::get(IntegerType::get(64, $_op.getContext()), ub[i]));
-        }
         $_op.ubAttr(ArrayAttr::get(ubAttr, $_op.getContext()));
-    }]>,
+        // Compute the shape
+        SmallVector<int64_t, 3> shape;
+        llvm::transform(llvm::zip(lb, ub), std::back_inserter(shape),
+          [](std::tuple<int64_t, int64_t> x) { 
+            return std::get<1>(x) - std::get<0>(x); 
+          });
+        // Update the result types
+        for (auto result : $_op.getOperation()->getResults()) {
+          auto oldType = result.getType().template cast<TempType>();
+          assert(oldType.getRank() == shape.size() &&
+                "expected result type to have operation rank");
+          for(auto en : llvm::enumerate(oldType.getShape())) {
+            if (GridType::isScalar(en.value()))
+              shape[en.index()] = GridType::kScalarDimension;
+          }
+          auto newType = TempType::get(oldType.getElementType(), shape);
+          result.setType(newType);
+        }
+    }]>,    
     InterfaceMethod<"/*Verify if the operation has valid bounds*/",
        "bool", "hasShape", (ins), [{
         Optional<ArrayAttr> lb = $_op.lb();

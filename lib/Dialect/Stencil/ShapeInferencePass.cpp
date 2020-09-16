@@ -124,26 +124,15 @@ LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
     return shapeOp.emitOpError("expected shape to have non-zero size");
   if (llvm::any_of(shape, [](int64_t size) { return size < 1; }))
     return shapeOp.emitOpError("expected shape to have non-zero entries");
-  shapeOp.setLB(lb);
-  shapeOp.setUB(ub);
+  shapeOp.updateShape(lb, ub);
 
-  // Update the result types
+  // Update the region arguments of dependent shape operations
+  // (needed for operations such as the stencil apply op)
   for (auto result : shapeOp.getOperation()->getResults()) {
-    auto oldType = result.getType().template cast<TempType>();
-    assert(oldType.hasDynamicShape() &&
-           "expected result type to have a dynamic shape");
-    assert(oldType.getRank() == shape.size() &&
-           "expected result type to have operation rank");
-    // Set the scalar dimensions
-    for (int64_t i = 0, e = oldType.getRank(); i != e; ++i) {
-      if (GridType::isScalar(oldType.getShape()[i]))
-        shape[i] = GridType::kScalarDimension;
-    }
-    auto newType = TempType::get(oldType.getElementType(), shape);
-    result.setType(newType);
+    auto updatedType = result.getType().cast<stencil::TempType>();
     for (OpOperand &use : result.getUses()) {
       if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner()))
-        shapeOp.setOperandShape(use.get(), newType);
+        shapeOp.setOperandShape(use.get(), updatedType);
     }
   }
   return success();
@@ -190,8 +179,7 @@ void ShapeInferencePass::runOnFunction() {
   funcOp.walk([](stencil::StoreOp storeOp) {
     auto applyOp = cast<ShapeOp>(storeOp.temp().getDefiningOp());
     auto shapeOp = cast<ShapeOp>(storeOp.getOperation());
-    shapeOp.setLB(applyOp.getLB());
-    shapeOp.setUB(applyOp.getUB());
+    shapeOp.updateShape(applyOp.getLB(), applyOp.getUB());
   });
 }
 
