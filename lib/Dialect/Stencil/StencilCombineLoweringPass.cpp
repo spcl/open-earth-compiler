@@ -67,8 +67,11 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
     auto upperReturnOp =
         cast<stencil::ReturnOp>(upperOp.getBody()->getTerminator());
     // Check both apply operations have the same unroll configuration if any
-    if (lowerReturnOp.getUnroll() != upperReturnOp.getUnroll())
+    if (lowerReturnOp.getUnrollFactor() != upperReturnOp.getUnrollFactor() ||
+        lowerReturnOp.getUnrollDimension() !=
+            upperReturnOp.getUnrollDimension())
       return failure();
+
     assert(lowerReturnOp.getOperandTypes() == upperReturnOp.getOperandTypes() &&
            "expected both apply ops to return the same types");
     assert(!lowerReturnOp.getOperandTypes().empty() &&
@@ -81,8 +84,10 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
                                        lowerReturnOp.unroll());
 
     // Replace the return ops by yield ops
+    rewriter.setInsertionPoint(lowerReturnOp);
     rewriter.replaceOpWithNewOp<scf::YieldOp>(lowerReturnOp,
                                               lowerReturnOp.getOperands());
+    rewriter.setInsertionPoint(upperReturnOp);
     rewriter.replaceOpWithNewOp<scf::YieldOp>(upperReturnOp,
                                               upperReturnOp.getOperands());
 
