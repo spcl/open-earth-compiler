@@ -207,6 +207,133 @@ OpOperand *stencil::StoreResultOp::getReturnOpOperand() {
 //===----------------------------------------------------------------------===//
 
 static LogicalResult verify(stencil::CombineOp op) {
+  // check number inputs is same as number results
+  if (op.lower().size() != op.upper().size() ||
+      op.lower().size() != op.res().size())
+    return op.emitOpError("expected the number of elements in lower, upper and "
+                          "res to be the same");
+
+  // check if the types match
+  if (!llvm::all_of(
+          llvm::zip(op.lower(), op.upper(), op.res()),
+          [](std::tuple<Value, Value, Value> tuple) {
+            return (std::get<0>(tuple)
+                        .getType()
+                        .cast<stencil::TempType>()
+                        .getElementType() == std::get<1>(tuple)
+                                                 .getType()
+                                                 .cast<stencil::TempType>()
+                                                 .getElementType()) &&
+                   (std::get<0>(tuple)
+                        .getType()
+                        .cast<stencil::TempType>()
+                        .getElementType() == std::get<2>(tuple)
+                                                 .getType()
+                                                 .cast<stencil::TempType>()
+                                                 .getElementType());
+          }))
+    return op.emitOpError("expected corresponding elements of upper and lower "
+                          "to have the same type");
+
+  if (op.dim() != 0) {
+    if (!llvm::all_of(
+            llvm::zip(op.lower(), op.upper(), op.res()),
+            [](std::tuple<Value, Value, Value> tuple) {
+              return (std::get<0>(tuple)
+                          .getType()
+                          .cast<stencil::TempType>()
+                          .getShape()[0] == std::get<1>(tuple)
+                                                .getType()
+                                                .cast<stencil::TempType>()
+                                                .getShape()[0]) &&
+                     (std::get<0>(tuple)
+                          .getType()
+                          .cast<stencil::TempType>()
+                          .getShape()[0] == std::get<2>(tuple)
+                                                .getType()
+                                                .cast<stencil::TempType>()
+                                                .getShape()[0]);
+            }))
+      return op.emitOpError("expected corresponding elements of upper and "
+                            "lower to have the same type");
+  }
+
+  if (op.dim() != 1) {
+    if (!llvm::all_of(
+            llvm::zip(op.lower(), op.upper(), op.res()),
+            [](std::tuple<Value, Value, Value> tuple) {
+              return (std::get<0>(tuple)
+                          .getType()
+                          .cast<stencil::TempType>()
+                          .getShape()[1] == std::get<1>(tuple)
+                                                .getType()
+                                                .cast<stencil::TempType>()
+                                                .getShape()[1]) &&
+                     (std::get<0>(tuple)
+                          .getType()
+                          .cast<stencil::TempType>()
+                          .getShape()[1] == std::get<2>(tuple)
+                                                .getType()
+                                                .cast<stencil::TempType>()
+                                                .getShape()[1]);
+            }))
+      return op.emitOpError("expected corresponding elements of upper and "
+                            "lower to have the same type");
+  }
+
+  if (op.dim() != 2) {
+    if (!llvm::all_of(
+            llvm::zip(op.lower(), op.upper(), op.res()),
+            [](std::tuple<Value, Value, Value> tuple) {
+              return (std::get<0>(tuple)
+                          .getType()
+                          .cast<stencil::TempType>()
+                          .getShape()[2] == std::get<1>(tuple)
+                                                .getType()
+                                                .cast<stencil::TempType>()
+                                                .getShape()[2]) &&
+                     (std::get<0>(tuple)
+                          .getType()
+                          .cast<stencil::TempType>()
+                          .getShape()[2] == std::get<2>(tuple)
+                                                .getType()
+                                                .cast<stencil::TempType>()
+                                                .getShape()[2]);
+            }))
+      return op.emitOpError("expected corresponding elements of upper and "
+                            "lower to have the same type");
+  }
+
+  if (!llvm::all_of(op.lower(), [](Value lower) {
+        return isa<stencil::ApplyOp>(lower.getDefiningOp()) ||
+               isa<stencil::CombineOp>(lower.getDefiningOp());
+      }))
+    return op.emitOpError(
+        "expected all inputs to come from apply ops or combine ops");
+
+  if (!llvm::all_of(op.upper(), [](Value upper) {
+        return isa<stencil::ApplyOp>(upper.getDefiningOp()) ||
+               isa<stencil::CombineOp>(upper.getDefiningOp());
+      }))
+    return op.emitOpError(
+        "expected all inputs to come from apply ops or combine ops");
+
+  auto lowerDefiningOp = op.lower().front().getDefiningOp();
+  if (!llvm::all_of(op.lower(), [&](Value lower) {
+        return lower.getDefiningOp() == lowerDefiningOp;
+      }))
+    return op.emitOpError(
+        "expected all inputs to come from apply ops or combine ops");
+
+  auto upperDefiningOp = op.upper().front().getDefiningOp();
+  if (!llvm::all_of(op.upper(), [&](Value upper) {
+        return upper.getDefiningOp() == upperDefiningOp;
+      }))
+    return op.emitOpError(
+        "expected all inputs to come from apply ops or combine ops");
+
+  // TODO: Check if the combine is only part of one tree of combines
+
   return success();
 }
 
