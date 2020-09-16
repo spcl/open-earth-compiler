@@ -19,6 +19,11 @@ def StencilUnrollingPass : FunctionPass<"stencil-unrolling"> {
   ];
 }
 
+def StencilCombineLoweringPass : FunctionPass<"stencil-combine-lowering"> {
+  let summary = "Lower stencil combines to if/else";
+  let constructor = "mlir::createStencilCombineLoweringPass()";
+}
+
 def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
   let summary = "Infer loop bounds and storage shapes";
   let constructor = "mlir::createShapeInferencePass()";

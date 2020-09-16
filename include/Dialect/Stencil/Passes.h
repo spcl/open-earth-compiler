@@ -10,6 +10,8 @@ std::unique_ptr<OperationPass<FuncOp>> createStencilInliningPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createStencilUnrollingPass();
 
+std::unique_ptr<OperationPass<FuncOp>> createStencilCombineLoweringPass();
+
 std::unique_ptr<OperationPass<FuncOp>> createShapeInferencePass();
 
 //===----------------------------------------------------------------------===//
