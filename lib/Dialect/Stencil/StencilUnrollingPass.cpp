@@ -18,6 +18,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/Support/raw_ostream.h"
+#include <bits/stdint-intn.h>
 #include <cstddef>
 #include <cstdint>
 
@@ -139,36 +140,31 @@ void StencilUnrollingPass::addPeelIteration(stencil::ApplyOp applyOp) {
       OpBuilder b(applyOp);
       auto loc = applyOp.getLoc();
 
-      // Create a new operation to implement the case distinction
-      auto newOp = b.create<stencil::ApplyOp>(loc, applyOp.getOperands(),
-                                              shapeOp.getLB(), shapeOp.getUB(),
-                                              applyOp.getResultTypes());
-      // Introduce branch condition
-      b.setInsertionPointToStart(newOp.getBody());
-      SmallVector<int64_t, 3> offset(kIndexSize, 0);
-      auto indexOp = b.create<stencil::IndexOp>(loc, unrollIndex, offset);
-      auto constOp = b.create<ConstantOp>(
-          loc, b.getIndexAttr(domainSize - domainSize % unrollFactor));
-      auto cmpOp = b.create<CmpIOp>(loc, CmpIPredicate::ult, indexOp, constOp);
+      // Introduce a second apply to handle the peel domain
+      auto peelOp = cast<stencil::ApplyOp>(b.clone(*applyOp.getOperation()));
+      auto bodyOp = cast<stencil::ApplyOp>(b.clone(*applyOp.getOperation()));
 
-      // Use an if else to distinguish the peel and body execution
-      auto ifOp =
-          b.create<scf::IfOp>(loc, returnOp.getOperandTypes(), cmpOp, true);
-      auto thenBuilder = ifOp.getThenBodyBuilder();
-      auto thenReturnOp = cloneBody(applyOp, newOp, thenBuilder);
-      thenBuilder.create<scf::YieldOp>(returnOp.getLoc(),
-                                       thenReturnOp.getOperands());
-      thenReturnOp.erase();
-      auto elseBuilder = ifOp.getElseBodyBuilder();
-      auto elseReturnOp = cloneBody(applyOp, newOp, elseBuilder);
-      elseReturnOp = makePeelIteration(elseReturnOp, domainSize % unrollFactor);
-      elseBuilder.create<scf::YieldOp>(returnOp.getLoc(),
-                                       elseReturnOp.getOperands());
-      elseReturnOp.erase();
+      // Adapt the shape of the two apply ops
+      auto lb = shapeOp.getLB();
+      auto ub = shapeOp.getUB();
+      int64_t split = ub[unrollIndex] - domainSize % unrollFactor;
+      lb[unrollIndex] = split;
+      ub[unrollIndex] = split;
+      cast<ShapeOp>(peelOp.getOperation()).updateShape(lb, shapeOp.getUB());
+      cast<ShapeOp>(bodyOp.getOperation()).updateShape(shapeOp.getLB(), ub);
 
-      // Create the new return operation and replace the old apply
-      b.create<stencil::ReturnOp>(loc, ifOp.getResults(), returnOp.unroll());
-      applyOp.replaceAllUsesWith(newOp.getResults());
+      // Remove stores that exceed the domain size
+      makePeelIteration(
+          cast<stencil::ReturnOp>(peelOp.getBody()->getTerminator()),
+          domainSize % unrollFactor);
+
+      // Introduce a stencil combine to replace the uses of the original apply
+      auto combineOp = b.create<stencil::CombineOp>(
+          loc, applyOp.getResultTypes(), unrollIndex, split,
+          bodyOp.getResults(), peelOp.getResults(), applyOp.lbAttr(),
+          applyOp.ubAttr());
+
+      applyOp.replaceAllUsesWith(combineOp.getResults());
       applyOp.erase();
     }
   }
@@ -188,12 +184,12 @@ void StencilUnrollingPass::runOnFunction() {
   }
 
   // Check shape inference has been executed
-  bool hasStencilWithoutShape = false;
-  funcOp.walk([&](stencil::ApplyOp applyOp) {
-    if (!cast<stencil::ShapeOp>(applyOp.getOperation()).hasShape())
-      hasStencilWithoutShape = true;
+  bool hasShapeOpWithoutShape = false;
+  funcOp.walk([&](stencil::ShapeOp shapeOp) {
+    if (!shapeOp.hasShape())
+      hasShapeOpWithoutShape = true;
   });
-  if (hasStencilWithoutShape) {
+  if (hasShapeOpWithoutShape) {
     funcOp.emitOpError("execute shape inference before stencil unrolling");
     signalPassFailure();
     return;
