@@ -29,6 +29,13 @@ def ShapeOp : OpInterface<"ShapeOp"> {
           result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         return result;
     }]>,
+    InterfaceMethod<"/*Clear the optional range attributes*/",
+      "void", "clearInferredShape", (ins), [{
+        if(isOptionalArrayAttr($_op.lb()) && isOptionalArrayAttr($_op.ub())) {
+          $_op.removeAttr($_op.getLBAttrName());
+          $_op.removeAttr($_op.getUBAttrName());
+        }
+    }]>,
     InterfaceMethod<"/*Set the shape of the operation*/",
       "void", "updateShape", (ins "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), [{
         // Update the shape

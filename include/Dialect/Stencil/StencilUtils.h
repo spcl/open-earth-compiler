@@ -22,6 +22,12 @@ int64_t max(int64_t x, int64_t y);
 Index applyFunElementWise(ArrayRef<int64_t> x, ArrayRef<int64_t> y,
                           std::function<int64_t(int64_t, int64_t)> fun);
 
+/// Helper to detect an optional array attribute
+template <typename T>
+bool isOptionalArrayAttr(T x) {
+  return std::is_same<T, Optional<ArrayAttr>>::value;
+}
+
 } // namespace stencil
 } // namespace mlir
 

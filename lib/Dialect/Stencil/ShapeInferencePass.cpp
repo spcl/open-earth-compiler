@@ -128,7 +128,7 @@ LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
 
   // Update the region arguments of dependent shape operations
   // (needed for operations such as the stencil apply op)
-  for(auto user : shapeOp.getOperation()->getUsers()) {
+  for (auto user : shapeOp.getOperation()->getUsers()) {
     if (auto shapeOp = dyn_cast<ShapeOp>(user))
       shapeOp.updateArgumentTypes();
   }
@@ -162,6 +162,9 @@ void ShapeInferencePass::runOnFunction() {
   Block &entryBlock = funcOp.getOperation()->getRegion(0).front();
   for (auto op = entryBlock.rbegin(); op != entryBlock.rend(); ++op) {
     if (auto shapeOp = dyn_cast<ShapeOp>(*op)) {
+      // Clear the inferred shapes
+      shapeOp.clearInferredShape();
+      // Compute the shape
       if (!shapeOp.hasShape()) {
         if (failed(inferShapes(shapeOp, extents))) {
           signalPassFailure();
