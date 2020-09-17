@@ -123,12 +123,29 @@ struct RerouteRewrite : public StencilInliningPattern {
     }
 
     // Create new consumer op right after the producer op
-    auto newOp =
-        rewriter.create<stencil::ApplyOp>(consumerOp.getLoc(), newResultTypes,
-                                          newOperands, llvm::None, llvm::None);
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        consumerOp.getLoc(), newResultTypes, newOperands, consumerOp.lb(),
+        consumerOp.ub());
     rewriter.mergeBlocks(consumerOp.getBody(), newOp.getBody(),
                          newOp.getBody()->getArguments().take_front(
                              consumerOp.getNumOperands()));
+
+    // Extend the size of the consumer after the rerouting
+    auto producerShape = cast<ShapeOp>(producerOp.getOperation());
+    auto consumerShape = cast<ShapeOp>(consumerOp.getOperation());
+    auto newShape = cast<ShapeOp>(newOp.getOperation());
+    if (producerShape.hasShape() && consumerShape.hasShape()) {
+      auto lb = applyFunElementWise(producerShape.getLB(),
+                                    consumerShape.getLB(), min);
+      auto ub = applyFunElementWise(producerShape.getUB(),
+                                    consumerShape.getUB(), max);
+      newShape.updateShape(lb, ub);
+      // Update the region arguments of dependent shape ops
+      for (auto user : newShape.getOperation()->getUsers()) {
+        if (auto shapeOp = dyn_cast<ShapeOp>(user))
+          shapeOp.updateArgumentTypes();
+      }
+    }
 
     // Get the terminator of the cloned consumer op
     auto returnOp =
@@ -204,8 +221,8 @@ struct InliningRewrite : public StencilInliningPattern {
     // Create a build op to assemble the body of the inlined stencil
     auto loc = consumerOp.getLoc();
     auto buildOp = rewriter.create<stencil::ApplyOp>(
-        loc, consumerOp.getResultTypes(), buildOperands, llvm::None,
-        llvm::None);
+        loc, consumerOp.getResultTypes(), buildOperands, consumerOp.lb(),
+        consumerOp.ub());
     rewriter.mergeBlocks(consumerOp.getBody(), buildOp.getBody(),
                          buildOp.getBody()->getArguments().take_back(
                              consumerOp.getNumOperands()));
