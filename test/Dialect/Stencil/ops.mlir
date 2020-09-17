@@ -71,6 +71,25 @@ func @buffer() {
 
 // -----
 
+// CHECK-LABEL: func @combine() {
+func @combine() {
+  %0 = "stencil.apply"() ({
+    %2 = constant 1.0 : f64
+    %3 = "stencil.store_result"(%2) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%3) : (!stencil.result<f64>) -> ()
+  }) : () -> !stencil.temp<?x?x?xf64>
+  %1 = "stencil.apply"() ({
+    %2 = constant 1.0 : f64
+    %3 = "stencil.store_result"(%2) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%3) : (!stencil.result<f64>) -> ()
+  }) : () -> !stencil.temp<?x?x?xf64>
+  // CHECK: %{{.*}} = stencil.combine 2 at 11 lower = (%{{.*}} : !stencil.temp<?x?x?xf64>) upper = (%{{.*}} : !stencil.temp<?x?x?xf64>) : !stencil.temp<?x?x?xf64>
+  %2 = "stencil.combine"(%0, %1) {dim=2, index=11} : (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  return
+}
+
+// -----
+
 // CHECK-LABEL: func @store(%{{.*}}: !stencil.field<?x?x?xf64>) {
 func @store(%out : !stencil.field<?x?x?xf64>) {
   %0 = "stencil.cast"(%out) {lb=[-3,-3,0], ub=[67,67,60]} : (!stencil.field<?x?x?xf64>) -> (!stencil.field<70x70x60xf64>) 
