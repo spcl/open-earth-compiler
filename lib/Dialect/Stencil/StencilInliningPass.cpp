@@ -20,6 +20,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
@@ -122,8 +123,9 @@ struct RerouteRewrite : public StencilInliningPattern {
     }
 
     // Create new consumer op right after the producer op
-    auto newOp = rewriter.create<stencil::ApplyOp>(consumerOp.getLoc(),
-                                                   newOperands, newResultTypes);
+    auto newOp =
+        rewriter.create<stencil::ApplyOp>(consumerOp.getLoc(), newResultTypes,
+                                          newOperands, llvm::None, llvm::None);
     rewriter.mergeBlocks(consumerOp.getBody(), newOp.getBody(),
                          newOp.getBody()->getArguments().take_front(
                              consumerOp.getNumOperands()));
@@ -202,7 +204,8 @@ struct InliningRewrite : public StencilInliningPattern {
     // Create a build op to assemble the body of the inlined stencil
     auto loc = consumerOp.getLoc();
     auto buildOp = rewriter.create<stencil::ApplyOp>(
-        loc, buildOperands, consumerOp.getResultTypes());
+        loc, consumerOp.getResultTypes(), buildOperands, llvm::None,
+        llvm::None);
     rewriter.mergeBlocks(consumerOp.getBody(), buildOp.getBody(),
                          buildOp.getBody()->getArguments().take_back(
                              consumerOp.getNumOperands()));

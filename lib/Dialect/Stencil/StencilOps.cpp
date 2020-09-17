@@ -366,8 +366,8 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
   // Create a new operation with shorther argument list
   if (newOperands.size() < applyOp.getNumOperands()) {
     auto loc = applyOp.getLoc();
-    auto newOp = rewriter.create<stencil::ApplyOp>(loc, newOperands,
-                                                   applyOp.getResultTypes());
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        loc, applyOp.getResultTypes(), newOperands, applyOp.lb(), applyOp.ub());
 
     // Compute the argument mapping and move the block
     SmallVector<Value, 10> newArgs(applyOp.getNumOperands());

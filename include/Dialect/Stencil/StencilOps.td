@@ -405,22 +405,13 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   
   let builders = [
     OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "ValueRange operands, TypeRange resultTypes", [{
+              "TypeRange resultTypes, ValueRange operands, "
+              "Optional<ArrayAttr> lb, Optional<ArrayAttr> ub", [{
       state.addOperands(operands);
-      auto region = state.addRegion(); 
-      region->push_back(new Block());
-      for(auto operand : operands) {
-        region->front().addArgument(operand.getType());
+      if(lb.hasValue() && ub.hasValue()) {
+        state.addAttribute(getLBAttrName(), lb.getValue());
+        state.addAttribute(getUBAttrName(), ub.getValue()); 
       }
-      state.addTypes(resultTypes);
-    }]>,    
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "ValueRange operands, "
-              "ArrayRef<int64_t> lb, ArrayRef<int64_t> ub," 
-              "TypeRange resultTypes", [{
-      state.addOperands(operands);
-      state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
-      state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub)); 
       auto region = state.addRegion(); 
       region->push_back(new Block());
       for(auto operand : operands) {
