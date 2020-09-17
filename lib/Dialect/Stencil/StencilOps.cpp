@@ -326,7 +326,7 @@ static LogicalResult verify(stencil::CombineOp op) {
         "expected all inputs to come from apply ops or combine ops");
   if(!llvm::all_of(lowerDefiningOp->getResults(), [](Value result){
     return llvm::all_of(result.getUsers(), [](Operation* user){
-      return !isa<stencil::CombineOp>(user); }); }))
+      return isa<stencil::CombineOp>(user); }); }))
     return op.emitOpError(
         "expected all inputs to only be used in other combine ops");
 
@@ -338,7 +338,7 @@ static LogicalResult verify(stencil::CombineOp op) {
         "expected all inputs to come from apply ops or combine ops");
   if(!llvm::all_of(upperDefiningOp->getResults(), [](Value result){
     return llvm::all_of(result.getUsers(), [](Operation* user){
-      return !isa<stencil::CombineOp>(user); }); }))
+      return isa<stencil::CombineOp>(user); }); }))
     return op.emitOpError(
         "expected all inputs to only be used in other combine ops");
 
