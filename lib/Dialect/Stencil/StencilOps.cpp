@@ -324,11 +324,21 @@ static LogicalResult verify(stencil::CombineOp op) {
       }))
     return op.emitOpError(
         "expected all inputs to come from apply ops or combine ops");
+  if(!llvm::all_of(lowerDefiningOp->getResults(), [](Value result){
+    return llvm::all_of(result.getUsers(), [](Operation* user){
+      return !isa<stencil::CombineOp>(user); }); }))
+    return op.emitOpError(
+        "expected all inputs to come from apply ops or combine ops");
 
   auto upperDefiningOp = op.upper().front().getDefiningOp();
   if (!llvm::all_of(op.upper(), [&](Value upper) {
         return upper.getDefiningOp() == upperDefiningOp;
       }))
+    return op.emitOpError(
+        "expected all inputs to come from apply ops or combine ops");
+  if(!llvm::all_of(upperDefiningOp->getResults(), [](Value result){
+    return llvm::all_of(result.getUsers(), [](Operation* user){
+      return !isa<stencil::CombineOp>(user); }); }))
     return op.emitOpError(
         "expected all inputs to come from apply ops or combine ops");
 
