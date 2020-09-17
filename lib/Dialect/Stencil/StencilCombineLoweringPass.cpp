@@ -50,8 +50,8 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
     // Create a new apply op that updates the lower and upper domains
     // (rerun shape inference after the pass to avoid bound computations)
     auto newOp = rewriter.create<stencil::ApplyOp>(
-        loc, newOperands, shapeOp.getLB(), shapeOp.getUB(),
-        combineOp.getResultTypes());
+        loc, combineOp.getResultTypes(), newOperands, combineOp.lb(),
+        combineOp.ub());
     rewriter.setInsertionPointToStart(newOp.getBody());
 
     // Introduce the branch condition
