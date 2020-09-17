@@ -335,7 +335,7 @@ void StencilInliningPass::runOnFunction() {
   bool hasUnrolledStencils = false;
   funcOp.walk([&](stencil::ReturnOp returnOp) {
     if (returnOp.unroll().hasValue()) {
-      returnOp.emitOpError("execute stencil inlining after stencil unrolling");
+      returnOp.emitOpError("execute stencil unrolling after stencil inlining");
       hasUnrolledStencils = true;
     }
   });
