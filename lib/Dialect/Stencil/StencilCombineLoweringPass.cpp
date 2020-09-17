@@ -23,15 +23,16 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 
 using namespace mlir;
 using namespace stencil;
 
 namespace {
 
-// Pattern replacing a stencil.combine by a single stencil.apply and if/else
-struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
-  IfElseRewrite(MLIRContext *context, PatternBenefit benefit = 1)
+// Base class of the combine lowering patterns
+struct CombineLoweringPattern : public OpRewritePattern<stencil::CombineOp> {
+  CombineLoweringPattern(MLIRContext *context, PatternBenefit benefit = 1)
       : OpRewritePattern<stencil::CombineOp>(context, benefit) {}
 
   LogicalResult lowerStencilCombine(stencil::ApplyOp lowerOp,
@@ -110,6 +111,11 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
     rewriter.eraseOp(lowerOp);
     return success();
   }
+};
+
+// Pattern replacing all stencil.combine ops by if/else
+struct CompleteRewrite : public CombineLoweringPattern {
+  using CombineLoweringPattern::CombineLoweringPattern;
 
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
@@ -122,6 +128,36 @@ struct IfElseRewrite : public OpRewritePattern<stencil::CombineOp> {
     return failure();
   }
 };
+
+// Pattern replacing only internal stencil.combine ops by if/else
+struct InternalRewrite : public CombineLoweringPattern {
+  using CombineLoweringPattern::CombineLoweringPattern;
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    // Get the lower and the upper apply up
+    auto lowerOp = dyn_cast<stencil::ApplyOp>(combineOp.getLowerOp());
+    auto upperOp = dyn_cast<stencil::ApplyOp>(combineOp.getUpperOp());
+    if (lowerOp && upperOp) {
+      // Compute root operation
+      auto rootOp = combineOp.getOperation();
+      while (std::distance(rootOp->getUsers().begin(),
+                           rootOp->getUsers().end()) == 1 &&
+             llvm::all_of(rootOp->getUsers(), [](Operation *op) {
+               return isa<stencil::CombineOp>(op);
+             })) {
+        rootOp = *rootOp->getUsers().begin();
+      }
+      // Perform the lowering if the root is followed by an apply
+      if (llvm::any_of(rootOp->getUsers(), [](Operation *op) {
+            return isa<stencil::ApplyOp>(op);
+          })) {
+        return lowerStencilCombine(lowerOp, upperOp, combineOp, rewriter);
+      }
+    }
+    return failure();
+  }
+}; // namespace
 
 struct StencilCombineLoweringPass
     : public StencilCombineLoweringPassBase<StencilCombineLoweringPass> {
@@ -136,20 +172,12 @@ void StencilCombineLoweringPass::runOnFunction() {
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
 
-  // Check shape inference has been executed
-  bool hasShapeOpWithoutShape = false;
-  funcOp.walk([&](stencil::ShapeOp shapeOp) {
-    if (!shapeOp.hasShape())
-      hasShapeOpWithoutShape = true;
-  });
-  if (hasShapeOpWithoutShape) {
-    funcOp.emitOpError("execute shape inference before combine lowering");
-    signalPassFailure();
-    return;
-  }
-
   OwningRewritePatternList patterns;
-  patterns.insert<IfElseRewrite>(&getContext());
+  if (internalOnly) {
+    patterns.insert<InternalRewrite>(&getContext());
+  } else {
+    patterns.insert<CompleteRewrite>(&getContext());
+  }
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }
 

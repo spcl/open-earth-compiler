@@ -25,8 +25,12 @@ def StencilUnrollingPass : FunctionPass<"stencil-unrolling"> {
 }
 
 def StencilCombineLoweringPass : FunctionPass<"stencil-combine-lowering"> {
-  let summary = "Lower stencil combines to if/else";
+  let summary = "Lower stencil combine ops to if/else";
   let constructor = "mlir::createStencilCombineLoweringPass()";
+  let options = [
+    Option<"internalOnly", "internal-only", "bool", /*default=*/"false", 
+           "Lower only combine ops embedded in between apply ops">,
+  ];
 }
 
 def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
