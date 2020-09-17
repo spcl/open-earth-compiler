@@ -139,16 +139,8 @@ struct InternalRewrite : public CombineLoweringPattern {
     auto lowerOp = dyn_cast<stencil::ApplyOp>(combineOp.getLowerOp());
     auto upperOp = dyn_cast<stencil::ApplyOp>(combineOp.getUpperOp());
     if (lowerOp && upperOp) {
-      // Compute root operation
-      auto rootOp = combineOp.getOperation();
-      while (std::distance(rootOp->getUsers().begin(),
-                           rootOp->getUsers().end()) == 1 &&
-             llvm::all_of(rootOp->getUsers(), [](Operation *op) {
-               return isa<stencil::CombineOp>(op);
-             })) {
-        rootOp = *rootOp->getUsers().begin();
-      }
-      // Perform the lowering if the root is followed by an apply
+      // Compute root operation and check if it is followed by an apply
+      auto rootOp = combineOp.getCombineTreeRoot().getOperation();
       if (llvm::any_of(rootOp->getUsers(), [](Operation *op) {
             return isa<stencil::ApplyOp>(op);
           })) {

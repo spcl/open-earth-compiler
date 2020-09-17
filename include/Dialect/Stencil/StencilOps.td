@@ -611,7 +611,7 @@ def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp
     Operation* getUpperOp() { return upper().front().getDefiningOp(); }
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
-    // introduce range function with args.take_front
+    stencil::CombineOp getCombineTreeRoot();
   }];
 }
 

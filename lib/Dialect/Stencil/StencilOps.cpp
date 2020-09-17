@@ -347,6 +347,18 @@ static LogicalResult verify(stencil::CombineOp op) {
   return success();
 }
 
+stencil::CombineOp stencil::CombineOp::getCombineTreeRoot() {
+  auto rootOp = this->getOperation();
+  while (std::distance(rootOp->getUsers().begin(),
+                        rootOp->getUsers().end()) == 1 &&
+          llvm::all_of(rootOp->getUsers(), [](Operation *op) {
+            return isa<stencil::CombineOp>(op);
+          })) {
+    rootOp = *rootOp->getUsers().begin();
+  }
+  return cast<stencil::CombineOp>(rootOp);
+}
+
 //===----------------------------------------------------------------------===//
 // Canonicalization
 //===----------------------------------------------------------------------===//
