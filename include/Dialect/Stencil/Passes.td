@@ -3,6 +3,11 @@
 
 include "mlir/Pass/PassBase.td"
 
+def StencilCombineSplitPass : FunctionPass<"stencil-combine-split"> {
+let summary = "Copy apply ops used in multiple combines";
+let constructor = "mlir::createStencilCombineSplitPass()";
+}
+
 def StencilInliningPass : FunctionPass<"stencil-inlining"> {
   let summary = "Inline stencil apply ops";
   let constructor = "mlir::createStencilInliningPass()";

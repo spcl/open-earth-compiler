@@ -6,6 +6,8 @@
 
 namespace mlir {
 
+std::unique_ptr<OperationPass<FuncOp>> createStencilCombineSplitPass();
+
 std::unique_ptr<OperationPass<FuncOp>> createStencilInliningPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createStencilUnrollingPass();
