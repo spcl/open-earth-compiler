@@ -380,7 +380,7 @@ def Stencil_StoreOp : Stencil_Op<"store", [
 }
 
 def Stencil_ApplyOp : Stencil_Op<"apply", [
-  DeclareOpInterfaceMethods<ShapeOp, ["setOperandShape"]>,
+  DeclareOpInterfaceMethods<ShapeOp, ["updateArgumentTypes"]>,
   IsolatedFromAbove, 
   SingleBlockImplicitTerminator<"ReturnOp">,
   NoSideEffect]> {

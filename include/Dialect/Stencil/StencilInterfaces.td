@@ -74,8 +74,8 @@ def ShapeOp : OpInterface<"ShapeOp"> {
                "expected lower and upper bound to have the same rank");
         return lb.getValue().size();
     }]>,
-    InterfaceMethod<"/*Set the operand type*/",
-      "void", "setOperandShape", (ins  "Value":$operand, "TempType":$newType), /*methodBody=*/[{}], [{
+    InterfaceMethod<"/*Update the argument types*/",
+      "void", "updateArgumentTypes", (ins ), /*methodBody=*/[{}], [{
         // empty default implementation
     }]>,
   ];

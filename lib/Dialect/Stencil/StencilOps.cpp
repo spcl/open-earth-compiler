@@ -130,16 +130,20 @@ static void print(stencil::ApplyOp applyOp, OpAsmPrinter &printer) {
   }
 }
 
-void stencil::ApplyOp::setOperandShape(Value operand, TempType newType) {
-  auto it = llvm::find(getOperands(), operand);
-  assert(it != getOperands().end() && "failed to find operand");
-  auto arg = getBody()->getArgument(std::distance(getOperands().begin(), it));
-  auto oldType = arg.getType().cast<TempType>();
-  assert(oldType.getElementType() == newType.getElementType() &&
-         "expected the types to have the same element type");
-  assert(oldType.getAllocation() == newType.getAllocation() &&
-         "expected the types to have the same allocation");
-  arg.setType(newType);
+void stencil::ApplyOp::updateArgumentTypes() {
+  for (auto en : llvm::enumerate(getOperandTypes())) {
+    if (en.value() != getBody()->getArgument(en.index()).getType()) {
+      auto newType = en.value().cast<TempType>();
+      auto oldType =
+          getBody()->getArgument(en.index()).getType().cast<TempType>();
+      // Check both are temporary and only the size changes
+      assert(oldType.getElementType() == newType.getElementType() &&
+             "expected the same element type");
+      assert(oldType.getAllocation() == newType.getAllocation() &&
+             "expected the same allocation");
+      getBody()->getArgument(en.index()).setType(newType);
+    }
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -324,9 +328,11 @@ static LogicalResult verify(stencil::CombineOp op) {
       }))
     return op.emitOpError(
         "expected all inputs to come from apply ops or combine ops");
-  if(!llvm::all_of(lowerDefiningOp->getResults(), [](Value result){
-    return llvm::all_of(result.getUsers(), [](Operation* user){
-      return isa<stencil::CombineOp>(user); }); }))
+  if (!llvm::all_of(lowerDefiningOp->getResults(), [](Value result) {
+        return llvm::all_of(result.getUsers(), [](Operation *user) {
+          return isa<stencil::CombineOp>(user);
+        });
+      }))
     return op.emitOpError(
         "expected all inputs to only be used in other combine ops");
 
@@ -336,9 +342,11 @@ static LogicalResult verify(stencil::CombineOp op) {
       }))
     return op.emitOpError(
         "expected all inputs to come from apply ops or combine ops");
-  if(!llvm::all_of(upperDefiningOp->getResults(), [](Value result){
-    return llvm::all_of(result.getUsers(), [](Operation* user){
-      return isa<stencil::CombineOp>(user); }); }))
+  if (!llvm::all_of(upperDefiningOp->getResults(), [](Value result) {
+        return llvm::all_of(result.getUsers(), [](Operation *user) {
+          return isa<stencil::CombineOp>(user);
+        });
+      }))
     return op.emitOpError(
         "expected all inputs to only be used in other combine ops");
 
@@ -348,15 +356,14 @@ static LogicalResult verify(stencil::CombineOp op) {
 }
 
 stencil::CombineOp stencil::CombineOp::getCombineTreeRoot() {
-  auto rootOp = this->getOperation();
-  while (std::distance(rootOp->getUsers().begin(),
-                        rootOp->getUsers().end()) == 1 &&
-          llvm::all_of(rootOp->getUsers(), [](Operation *op) {
-            return isa<stencil::CombineOp>(op);
-          })) {
-    rootOp = *rootOp->getUsers().begin();
+  auto curr = this->getOperation();
+  while (std::distance(curr->getUsers().begin(), curr->getUsers().end()) == 1 &&
+         llvm::all_of(curr->getUsers(), [](Operation *op) {
+           return isa<stencil::CombineOp>(op);
+         })) {
+    curr = *curr->getUsers().begin();
   }
-  return cast<stencil::CombineOp>(rootOp);
+  return cast<stencil::CombineOp>(curr);
 }
 
 //===----------------------------------------------------------------------===//

@@ -128,12 +128,9 @@ LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
 
   // Update the region arguments of dependent shape operations
   // (needed for operations such as the stencil apply op)
-  for (auto result : shapeOp.getOperation()->getResults()) {
-    auto updatedType = result.getType().cast<stencil::TempType>();
-    for (OpOperand &use : result.getUses()) {
-      if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner()))
-        shapeOp.setOperandShape(use.get(), updatedType);
-    }
+  for(auto user : shapeOp.getOperation()->getUsers()) {
+    if (auto shapeOp = dyn_cast<ShapeOp>(user))
+      shapeOp.updateArgumentTypes();
   }
   return success();
 }
