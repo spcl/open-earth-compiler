@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <tuple>
 
 using namespace mlir;
@@ -186,24 +187,45 @@ stencil::DynAccessOp::getAccessExtent() {
 // stencil.make_result
 //===----------------------------------------------------------------------===//
 
-OpOperand *stencil::StoreResultOp::getReturnOpOperand() {
-  auto current = res();
-  while (current.hasOneUse()) {
-    // Return the operand if we found the return op
-    OpOperand *operand = current.getUses().begin().getOperand();
-    if (isa<stencil::ReturnOp>(operand->getOwner()))
-      return operand;
-    // Otherwise we expect a yield op
-    auto yieldOp = dyn_cast<scf::YieldOp>(operand->getOwner());
-    if (!yieldOp)
-      return nullptr;
-    if (isa<scf::ForOp>(yieldOp.getParentOp()) &&
-        yieldOp.getParentOfType<stencil::ApplyOp>())
-      nullptr;
-    // Continue the search in the parent region
-    current = yieldOp.getParentOp()->getResult(operand->getOperandNumber());
+Optional<SmallVector<OpOperand *, 10>>
+stencil::StoreResultOp::getReturnOpOperands() {
+  // Keep a list of consumer operands and operations
+  DenseSet<Operation *> currOperations;
+  SmallVector<OpOperand *, 10> currOperands;
+  for(auto &use : getResult().getUses()) {
+    currOperands.push_back(&use);
+    currOperations.insert(use.getOwner());
   }
-  return nullptr;
+
+  while (currOperations.size() == 1) {
+    // Return the results of the return operation
+    if (auto returnOp = dyn_cast<stencil::ReturnOp>(*currOperations.begin())) {
+      return currOperands;
+    }
+    // Search the parent block for a return operation
+    if (auto yieldOp = dyn_cast<scf::YieldOp>(*currOperations.begin())) {
+      // Expected for ops in apply ops not to return a result
+      if (isa<scf::ForOp>(yieldOp.getParentOp()) &&
+          yieldOp.getParentOfType<stencil::ApplyOp>())
+        return llvm::None;
+
+      // Search the uses of the result and compute the consumer operations
+      currOperations.clear();
+      SmallVector<OpOperand*, 10> nextOperands;
+      for (auto &use : currOperands) {
+        auto result = yieldOp.getParentOp()->getResult(use->getOperandNumber());
+        for(auto &use : result.getUses()) {
+          nextOperands.push_back(&use);
+          currOperations.insert(use.getOwner());
+        }
+      }
+      currOperands.swap(nextOperands);
+    } else {
+      // Expected a return or a yield operation
+      return llvm::None;
+    }
+  }
+  return llvm::None;
 }
 
 //===----------------------------------------------------------------------===//
@@ -427,6 +449,63 @@ struct ApplyOpArgumentCleaner : public stencil::ApplyOpPattern {
   }
 };
 
+/// This is a pattern removes unused results
+struct ApplyOpResultCleaner : public stencil::ApplyOpPattern {
+  using ApplyOpPattern::ApplyOpPattern;
+
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                PatternRewriter &rewriter) const override {
+    // Compute the updated result list
+    SmallVector<OpResult, 10> usedResults;
+    llvm::copy_if(applyOp.getResults(), std::back_inserter(usedResults),
+                  [](OpResult result) { return !result.use_empty(); });
+
+    if (usedResults.size() != applyOp.getNumResults()) {
+      // Erase the op if it has not uses
+      if (usedResults.size() == 0) {
+        rewriter.eraseOp(applyOp);
+        return success();
+      }
+
+      // Get the return operation
+      auto returnOp =
+          cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+      unsigned unrollFactor = returnOp.getUnrollFactor();
+
+      // Compute the new result and and return op operand vector
+      SmallVector<Type, 10> newResultTypes;
+      SmallVector<Value, 10> newOperands;
+      for (auto usedResult : usedResults) {
+        newResultTypes.push_back(usedResult.getType());
+        auto slice = returnOp.getOperands().slice(
+            usedResult.getResultNumber() * unrollFactor, unrollFactor);
+        newOperands.append(slice.begin(), slice.end());
+      }
+
+      // Create a new apply operation
+      auto newOp = rewriter.create<stencil::ApplyOp>(
+          applyOp.getLoc(), newResultTypes, applyOp.getOperands(), applyOp.lb(),
+          applyOp.ub());
+      rewriter.setInsertionPoint(returnOp);
+      rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
+                                         returnOp.unroll());
+      rewriter.eraseOp(returnOp);
+      rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(),
+                           newOp.getBody()->getArguments());
+
+      // Compute the replacement results
+      SmallVector<Value, 10> repResults(applyOp.getNumResults(),
+                                        newOp.getResults().front());
+      for (auto en : llvm::enumerate(usedResults)) {
+        repResults[en.value().getResultNumber()] = newOp.getResult(en.index());
+      }
+      rewriter.replaceOp(applyOp, repResults);
+      return success();
+    }
+    return failure();
+  }
+};
+
 // Helper methods to hoist operations
 LogicalResult hoistBackward(Operation *op, PatternRewriter &rewriter,
                             std::function<bool(Operation *)> condition) {
@@ -507,7 +586,7 @@ struct StoreOpHoisting : public OpRewritePattern<stencil::StoreOp> {
 // Register canonicalization patterns
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<ApplyOpArgumentCleaner>(context);
+  results.insert<ApplyOpArgumentCleaner, ApplyOpResultCleaner>(context);
 }
 
 void stencil::CastOp::getCanonicalizationPatterns(

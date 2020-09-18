@@ -29,10 +29,11 @@ private:
 /// Base class for the stencil to standard operation conversions
 class StencilToStdPattern : public ConversionPattern {
 public:
-  StencilToStdPattern(StringRef rootOpName, StencilTypeConverter &typeConverter,
-                      DenseMap<Value, Index> &valueToLB,
-                      DenseMap<Value, OpOperand *> &valueToOperand,
-                      PatternBenefit benefit = 1);
+  StencilToStdPattern(
+      StringRef rootOpName, StencilTypeConverter &typeConverter,
+      DenseMap<Value, Index> &valueToLB,
+      DenseMap<Value, SmallVector<OpOperand *, 10>> &valueToReturnOpOperands,
+      PatternBenefit benefit = 1);
 
   // Return the induction variables of the parent loop nest
   SmallVector<Value, 3> getInductionVars(Operation *operation) const;
@@ -68,25 +69,25 @@ protected:
   DenseMap<Value, Index> &valueToLB;
 
   /// Map the result values to the return op operand
-  DenseMap<Value, OpOperand *> &valueToOperand;
+  DenseMap<Value, SmallVector<OpOperand *, 10>> &valueToReturnOpOperands;
 };
 
 /// Helper class to implement patterns that match one source operation
 template <typename OpTy>
 class StencilOpToStdPattern : public StencilToStdPattern {
 public:
-  StencilOpToStdPattern(StencilTypeConverter &typeConverter,
-                        DenseMap<Value, Index> &valueToLB,
-                        DenseMap<Value, OpOperand *> &valueToOperand,
-                        PatternBenefit benefit = 1)
+  StencilOpToStdPattern(
+      StencilTypeConverter &typeConverter, DenseMap<Value, Index> &valueToLB,
+      DenseMap<Value, SmallVector<OpOperand *, 10>> &valueToReturnOpOperands,
+      PatternBenefit benefit = 1)
       : StencilToStdPattern(OpTy::getOperationName(), typeConverter, valueToLB,
-                            valueToOperand, benefit) {}
+                            valueToReturnOpOperands, benefit) {}
 };
 
 /// Helper method to populate the conversion pattern list
 void populateStencilToStdConversionPatterns(
     StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
-    DenseMap<Value, OpOperand *> &valueToOperand,
+    DenseMap<Value, SmallVector<OpOperand *, 10>> &valueToReturnOpOperands,
     OwningRewritePatternList &patterns);
 
 } // namespace stencil

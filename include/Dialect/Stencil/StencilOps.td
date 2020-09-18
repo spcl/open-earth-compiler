@@ -447,7 +447,8 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   }];
 }
 
-def Stencil_StoreResultOp : Stencil_Op<"store_result", []> {
+def Stencil_StoreResultOp : Stencil_Op<"store_result", 
+  [NoSideEffect]> {
   let summary = "store_result operation";
   let description = [{
     The store_result operation either stores an operand value or nothing.
@@ -483,13 +484,13 @@ def Stencil_StoreResultOp : Stencil_Op<"store_result", []> {
       return emitOpError("operand type and result type are inconsistent");
       
     // Check the result mapping
-    if(!getReturnOpOperand())
-      return emitOpError("result not mapped to a unique stencil.return operand");
+    if(!getReturnOpOperands())
+      return emitOpError("expected valid mapping to return op operands");
     return success();
   }];
 
   let extraClassDeclaration = [{
-    OpOperand* getReturnOpOperand(); 
+    Optional<SmallVector<OpOperand *, 10>> getReturnOpOperands();
   }];
 }
 

@@ -81,9 +81,7 @@ func @peel_loop(%arg0 : !stencil.field<?x?x?xf64>, %arg1 : !stencil.field<?x?x?x
     // CHECK-NEXT: [[ACC1:%.*]] = stencil.access {{%.*}}[0, 0, 0] : (!stencil.temp<64x61x60xf64>) -> f64
     // CHECK-NEXT: [[RES1:%.*]] = stencil.store_result [[ACC1]] : (f64) -> !stencil.result<f64>
     // CHECK-NEXT: [[RES2:%.*]] = stencil.store_result : () -> !stencil.result<f64>
-    // CHECK-NEXT: [[RES3:%.*]] = stencil.store_result : () -> !stencil.result<f64>
-    // CHECK-NEXT: [[RES4:%.*]] = stencil.store_result : () -> !stencil.result<f64>
-    // CHECK: stencil.return unroll [1, 4, 1] [[RES1]], [[RES2]], [[RES3]], [[RES4]] : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
+    // CHECK: stencil.return unroll [1, 4, 1] [[RES1]], [[RES2]], [[RES2]], [[RES2]] : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
     %4 = stencil.access %arg2[0, 0, 0] : (!stencil.temp<64x61x60xf64>) -> f64
     %5 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
     stencil.return %5 : !stencil.result<f64>

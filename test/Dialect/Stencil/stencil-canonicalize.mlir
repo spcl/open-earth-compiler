@@ -1,9 +1,9 @@
 // RUN: oec-opt %s -split-input-file --canonicalize | oec-opt | FileCheck %s
 
-// CHECK-LABEL: func @apply(%{{.*}}: !stencil.temp<?x?x?xf64>, %{{.*}}: !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> attributes {stencil.program}
+// CHECK-LABEL: func @apply_arg
 // CHECK: %{{.*}} = stencil.apply (%{{.*}} = %{{.*}} : !stencil.temp<?x?x?xf64>) ->
 // CHECK: stencil.return %{{.*}} : !stencil.result<f64>
-func @apply(%arg0: !stencil.temp<?x?x?xf64>, %arg1: !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> attributes {stencil.program} {
+func @apply_arg(%arg0: !stencil.temp<?x?x?xf64>, %arg1: !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> attributes {stencil.program} {
   %4 = stencil.apply (%arg2 = %arg0 : !stencil.temp<?x?x?xf64>, %arg3 = %arg0 : !stencil.temp<?x?x?xf64>, %arg4 = %arg1 : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
     %6 = stencil.access %arg3[-1, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
     %7 = stencil.access %arg2[0, -1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
@@ -16,7 +16,31 @@ func @apply(%arg0: !stencil.temp<?x?x?xf64>, %arg1: !stencil.temp<?x?x?xf64>) ->
 
 // -----
 
-// CHECK-LABEL: func @hoist(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program}
+// CHECK-LABEL: func @apply_res
+// CHECK: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> {
+// CHECK-DAG: [[VAL0:%.*]] = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+// CHECK-DAG: [[VAL1:%.*]] = stencil.access [[ARG0]] [0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+// CHECK-DAG: [[RES0:%.*]] = stencil.store_result [[VAL0]] : (f64) -> !stencil.result<f64>
+// CHECK-DAG: [[RES1:%.*]] = stencil.store_result [[VAL1]] : (f64) -> !stencil.result<f64>
+// CHECK:  stencil.return unroll [1, 2, 1] [[RES0]], [[RES1]] : !stencil.result<f64>, !stencil.result<f64>
+func @apply_res(%arg0: !stencil.temp<?x?x?xf64>, %arg1: !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64> attributes {stencil.program} {
+  %1, %2 = stencil.apply (%arg2 = %arg0 : !stencil.temp<?x?x?xf64>, %arg3 = %arg1 : !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
+    %3 = stencil.access %arg2[0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %4 = stencil.access %arg2[0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %5 = stencil.access %arg3[0, 0, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %6 = stencil.access %arg3[0, 1, 0] : (!stencil.temp<?x?x?xf64>) -> f64
+    %7 = stencil.store_result %3 : (f64) -> !stencil.result<f64>
+    %8 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
+    %9 = stencil.store_result %5 : (f64) -> !stencil.result<f64>
+    %10 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    stencil.return unroll [1, 2, 1] %7, %8, %9, %10 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
+  }
+  return %1 : !stencil.temp<?x?x?xf64>
+}
+
+// -----
+
+// CHECK-LABEL: func @hoist
 func @hoist(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   // CHECK: stencil.cast
   // CHECK: stencil.cast
@@ -42,5 +66,4 @@ func @hoist(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, 
   stencil.store %6 to %9([0, 0, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
   return
 }
-
 

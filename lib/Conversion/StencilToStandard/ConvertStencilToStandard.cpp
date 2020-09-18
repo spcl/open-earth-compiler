@@ -286,48 +286,51 @@ public:
     auto loc = operation->getLoc();
     auto resultOp = cast<stencil::StoreResultOp>(operation);
 
-    // Get the return op and the parallel loop
-    OpOperand *operand = valueToOperand[resultOp.res()];
-    assert(operand && "expected valid return op operand");
-    if (!isa<ParallelOp>(operand->getOwner()->getParentOp()))
-      return failure();
-    auto returnOp = cast<stencil::ReturnOp>(operand->getOwner());
-    auto parallelOp = returnOp.getParentOfType<ParallelOp>();
+    // Iterate over all return op operands of the result
+    for (auto opOperand : valueToReturnOpOperands[resultOp.res()]) {
+      // Get the return op and the parallel op
+      auto returnOp = cast<stencil::ReturnOp>(opOperand->getOwner());
+      auto parallelOp = returnOp.getParentOfType<ParallelOp>();
 
-    // Store the result in case there is something to stor
-    if (resultOp.operands().size() == 1) {
-      // Compute unroll factor and dimension
-      auto unrollFac = returnOp.getUnrollFactor();
-      size_t unrollDim = returnOp.getUnrollDimension();
+      // Check the parent has been lowered
+      if (!isa<ParallelOp>(returnOp.getParentOp()))
+        return failure();
 
-      // Get the output buffer
-      AllocOp allocOp;
-      unsigned bufferCount = (returnOp.getNumOperands() / unrollFac) -
-                             (operand->getOperandNumber() / unrollFac);
-      auto *node = parallelOp.getOperation();
-      while (bufferCount != 0 && (node = node->getPrevNode())) {
-        if (allocOp = dyn_cast<AllocOp>(node))
-          bufferCount--;
+      // Store the result in case there is something to store
+      if (resultOp.operands().size() == 1) {
+        // Compute unroll factor and dimension
+        auto unrollFac = returnOp.getUnrollFactor();
+        size_t unrollDim = returnOp.getUnrollDimension();
+
+        // Get the output buffer
+        AllocOp allocOp;
+        unsigned bufferCount = (returnOp.getNumOperands() / unrollFac) -
+                               (opOperand->getOperandNumber() / unrollFac);
+        auto *node = parallelOp.getOperation();
+        while (bufferCount != 0 && (node = node->getPrevNode())) {
+          if (allocOp = dyn_cast<AllocOp>(node))
+            bufferCount--;
+        }
+        assert(bufferCount == 0 && "expected valid buffer allocation");
+
+        // Compute the static store offset
+        auto offset = valueToLB[opOperand->get()];
+        llvm::transform(offset, offset.begin(), std::negate<int64_t>());
+        offset[unrollDim] += opOperand->getOperandNumber() % unrollFac;
+
+        // Set the insertion point to the defining op if possible
+        auto result = resultOp.operands().front();
+        if (result.getDefiningOp() &&
+            result.getDefiningOp()->getParentOp() == resultOp.getParentOp())
+          rewriter.setInsertionPointAfter(result.getDefiningOp());
+
+        // Compute the index values and introduce the store operation
+        auto inductionVars = getInductionVars(operation);
+        SmallVector<bool, 3> allocation(offset.size(), true);
+        auto storeOffset =
+            computeIndexValues(inductionVars, offset, allocation, rewriter);
+        rewriter.create<mlir::StoreOp>(loc, result, allocOp, storeOffset);
       }
-      assert(bufferCount == 0 && "expected valid buffer allocation");
-
-      // Compute the static store offset
-      auto offset = valueToLB[operand->get()];
-      llvm::transform(offset, offset.begin(), std::negate<int64_t>());
-      offset[unrollDim] += operand->getOperandNumber() % unrollFac;
-
-      // Set the insertion point to the defining op if possible
-      auto result = resultOp.operands().front();
-      if (result.getDefiningOp() &&
-          result.getDefiningOp()->getParentOp() == resultOp.getParentOp())
-        rewriter.setInsertionPointAfter(result.getDefiningOp());
-
-      // Compute the index values and introduce the store operation
-      auto inductionVars = getInductionVars(operation);
-      SmallVector<bool, 3> allocation(offset.size(), true);
-      auto storeOffset =
-          computeIndexValues(inductionVars, offset, allocation, rewriter);
-      rewriter.create<mlir::StoreOp>(loc, result, allocOp, storeOffset);
     }
 
     rewriter.eraseOp(operation);
@@ -557,14 +560,20 @@ void StencilToStandardPass::runOnOperation() {
   });
 
   // Store the return op operands for the result values
-  DenseMap<Value, OpOperand *> valueToOperand;
+  DenseMap<Value, SmallVector<OpOperand *, 10>> valueToReturnOpOperands;
   module.walk([&](stencil::StoreResultOp resultOp) {
-    valueToOperand[resultOp.res()] = resultOp.getReturnOpOperand();
+    if (!resultOp.getReturnOpOperands()) {
+      resultOp.emitOpError("expected valid return op operands");
+      signalPassFailure();
+      return;
+    }
+    valueToReturnOpOperands[resultOp.res()] =
+        resultOp.getReturnOpOperands().getValue();
   });
 
   StencilTypeConverter typeConverter(module.getContext());
   populateStencilToStdConversionPatterns(typeConverter, valueToLB,
-                                         valueToOperand, patterns);
+                                         valueToReturnOpOperands, patterns);
 
   StencilToStdTarget target(*(module.getContext()));
   target.addLegalDialect<AffineDialect>();
@@ -587,13 +596,13 @@ namespace stencil {
 // Populate the conversion pattern list
 void populateStencilToStdConversionPatterns(
     StencilTypeConverter &typeConveter, DenseMap<Value, Index> &valueToLB,
-    DenseMap<Value, OpOperand *> &valueToOperand,
+    DenseMap<Value, SmallVector<OpOperand *, 10>> &valueToReturnOpOperands,
     mlir::OwningRewritePatternList &patterns) {
   patterns.insert<FuncOpLowering, IfOpLowering, YieldOpLowering, CastOpLowering,
                   LoadOpLowering, ApplyOpLowering, BufferOpLowering,
                   ReturnOpLowering, StoreResultOpLowering, AccessOpLowering,
                   DynAccessOpLowering, IndexOpLowering, StoreOpLowering>(
-      typeConveter, valueToLB, valueToOperand);
+      typeConveter, valueToLB, valueToReturnOpOperands);
 }
 
 //===----------------------------------------------------------------------===//
@@ -620,10 +629,11 @@ StencilTypeConverter::StencilTypeConverter(MLIRContext *context_)
 StencilToStdPattern::StencilToStdPattern(
     StringRef rootOpName, StencilTypeConverter &typeConverter,
     DenseMap<Value, Index> &valueToLB,
-    DenseMap<Value, OpOperand *> &valueToOperand, PatternBenefit benefit)
+    DenseMap<Value, SmallVector<OpOperand *, 10>> &valueToReturnOpOperands,
+    PatternBenefit benefit)
     : ConversionPattern(rootOpName, benefit, typeConverter.getContext()),
       typeConverter(typeConverter), valueToLB(valueToLB),
-      valueToOperand(valueToOperand) {}
+      valueToReturnOpOperands(valueToReturnOpOperands) {}
 
 Index StencilToStdPattern::computeShape(ShapeOp shapeOp) const {
   return applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
