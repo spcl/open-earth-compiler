@@ -215,7 +215,7 @@ struct InliningRewrite : public StencilInliningPattern {
                                PatternRewriter &rewriter) const {
     // Concatenate the operands of producer and consumer
     SmallVector<Value, 10> buildOperands = producerOp.getOperands();
-    buildOperands.insert(buildOperands.end(), consumerOp.getOperands().begin(),
+    buildOperands.append(consumerOp.getOperands().begin(),
                          consumerOp.getOperands().end());
 
     // Create a build op to assemble the body of the inlined stencil

@@ -45,7 +45,7 @@ struct CombineLoweringPattern : public OpRewritePattern<stencil::CombineOp> {
     // Compute the operands of the fused apply op
     // (run canonicalization after the pass to cleanup arguments)
     SmallVector<Value, 10> newOperands = lowerOp.getOperands();
-    newOperands.insert(newOperands.end(), upperOp.getOperands().begin(),
+    newOperands.append(upperOp.getOperands().begin(),
                        upperOp.getOperands().end());
 
     // Create a new apply op that updates the lower and upper domains
