@@ -243,9 +243,11 @@ bool checkIfOneByOneMappingToCombineOp(OperandRange operands) {
   // Check if the operation is unique
   if (definingOps.size() != 1)
     return false;
+  // Check all operands have one use
+  if (!llvm::all_of(operands, [](Value value) { return value.hasOneUse(); }))
+    return false;
   // Check the operation is a combine op with a one-by-one mapping
-  if (auto combineOp =
-          dyn_cast<stencil::CombineOp>(operands.front().getDefiningOp())) 
+  if (auto combineOp = dyn_cast<stencil::CombineOp>(*definingOps.begin()))
     return combineOp.getNumResults() == operands.size();
   return false;
 }
@@ -269,57 +271,49 @@ static LogicalResult verify(stencil::CombineOp op) {
     return op.emitOpError("expected the operand and result sizes to match");
 
   // Check the operand and result types match
-  if (llvm::any_of(llvm::zip(op.lower().getTypes(), op.upper().getTypes(),
-                             op.res().getTypes()),
-                   [&](std::tuple<Type, Type, Type> x) {
-                     SmallVector<TempType, 3> tempTypes = {
-                         std::get<0>(x).cast<TempType>(),
-                         std::get<1>(x).cast<TempType>(),
-                         std::get<2>(x).cast<TempType>()};
-                     // Check the element types match
-                     if (llvm::any_of(tempTypes, [&](TempType type) {
-                           return type.getElementType() !=
-                                  tempTypes.front().getElementType();
-                         }))
-                       return true;
-                     // Check the shapes match except for the combine dim
-                     if (llvm::any_of(tempTypes, [&](TempType type) {
-                           for (auto en : llvm::enumerate(type.getShape())) {
-                             if (en.index() != op.dim() &&
-                                 en.value() !=
-                                     tempTypes.front().getShape()[en.index()])
-                               return true;
-                           }
-                           return false;
-                         }))
-                       return true;
-                     return false;
-                   }))
+  if (!llvm::all_of(llvm::zip(op.lower().getTypes(), op.upper().getTypes(),
+                              op.res().getTypes()),
+                    [&](std::tuple<Type, Type, Type> x) {
+                      SmallVector<TempType, 3> tempTypes = {
+                          std::get<0>(x).cast<TempType>(),
+                          std::get<1>(x).cast<TempType>(),
+                          std::get<2>(x).cast<TempType>()};
+                      // Check the element types match
+                      if (!llvm::all_of(tempTypes, [&](TempType type) {
+                            return type.getElementType() ==
+                                   tempTypes.front().getElementType();
+                          }))
+                        return false;
+                      // Check the shapes match except for the combine dim
+                      if (llvm::any_of(tempTypes, [&](TempType type) {
+                            for (auto en : llvm::enumerate(type.getShape())) {
+                              if (en.index() != op.dim() &&
+                                  en.value() !=
+                                      tempTypes.front().getShape()[en.index()])
+                                return true;
+                            }
+                            return false;
+                          }))
+                        return false;
+                      // Otherwise the types match
+                      return true;
+                    }))
     return op.emitOpError("expected the operand and result types to match");
 
-  // Check all inputs have exactly one use and a defining op
-  if (llvm::any_of(op.getOperands(), [](Value value) {
-        return !value.getDefiningOp() || !value.hasOneUse();
-      }))
-    return op.emitOpError(
-        "expected the operands to have one use and a defining op");
+  // Check all inputs have a defining op
+  if (!llvm::all_of(op.getOperands(),
+                    [](Value value) { return value.getDefiningOp(); }))
+    return op.emitOpError("expected the operands to have a defining op");
 
-  // Check all inputs are either combine or apply ops
-  if (llvm::any_of(op.getOperands(), [](Value value) {
-        return !(isa<stencil::ApplyOp>(value.getDefiningOp()) ||
-                 isa<stencil::CombineOp>(value.getDefiningOp()));
-      }))
-    return op.emitOpError("expected inputs come from apply or combine ops");
-
-  // Check lower and upper connect to one combine op or to only apply ops
+  // Check the operands either connect to one combine or multiple apply ops
   if (!(checkIfOneByOneMappingToCombineOp(op.lower()) ||
         checkIfConnectedToApplyOps(op.lower())))
-    return op.emitOpError("expected lower operands to map one-by-one to a "
-                          "combine op or to multiple apply ops");
+    return op.emitOpError("expected the lower operands to be defined by apply "
+                          "ops or by a single combine op");
   if (!(checkIfOneByOneMappingToCombineOp(op.upper()) ||
         checkIfConnectedToApplyOps(op.upper())))
-    return op.emitOpError("expected upper operands to map one-by-one to a "
-                          "combine op or to multiple apply ops");
+    return op.emitOpError("expected the lower operands to be defined by apply "
+                          "ops or by a single combine op");
   return success();
 }
 
