@@ -1,6 +1,7 @@
 #include "Dialect/Stencil/StencilOps.h"
 #include "Dialect/Stencil/StencilDialect.h"
 #include "Dialect/Stencil/StencilTypes.h"
+#include "Dialect/Stencil/StencilUtils.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -10,6 +11,7 @@
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
+#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
@@ -23,6 +25,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
+#include <bits/stdint-intn.h>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -154,23 +157,22 @@ void stencil::ApplyOp::updateArgumentTypes() {
 //===----------------------------------------------------------------------===//
 
 void stencil::DynAccessOp::shiftByOffset(ArrayRef<int64_t> offset) {
-  SmallVector<Attribute, kIndexSize> lowerBound, upperBound;
-  for (auto elem : llvm::zip(offset, lb(), ub())) {
-    lowerBound.push_back(IntegerAttr::get(IntegerType::get(64, getContext()),
-                                          std::get<1>(elem)
-                                                  .template cast<IntegerAttr>()
-                                                  .getValue()
-                                                  .getSExtValue() +
-                                              std::get<0>(elem)));
-    upperBound.push_back(IntegerAttr::get(IntegerType::get(64, getContext()),
-                                          std::get<2>(elem)
-                                                  .template cast<IntegerAttr>()
-                                                  .getValue()
-                                                  .getSExtValue() +
-                                              std::get<0>(elem)));
-  }
-  lbAttr(ArrayAttr::get(lowerBound, getContext()));
-  ubAttr(ArrayAttr::get(upperBound, getContext()));
+  // Compute the shifted extent
+  Index lb, ub;
+  std::tie(lb, ub) = getAccessExtent();
+  lb = applyFunElementWise(offset, lb, std::plus<int64_t>());
+  ub = applyFunElementWise(offset, ub, std::plus<int64_t>());
+  // Create the attributes
+  SmallVector<Attribute, kIndexSize> lbAttrs;
+  SmallVector<Attribute, kIndexSize> ubAttrs;
+  llvm::transform(lb, std::back_inserter(lbAttrs), [&](int64_t x) {
+    return IntegerAttr::get(IntegerType::get(64, getContext()), x);
+  });
+  llvm::transform(ub, std::back_inserter(ubAttrs), [&](int64_t x) {
+    return IntegerAttr::get(IntegerType::get(64, getContext()), x);
+  });
+  lbAttr(ArrayAttr::get(lbAttrs, getContext()));
+  ubAttr(ArrayAttr::get(ubAttrs, getContext()));
 }
 
 std::tuple<stencil::Index, stencil::Index>
