@@ -19,6 +19,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <tuple>
 
 using namespace mlir;
+using namespace stencil;
 
 //===----------------------------------------------------------------------===//
 // stencil.apply
@@ -232,149 +234,92 @@ stencil::StoreResultOp::getReturnOpOperands() {
 // stencil.combine
 //===----------------------------------------------------------------------===//
 
+namespace {
+// Helper function to check if operands connect one-by-one to the same combine
+bool checkIfOneByOneMappingToCombineOp(OperandRange operands) {
+  DenseSet<Operation *> definingOps;
+  for (auto operand : operands)
+    definingOps.insert(operand.getDefiningOp());
+  // Check if the operation is unique
+  if (definingOps.size() != 1)
+    return false;
+  // Check the operation is a combine op with a one-by-one mapping
+  if (auto combineOp =
+          dyn_cast<stencil::CombineOp>(operands.front().getDefiningOp())) 
+    return combineOp.getNumResults() == operands.size();
+  return false;
+}
+
+// Helper function to check if all operands are connected to apply ops
+bool checkIfConnectedToApplyOps(OperandRange operands) {
+  return llvm::all_of(operands, [](Value value) {
+    return isa<stencil::ApplyOp>(value.getDefiningOp());
+  });
+}
+} // namespace
+
 static LogicalResult verify(stencil::CombineOp op) {
-  // check number inputs is same as number results
+  // Check the combine op has at least one operand
+  if (op.getNumOperands() == 0)
+    return op.emitOpError("expected the operand list to be non-empty");
+
+  // Check the operand and result sizes match
   if (op.lower().size() != op.upper().size() ||
       op.lower().size() != op.res().size())
-    return op.emitOpError("expected the number of elements in lower, upper and "
-                          "res to be the same");
+    return op.emitOpError("expected the operand and result sizes to match");
 
-  // // check if the types match
-  // if (!llvm::all_of(
-  //         llvm::zip(op.lower(), op.upper(), op.res()),
-  //         [](std::tuple<Value, Value, Value> tuple) {
-  //           return (std::get<0>(tuple)
-  //                       .getType()
-  //                       .cast<stencil::TempType>()
-  //                       .getElementType() == std::get<1>(tuple)
-  //                                                .getType()
-  //                                                .cast<stencil::TempType>()
-  //                                                .getElementType()) &&
-  //                  (std::get<0>(tuple)
-  //                       .getType()
-  //                       .cast<stencil::TempType>()
-  //                       .getElementType() == std::get<2>(tuple)
-  //                                                .getType()
-  //                                                .cast<stencil::TempType>()
-  //                                                .getElementType());
-  //         }))
-  //   return op.emitOpError("expected corresponding elements of upper and lower
-  //   "
-  //                         "to have the same type");
+  // Check the operand and result types match
+  if (llvm::any_of(llvm::zip(op.lower().getTypes(), op.upper().getTypes(),
+                             op.res().getTypes()),
+                   [&](std::tuple<Type, Type, Type> x) {
+                     SmallVector<TempType, 3> tempTypes = {
+                         std::get<0>(x).cast<TempType>(),
+                         std::get<1>(x).cast<TempType>(),
+                         std::get<2>(x).cast<TempType>()};
+                     // Check the element types match
+                     if (llvm::any_of(tempTypes, [&](TempType type) {
+                           return type.getElementType() !=
+                                  tempTypes.front().getElementType();
+                         }))
+                       return true;
+                     // Check the shapes match except for the combine dim
+                     if (llvm::any_of(tempTypes, [&](TempType type) {
+                           for (auto en : llvm::enumerate(type.getShape())) {
+                             if (en.index() != op.dim() &&
+                                 en.value() !=
+                                     tempTypes.front().getShape()[en.index()])
+                               return true;
+                           }
+                           return false;
+                         }))
+                       return true;
+                     return false;
+                   }))
+    return op.emitOpError("expected the operand and result types to match");
 
-  // if (op.dim() != 0) {
-  //   if (!llvm::all_of(
-  //           llvm::zip(op.lower(), op.upper(), op.res()),
-  //           [](std::tuple<Value, Value, Value> tuple) {
-  //             return (std::get<0>(tuple)
-  //                         .getType()
-  //                         .cast<stencil::TempType>()
-  //                         .getShape()[0] == std::get<1>(tuple)
-  //                                               .getType()
-  //                                               .cast<stencil::TempType>()
-  //                                               .getShape()[0]) &&
-  //                    (std::get<0>(tuple)
-  //                         .getType()
-  //                         .cast<stencil::TempType>()
-  //                         .getShape()[0] == std::get<2>(tuple)
-  //                                               .getType()
-  //                                               .cast<stencil::TempType>()
-  //                                               .getShape()[0]);
-  //           }))
-  //     return op.emitOpError("expected corresponding elements of upper and "
-  //                           "lower to have the same type");
-  // }
+  // Check all inputs have exactly one use and a defining op
+  if (llvm::any_of(op.getOperands(), [](Value value) {
+        return !value.getDefiningOp() || !value.hasOneUse();
+      }))
+    return op.emitOpError(
+        "expected the operands to have one use and a defining op");
 
-  // if (op.dim() != 1) {
-  //   if (!llvm::all_of(
-  //           llvm::zip(op.lower(), op.upper(), op.res()),
-  //           [](std::tuple<Value, Value, Value> tuple) {
-  //             return (std::get<0>(tuple)
-  //                         .getType()
-  //                         .cast<stencil::TempType>()
-  //                         .getShape()[1] == std::get<1>(tuple)
-  //                                               .getType()
-  //                                               .cast<stencil::TempType>()
-  //                                               .getShape()[1]) &&
-  //                    (std::get<0>(tuple)
-  //                         .getType()
-  //                         .cast<stencil::TempType>()
-  //                         .getShape()[1] == std::get<2>(tuple)
-  //                                               .getType()
-  //                                               .cast<stencil::TempType>()
-  //                                               .getShape()[1]);
-  //           }))
-  //     return op.emitOpError("expected corresponding elements of upper and "
-  //                           "lower to have the same type");
-  // }
+  // Check all inputs are either combine or apply ops
+  if (llvm::any_of(op.getOperands(), [](Value value) {
+        return !(isa<stencil::ApplyOp>(value.getDefiningOp()) ||
+                 isa<stencil::CombineOp>(value.getDefiningOp()));
+      }))
+    return op.emitOpError("expected inputs come from apply or combine ops");
 
-  // if (op.dim() != 2) {
-  //   if (!llvm::all_of(
-  //           llvm::zip(op.lower(), op.upper(), op.res()),
-  //           [](std::tuple<Value, Value, Value> tuple) {
-  //             return (std::get<0>(tuple)
-  //                         .getType()
-  //                         .cast<stencil::TempType>()
-  //                         .getShape()[2] == std::get<1>(tuple)
-  //                                               .getType()
-  //                                               .cast<stencil::TempType>()
-  //                                               .getShape()[2]) &&
-  //                    (std::get<0>(tuple)
-  //                         .getType()
-  //                         .cast<stencil::TempType>()
-  //                         .getShape()[2] == std::get<2>(tuple)
-  //                                               .getType()
-  //                                               .cast<stencil::TempType>()
-  //                                               .getShape()[2]);
-  //           }))
-  //     return op.emitOpError("expected corresponding elements of upper and "
-  //                           "lower to have the same type");
-  // }
-
-  // if (!llvm::all_of(op.lower(), [](Value lower) {
-  //       return isa<stencil::ApplyOp>(lower.getDefiningOp()) ||
-  //              isa<stencil::CombineOp>(lower.getDefiningOp());
-  //     }))
-  //   return op.emitOpError(
-  //       "expected all inputs to come from apply ops or combine ops");
-
-  // if (!llvm::all_of(op.upper(), [](Value upper) {
-  //       return isa<stencil::ApplyOp>(upper.getDefiningOp()) ||
-  //              isa<stencil::CombineOp>(upper.getDefiningOp());
-  //     }))
-  //   return op.emitOpError(
-  //       "expected all inputs to come from apply ops or combine ops");
-
-  // auto lowerDefiningOp = op.lower().front().getDefiningOp();
-  // if (!llvm::all_of(op.lower(), [&](Value lower) {
-  //       return lower.getDefiningOp() == lowerDefiningOp;
-  //     }))
-  //   return op.emitOpError(
-  //       "expected all inputs to come from apply ops or combine ops");
-  // if (!llvm::all_of(lowerDefiningOp->getResults(), [](Value result) {
-  //       return llvm::all_of(result.getUsers(), [](Operation *user) {
-  //         return isa<stencil::CombineOp>(user);
-  //       });
-  //     }))
-  //   return op.emitOpError(
-  //       "expected all inputs to only be used in other combine ops");
-
-  // auto upperDefiningOp = op.upper().front().getDefiningOp();
-  // if (!llvm::all_of(op.upper(), [&](Value upper) {
-  //       return upper.getDefiningOp() == upperDefiningOp;
-  //     }))
-  //   return op.emitOpError(
-  //       "expected all inputs to come from apply ops or combine ops");
-  // if (!llvm::all_of(upperDefiningOp->getResults(), [](Value result) {
-  //       return llvm::all_of(result.getUsers(), [](Operation *user) {
-  //         return isa<stencil::CombineOp>(user);
-  //       });
-  //     }))
-  //   return op.emitOpError(
-  //       "expected all inputs to only be used in other combine ops");
-
-  // TODO: Check if the combine is only part of one tree of combines
-
+  // Check lower and upper connect to one combine op or to only apply ops
+  if (!(checkIfOneByOneMappingToCombineOp(op.lower()) ||
+        checkIfConnectedToApplyOps(op.lower())))
+    return op.emitOpError("expected lower operands to map one-by-one to a "
+                          "combine op or to multiple apply ops");
+  if (!(checkIfOneByOneMappingToCombineOp(op.upper()) ||
+        checkIfConnectedToApplyOps(op.upper())))
+    return op.emitOpError("expected upper operands to map one-by-one to a "
+                          "combine op or to multiple apply ops");
   return success();
 }
 
