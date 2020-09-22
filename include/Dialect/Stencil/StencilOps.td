@@ -529,19 +529,19 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
 
   let verifier = [{
     auto applyOp = cast<stencil::ApplyOp>(getParentOp());
-    unsigned unrollFactor = getUnrollFactor();
-    size_t unrollDim = getUnrollDimension();
+    unsigned unrollFac = getUnrollFac();
+    size_t unrollDim = getUnrollDim();
 
     // Verify the number of operands matches the number of apply results
     auto results = applyOp.res();
-    if (getNumOperands() != unrollFactor * results.size())
+    if (getNumOperands() != unrollFac * results.size())
       return emitOpError("the operand and apply result counts do not match");
   
     // Verify the element types match
     for (unsigned i = 0, e = results.size(); i != e; ++i) {
       auto tempType = applyOp.getResult(i).getType().cast<GridType>();
-      for (unsigned j = 0; j < unrollFactor; j++)
-        if (getOperand(i * unrollFactor + j).getType().cast<stencil::ResultType>().getResultType() != tempType.getElementType())
+      for (unsigned j = 0; j < unrollFac; j++)
+        if (getOperand(i * unrollFac + j).getType().cast<stencil::ResultType>().getResultType() != tempType.getElementType())
           return emitOpError("the operand and apply result element types do not match");
     }
     return success();
@@ -556,7 +556,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
         result.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
       return result;
     }
-    unsigned getUnrollFactor() {
+    unsigned getUnrollFac() {
       unsigned factor = 1;
       if (unroll().hasValue()) {
         Index unroll = getUnroll();
@@ -565,11 +565,11 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
       }
       return factor;
     }
-    size_t getUnrollDimension() {
+    size_t getUnrollDim() {
       size_t dimension = 0;
       if (unroll().hasValue()) {
         auto unroll = getUnroll();
-        auto unrollFac = getUnrollFactor();
+        auto unrollFac = getUnrollFac();
         auto it = llvm::find_if(unroll, [&](int64_t x) {
           return x == unrollFac;
         });

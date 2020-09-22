@@ -299,8 +299,8 @@ public:
       // Store the result in case there is something to store
       if (resultOp.operands().size() == 1) {
         // Compute unroll factor and dimension
-        auto unrollFac = returnOp.getUnrollFactor();
-        size_t unrollDim = returnOp.getUnrollDimension();
+        auto unrollFac = returnOp.getUnrollFac();
+        size_t unrollDim = returnOp.getUnrollDim();
 
         // Get the output buffer
         AllocOp allocOp;

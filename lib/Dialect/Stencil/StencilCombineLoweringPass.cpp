@@ -21,6 +21,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <cstdint>
@@ -54,15 +55,11 @@ struct RerouteRewrite : public CombineLoweringPattern {
   // Compute the list of stores results
   SmallVector<OpResult, 10> getStoreResults(stencil::ApplyOp applyOp) const {
     SmallVector<OpResult, 10> storeResults;
-    llvm::copy_if(applyOp.getResults(), std::back_inserter(storeResults),
-                  [](OpResult result) {
-                    return llvm::any_of(result.getUsers(), [](Operation *op) {
-                      return isa<stencil::ReturnOp>(op);
-                    });
-                  });
-    assert(llvm::all_of(storeResults,
-                        [](OpResult result) { return result.hasOneUse(); }) &&
-           "expected store results to have one use");
+    for (auto result : applyOp.getResults()) {
+      if (llvm::all_of(result.getUsers(),
+                       [](Operation *op) { return isa<stencil::StoreOp>(op); }))
+        storeResults.push_back(result);
+    }
     return storeResults;
   }
 
@@ -106,10 +103,11 @@ struct RerouteRewrite : public CombineLoweringPattern {
     // Insert the empty stores
     SmallVector<Value, 10> newOperands = returnOp.getOperands();
     for (auto storeResult : storeResults) {
-      auto elemType = storeResult.getType().cast<TempType>().getElementType();
+      auto resultType = ResultType::get(
+          storeResult.getType().cast<TempType>().getElementType());
       auto resultOp = rewriter.create<stencil::StoreResultOp>(
-          returnOp.getLoc(), elemType, ValueRange());
-      newOperands.append(returnOp.getUnrollFactor(), resultOp);
+          returnOp.getLoc(), resultType, ValueRange());
+      newOperands.append(returnOp.getUnrollFac(), resultOp);
     }
     rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
                                        returnOp.unroll());
@@ -117,6 +115,7 @@ struct RerouteRewrite : public CombineLoweringPattern {
     return newOp;
   }
 
+  // Append the combine results of the new apply op
   void appendCombineResults(stencil::ApplyOp applyOp, stencil::ApplyOp newOp,
                             stencil::CombineOp combineOp,
                             SmallVector<Value, 10> &newOperands) const {
@@ -128,6 +127,7 @@ struct RerouteRewrite : public CombineLoweringPattern {
     }
   }
 
+  // Append the store results of the new apply op 
   void appendStoreResults(stencil::ApplyOp newOp,
                           ArrayRef<OpResult> storeResults,
                           SmallVector<Value, 10> &newOperands) const {
@@ -136,6 +136,7 @@ struct RerouteRewrite : public CombineLoweringPattern {
     }
   }
 
+  // Append the empty results of the new apply op
   void appendEmptyResults(stencil::ApplyOp newOp,
                           ArrayRef<OpResult> storeResults,
                           SmallVector<Value, 10> &newOperands) const {
@@ -143,6 +144,20 @@ struct RerouteRewrite : public CombineLoweringPattern {
     newOperands.append(emptyStores.begin(), emptyStores.end());
   }
 
+  // Replace the store results by the corresponding combine op results  
+  SmallVector<Value, 10> computeRepResults(stencil::ApplyOp applyOp,
+                                           stencil::ApplyOp newOp,
+                                           ArrayRef<OpResult> storeResults,
+                                           ResultRange newStoreResults) const {
+    SmallVector<Value, 10> repResults(applyOp.getResults().size(),
+                                      newOp.getResults().front());
+    for (auto en : llvm::enumerate(storeResults)) {
+      repResults[en.value().getResultNumber()] = newStoreResults[en.index()];
+    }
+    return repResults;
+  }
+
+  // Reroute the store result of the apply ops via a combine op
   LogicalResult rerouteStoreResults(stencil::ApplyOp lowerOp,
                                     stencil::ApplyOp upperOp,
                                     ArrayRef<OpResult> lowerStoreResults,
@@ -191,9 +206,14 @@ struct RerouteRewrite : public CombineLoweringPattern {
 
     // Replace the store results
     auto lowerRepResults =
-        newLowerOp.getResults().take_front(lowerOp.getNumResults());
+        computeRepResults(lowerOp, newLowerOp, lowerStoreResults,
+                          newOp.getResults().slice(combineOp.getNumResults(),
+                                                   lowerStoreResults.size()));
     auto upperRepResults =
-        newUpperOp.getResults().take_front(upperOp.getNumResults());
+        computeRepResults(upperOp, newUpperOp, upperStoreResults,
+                          newOp.getResults().slice(combineOp.getNumResults() +
+                                                       lowerStoreResults.size(),
+                                                   upperStoreResults.size()));
     rewriter.replaceOp(lowerOp, lowerRepResults);
     rewriter.replaceOp(upperOp, upperRepResults);
     return success();
@@ -208,8 +228,8 @@ struct RerouteRewrite : public CombineLoweringPattern {
       auto lowerStoreResults = getStoreResults(lowerOp);
       auto upperStoreResults = getStoreResults(upperOp);
       if (lowerStoreResults.size() > 0 || upperStoreResults.size() > 0) {
-        return rerouteStoreResults(upperOp, lowerOp, upperStoreResults,
-                                   lowerStoreResults, combineOp, rewriter);
+        return rerouteStoreResults(lowerOp, upperOp, lowerStoreResults,
+                                   upperStoreResults, combineOp, rewriter);
       }
     }
     return failure();
@@ -220,6 +240,30 @@ struct RerouteRewrite : public CombineLoweringPattern {
 struct IfElseRewrite : public CombineLoweringPattern {
   using CombineLoweringPattern::CombineLoweringPattern;
 
+  // Apply the apply to combine op operand mapping to the return op operands
+  SmallVector<Value, 10>
+  permuteReturnOpOperands(stencil::ApplyOp applyOp,
+                          OperandRange combineOpOperands,
+                          stencil::ReturnOp returnOp) const {
+    SmallVector<Value, 10> newOperands;
+    // Compute a result to index mapping
+    DenseMap<Value, unsigned> resultToIndex;
+    for (auto result : applyOp.getResults()) {
+      resultToIndex[result] = result.getResultNumber();
+    }
+    // Append the return op operands that correspond to the combine op operand
+    for (auto value : combineOpOperands) {
+      assert(value.getDefiningOp() == applyOp.getOperation() &&
+             "expected operand is defined apply op");
+      unsigned unrollFac = returnOp.getUnrollFac();
+      auto returnOpOperands = returnOp.getOperands().slice(
+          resultToIndex[value] * unrollFac, unrollFac);
+      newOperands.append(returnOpOperands.begin(), returnOpOperands.end());
+    }
+    return newOperands;
+  }
+
+  // Lower the combine op to a if/else apply op
   LogicalResult lowerStencilCombine(stencil::ApplyOp lowerOp,
                                     stencil::ApplyOp upperOp,
                                     stencil::CombineOp combineOp,
@@ -255,9 +299,8 @@ struct IfElseRewrite : public CombineLoweringPattern {
     auto upperReturnOp =
         cast<stencil::ReturnOp>(upperOp.getBody()->getTerminator());
     // Check both apply operations have the same unroll configuration if any
-    if (lowerReturnOp.getUnrollFactor() != upperReturnOp.getUnrollFactor() ||
-        lowerReturnOp.getUnrollDimension() !=
-            upperReturnOp.getUnrollDimension()) {
+    if (lowerReturnOp.getUnrollFac() != upperReturnOp.getUnrollFac() ||
+        lowerReturnOp.getUnrollDim() != upperReturnOp.getUnrollDim()) {
       combineOp.emitWarning("expected matching unroll configurations");
       return failure();
     }
@@ -275,11 +318,13 @@ struct IfElseRewrite : public CombineLoweringPattern {
 
     // Replace the return ops by yield ops
     rewriter.setInsertionPoint(lowerReturnOp);
-    rewriter.replaceOpWithNewOp<scf::YieldOp>(lowerReturnOp,
-                                              lowerReturnOp.getOperands());
+    rewriter.replaceOpWithNewOp<scf::YieldOp>(
+        lowerReturnOp,
+        permuteReturnOpOperands(lowerOp, combineOp.lower(), lowerReturnOp));
     rewriter.setInsertionPoint(upperReturnOp);
-    rewriter.replaceOpWithNewOp<scf::YieldOp>(upperReturnOp,
-                                              upperReturnOp.getOperands());
+    rewriter.replaceOpWithNewOp<scf::YieldOp>(
+        upperReturnOp,
+        permuteReturnOpOperands(upperOp, combineOp.upper(), upperReturnOp));
 
     // Move the computation to the new apply operation
     rewriter.mergeBlocks(
