@@ -160,7 +160,6 @@ void StencilUnrollingPass::addPeelIteration(stencil::ApplyOp applyOp) {
           domainSize % unrollFactor);
 
       // Introduce a stencil combine to replace the uses of the original apply
-      // TODO handle the extra 
       auto combineOp = b.create<stencil::CombineOp>(
           loc, applyOp.getResultTypes(), unrollIndex, split,
           bodyOp.getResults(), peelOp.getResults(), ValueRange(), ValueRange(),
