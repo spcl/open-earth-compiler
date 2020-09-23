@@ -582,25 +582,33 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
   }];
 }
 
-def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp>, SameVariadicOperandSize]> {
+def Stencil_CombineOp : Stencil_Op<"combine", [
+  DeclareOpInterfaceMethods<ShapeOp>, 
+  AttrSizedOperandSegments]> {
   let summary = "combine operation";
   let description = [{
-    Prevents fusion of consecutive stencil.apply operations.
+    Combines the results computed on a lower with the results computed on 
+    an upper domain. The operation combines the domain at a given index/offset 
+    in a given dimension. Optional extra operands allow to combine values
+    that are only written / defined on the lower or upper subdomain. The result
+    values have the order upper/lower, lowerext, upperext.
 
     Example:
-      %result = stencil.combine 2 at 11 %lower, %upper : (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+      %result = stencil.combine 2 at 11 lower = (%0 : !stencil.temp<?x?x?xf64>) upper = (%1 : !stencil.temp<?x?x?xf64>) lowerext = (%2 : !stencil.temp<?x?x?xf64>): !stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>
   }];
 
   let arguments = (ins Confined<I64Attr, [IntMinValue<0>, IntMaxValue<2>]>:$dim,
                        I64Attr:$index,
                        Variadic<Stencil_Temp>:$lower,
                        Variadic<Stencil_Temp>:$upper,
+                       Variadic<Stencil_Temp>:$lowerext,
+                       Variadic<Stencil_Temp>:$upperext,
                        OptionalAttr<Stencil_Index>:$lb,
                        OptionalAttr<Stencil_Index>:$ub);
   let results = (outs Variadic<Stencil_Temp>:$res);
 
   let assemblyFormat = [{
-    $dim `at` $index `lower` `=` `(`$lower `:` type($lower)`)` `upper` `=` `(`$upper `:` type($upper)`)` (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` type($res)
+    $dim `at` $index `lower` `=` `(`$lower `:` type($lower)`)` `upper` `=` `(`$upper `:` type($upper)`)` (`lowerext` `=` `(`$lowerext^ `:` type($lowerext)`)`)? (`upperext` `=` `(`$upperext^ `:` type($upperext)`)`)? (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` type($res)
   }];
 
   let verifier = [{
@@ -610,6 +618,7 @@ def Stencil_CombineOp : Stencil_Op<"combine", [DeclareOpInterfaceMethods<ShapeOp
   let extraClassDeclaration = [{
     Operation* getLowerOp() { return lower().front().getDefiningOp(); }
     Operation* getUpperOp() { return upper().front().getDefiningOp(); }
+
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     stencil::CombineOp getCombineTreeRoot();

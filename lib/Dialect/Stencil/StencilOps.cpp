@@ -237,28 +237,46 @@ stencil::StoreResultOp::getReturnOpOperands() {
 //===----------------------------------------------------------------------===//
 
 namespace {
-// Helper function to check if operands connect one-by-one to the same combine
-bool checkIfOneByOneMappingToCombineOp(OperandRange operands) {
+// Check if operands connect one-by-one to one combine or to multiple apply ops
+bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra) {
   DenseSet<Operation *> definingOps;
-  for (auto operand : operands)
+  for (auto operand : base)
     definingOps.insert(operand.getDefiningOp());
-  // Check if the operation is unique
-  if (definingOps.size() != 1)
-    return false;
+  for (auto operand : extra)
+    definingOps.insert(operand.getDefiningOp());
   // Check all operands have one use
-  if (!llvm::all_of(operands, [](Value value) { return value.hasOneUse(); }))
+  if (!(llvm::all_of(base, [](Value value) { return value.hasOneUse(); }) &&
+        llvm::all_of(extra, [](Value value) { return value.hasOneUse(); })))
     return false;
-  // Check the operation is a combine op with a one-by-one mapping
-  if (auto combineOp = dyn_cast<stencil::CombineOp>(*definingOps.begin()))
-    return combineOp.getNumResults() == operands.size();
-  return false;
+  // Check the defining op is a unique combine op with one-by-one mapping
+  if (auto combineOp = dyn_cast<stencil::CombineOp>(*definingOps.begin())) {
+    return definingOps.size() == 1 &&
+           combineOp.getNumResults() == base.size() + extra.size();
+  }
+  // Check the defining ops are apply ops with a one-by-one mapping
+  unsigned numResults = 0;
+  for (auto definingOp : definingOps) {
+    // Check all defining ops are apply ops
+    if (!isa<stencil::ApplyOp>(definingOp))
+      return false;
+    numResults += definingOp->getNumResults();
+  }
+  return numResults == base.size() + extra.size();
 }
 
-// Helper function to check if all operands are connected to apply ops
-bool checkIfConnectedToApplyOps(OperandRange operands) {
-  return llvm::all_of(operands, [](Value value) {
-    return isa<stencil::ApplyOp>(value.getDefiningOp());
-  });
+// Helper to check type compatibility given the combine dim
+bool areCompatibleTempTypes(Type type1, Type type2, int64_t dim) {
+  auto tempType1 = type1.cast<TempType>();
+  auto tempType2 = type2.cast<TempType>();
+  // Check the element type
+  if (tempType1.getElementType() != tempType2.getElementType())
+    return false;
+  // Check the shapes
+  for (auto en : llvm::enumerate(tempType1.getShape())) {
+    if (en.index() != dim && en.value() != tempType2.getShape()[en.index()])
+      return false;
+  }
+  return true;
 }
 } // namespace
 
@@ -268,54 +286,57 @@ static LogicalResult verify(stencil::CombineOp op) {
     return op.emitOpError("expected the operand list to be non-empty");
 
   // Check the operand and result sizes match
-  if (op.lower().size() != op.upper().size() ||
-      op.lower().size() != op.res().size())
-    return op.emitOpError("expected the operand and result sizes to match");
-
-  // Check the operand and result types match
-  if (!llvm::all_of(llvm::zip(op.lower().getTypes(), op.upper().getTypes(),
-                              op.res().getTypes()),
-                    [&](std::tuple<Type, Type, Type> x) {
-                      SmallVector<TempType, 3> tempTypes = {
-                          std::get<0>(x).cast<TempType>(),
-                          std::get<1>(x).cast<TempType>(),
-                          std::get<2>(x).cast<TempType>()};
-                      // Check the element types match
-                      if (!llvm::all_of(tempTypes, [&](TempType type) {
-                            return type.getElementType() ==
-                                   tempTypes.front().getElementType();
-                          }))
-                        return false;
-                      // Check the shapes match except for the combine dim
-                      if (llvm::any_of(tempTypes, [&](TempType type) {
-                            for (auto en : llvm::enumerate(type.getShape())) {
-                              if (en.index() != op.dim() &&
-                                  en.value() !=
-                                      tempTypes.front().getShape()[en.index()])
-                                return true;
-                            }
-                            return false;
-                          }))
-                        return false;
-                      // Otherwise the types match
-                      return true;
-                    }))
-    return op.emitOpError("expected the operand and result types to match");
+  if (op.lower().size() != op.upper().size())
+    return op.emitOpError("expected the lower and upper operand size to match");
+  if (op.res().size() !=
+      op.lower().size() + op.lowerext().size() + op.upperext().size())
+    return op.emitOpError("expected the result and operand sizes to match");
 
   // Check all inputs have a defining op
   if (!llvm::all_of(op.getOperands(),
                     [](Value value) { return value.getDefiningOp(); }))
     return op.emitOpError("expected the operands to have a defining op");
 
+  // Check the lower and upper operand types match
+  if (!llvm::all_of(llvm::zip(op.lower().getTypes(), op.upper().getTypes()),
+                    [&](std::tuple<Type, Type> x) {
+                      return areCompatibleTempTypes(std::get<0>(x),
+                                                    std::get<1>(x), op.dim());
+                    }))
+    return op.emitOpError("expected lower and upper operand types to match");
+
+  // Check the lower/upper operand types match the result types
+  if (!llvm::all_of(llvm::zip(op.lower().getTypes(), op.res().getTypes()),
+                    [&](std::tuple<Type, Type> x) {
+                      return areCompatibleTempTypes(std::get<0>(x),
+                                                    std::get<1>(x), op.dim());
+                    }))
+    return op.emitOpError("expected the lower/upper and result types to match");
+
+  // Check the if the extra types match the corresponding result types
+  auto lowerExtResTypes = op.res().getTypes().drop_front(op.lower().size());
+  if (!llvm::all_of(llvm::zip(op.lowerext().getTypes(), lowerExtResTypes),
+                    [&](std::tuple<Type, Type> x) {
+                      return areCompatibleTempTypes(std::get<0>(x),
+                                                    std::get<1>(x), op.dim());
+                    }))
+    return op.emitOpError("expected the lowerext and result types to match");
+  auto upperExtResTypes = op.res().getTypes().take_back(op.upperext().size());
+  if (!llvm::all_of(llvm::zip(op.upperext().getTypes(), upperExtResTypes),
+                    [&](std::tuple<Type, Type> x) {
+                      return areCompatibleTempTypes(std::get<0>(x),
+                                                    std::get<1>(x), op.dim());
+                    }))
+    return op.emitOpError("expected the upperext and result types to match");
+
   // Check the operands either connect to one combine or multiple apply ops
-  if (!(checkIfOneByOneMappingToCombineOp(op.lower()) ||
-        checkIfConnectedToApplyOps(op.lower())))
-    return op.emitOpError("expected the lower operands to be defined by apply "
-                          "ops or by a single combine op");
-  if (!(checkIfOneByOneMappingToCombineOp(op.upper()) ||
-        checkIfConnectedToApplyOps(op.upper())))
-    return op.emitOpError("expected the lower operands to be defined by apply "
-                          "ops or by a single combine op");
+  if (!checkOneByOneOperandMapping(op.lower(), op.lowerext()))
+    return op.emitOpError("expected the lower operands to connect one-by-one "
+                          "to one combine or multiple apply ops");
+  if (!checkOneByOneOperandMapping(op.upper(), op.upperext()))
+    return op.emitOpError("expected the upper operands to connect one-by-one "
+                          "to one combine or multiple apply ops");
+  
   return success();
 }
 

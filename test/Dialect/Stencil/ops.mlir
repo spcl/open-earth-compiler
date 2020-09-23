@@ -74,17 +74,41 @@ func @buffer() {
 // CHECK-LABEL: func @combine() {
 func @combine() {
   %0 = "stencil.apply"() ({
-    %2 = constant 1.0 : f64
-    %3 = "stencil.store_result"(%2) : (f64) -> !stencil.result<f64>
-    "stencil.return"(%3) : (!stencil.result<f64>) -> ()
+    %3 = constant 1.0 : f64
+    %4 = "stencil.store_result"(%3) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%4) : (!stencil.result<f64>) -> ()
   }) : () -> !stencil.temp<?x?x?xf64>
   %1 = "stencil.apply"() ({
-    %2 = constant 1.0 : f64
-    %3 = "stencil.store_result"(%2) : (f64) -> !stencil.result<f64>
-    "stencil.return"(%3) : (!stencil.result<f64>) -> ()
+    %3 = constant 1.0 : f64
+    %4 = "stencil.store_result"(%3) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%4) : (!stencil.result<f64>) -> ()
   }) : () -> !stencil.temp<?x?x?xf64>
   // CHECK: %{{.*}} = stencil.combine 2 at 11 lower = (%{{.*}} : !stencil.temp<?x?x?xf64>) upper = (%{{.*}} : !stencil.temp<?x?x?xf64>) : !stencil.temp<?x?x?xf64>
-  %2 = "stencil.combine"(%0, %1) {dim=2, index=11} : (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  %2 = "stencil.combine"(%0, %1) {dim=2, index=11, operand_segment_sizes = dense<[1,1,0,0]>:vector<4xi32>} : (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) -> !stencil.temp<?x?x?xf64>
+  return
+}
+
+// -----
+
+// CHECK-LABEL: func @combine_extra() {
+func @combine_extra() {
+  %0 = "stencil.apply"() ({
+    %5 = constant 1.0 : f64
+    %6 = "stencil.store_result"(%5) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%6) : (!stencil.result<f64>) -> ()
+  }) : () -> !stencil.temp<?x?x?xf64>
+  %1 = "stencil.apply"() ({
+    %5 = constant 1.0 : f64
+    %6 = "stencil.store_result"(%5) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%6) : (!stencil.result<f64>) -> ()
+  }) : () -> !stencil.temp<?x?x?xf64>
+  %2 = "stencil.apply"() ({
+    %5 = constant 1.0 : f64
+    %6 = "stencil.store_result"(%5) : (f64) -> !stencil.result<f64>
+    "stencil.return"(%6) : (!stencil.result<f64>) -> ()
+  }) : () -> !stencil.temp<?x?x?xf64>
+  // CHECK: %{{.*}}:2 = stencil.combine 2 at 11 lower = (%{{.*}} : !stencil.temp<?x?x?xf64>) upper = (%{{.*}} : !stencil.temp<?x?x?xf64>) upperext = (%{{.*}} : !stencil.temp<?x?x?xf64>) : !stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>
+  %3, %4 = "stencil.combine"(%0, %1, %2) {dim=2, index=11, operand_segment_sizes = dense<[1,1,0,1]>:vector<4xi32>} : (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>)
   return
 }
 

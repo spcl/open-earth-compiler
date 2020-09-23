@@ -195,9 +195,10 @@ struct RerouteRewrite : public CombineLoweringPattern {
         lowerOp.getOperation()->isBeforeInBlock(upperOp.getOperation())
             ? upperOp
             : lowerOp);
+    // TODO handle extra options
     auto newOp = rewriter.create<stencil::CombineOp>(
         combineOp.getLoc(), newResultTypes, combineOp.dim(), combineOp.index(),
-        newLowerOperands, newUpperOperands, combineOp.lbAttr(),
+        newLowerOperands, newUpperOperands, ValueRange(), ValueRange(), combineOp.lbAttr(),
         combineOp.ubAttr());
 
     // Replace the combine operation
@@ -379,6 +380,9 @@ void StencilCombineLoweringPass::runOnFunction() {
   // Only run on functions marked as stencil programs
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
+
+  // TODO check unique lower and upper op!
+  // (should this always be the case???)
 
   OwningRewritePatternList patterns;
   patterns.insert<IfElseRewrite, RerouteRewrite>(&getContext(), internalOnly);

@@ -11,6 +11,7 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
@@ -159,10 +160,11 @@ void StencilUnrollingPass::addPeelIteration(stencil::ApplyOp applyOp) {
           domainSize % unrollFactor);
 
       // Introduce a stencil combine to replace the uses of the original apply
+      // TODO handle the extra 
       auto combineOp = b.create<stencil::CombineOp>(
           loc, applyOp.getResultTypes(), unrollIndex, split,
-          bodyOp.getResults(), peelOp.getResults(), applyOp.lbAttr(),
-          applyOp.ubAttr());
+          bodyOp.getResults(), peelOp.getResults(), ValueRange(), ValueRange(),
+          applyOp.lbAttr(), applyOp.ubAttr());
 
       applyOp.replaceAllUsesWith(combineOp.getResults());
       applyOp.erase();
