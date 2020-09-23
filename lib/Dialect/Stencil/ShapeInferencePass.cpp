@@ -89,9 +89,11 @@ LogicalResult adjustBounds(const OpOperand &use, const AccessExtents &extents,
     }
     // Adjust the bounds if the shape is split into subdomains
     if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
-      if (llvm::is_contained(combineOp.lower(), use.get()))
+      if (llvm::is_contained(combineOp.lower(), use.get()) ||
+          llvm::is_contained(combineOp.lowerext(), use.get()))
         ub[combineOp.dim()] = combineOp.index();
-      if (llvm::is_contained(combineOp.upper(), use.get()))
+      if (llvm::is_contained(combineOp.upper(), use.get()) ||
+          llvm::is_contained(combineOp.upperext(), use.get()))
         lb[combineOp.dim()] = combineOp.index();
     }
     // Update the lower and upper bounds
