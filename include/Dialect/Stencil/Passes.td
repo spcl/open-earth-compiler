@@ -3,9 +3,9 @@
 
 include "mlir/Pass/PassBase.td"
 
-def StencilCombineSplitPass : FunctionPass<"stencil-combine-split"> {
-let summary = "Copy apply ops used in multiple combines";
-let constructor = "mlir::createStencilCombineSplitPass()";
+def StencilDomainSplitPass : FunctionPass<"stencil-domain-split"> {
+let summary = "Copy apply ops used in multiple domains";
+let constructor = "mlir::createStencilDomainSplitPass()";
 }
 
 def StencilInliningPass : FunctionPass<"stencil-inlining"> {
