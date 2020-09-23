@@ -128,7 +128,6 @@ void StencilDomainSplitPass::runOnFunction() {
         // Replace all uses of all results of the applyOp for domains not yet
         // looked at
         for(size_t k = 0; k < applyOp.getNumResults(); k++) {
-          // 2nd step, clone ops, rewire stuff
           applyOp.getResult(k).replaceAllUsesExcept(clonedOp->getResult(k),
                                                     blockList[k]);
           // Extend blockLists by current domain
