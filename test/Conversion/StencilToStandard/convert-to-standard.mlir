@@ -282,9 +282,9 @@ func @dyn_access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.
     // CHECK-DAG: [[C0:%.*]] = constant 0 : index
     // CHECK-DAG: [[C1:%.*]] = constant 1 : index
     // CHECK-DAG: [[C2:%.*]] = constant 2 : index
-    // CHECK-DAG: [[IDX0:%.*]] = affine.apply [[MAP1]]([[C0]], %{{.*}})
-    // CHECK-DAG: [[IDX1:%.*]] = affine.apply [[MAP1]]([[C1]], %{{.*}})
-    // CHECK-DAG: [[IDX2:%.*]] = affine.apply [[MAP1]]([[C2]], %{{.*}})
+    // CHECK-DAG: [[IDX0:%.*]] = affine.apply [[MAP0]]([[C0]], %{{.*}})
+    // CHECK-DAG: [[IDX1:%.*]] = affine.apply [[MAP0]]([[C1]], %{{.*}})
+    // CHECK-DAG: [[IDX2:%.*]] = affine.apply [[MAP0]]([[C2]], %{{.*}})
     // CHECK: %{{.*}} = load %{{.*}}{{\[}}[[IDX2]], [[IDX1]], [[IDX0]]{{[]]}}
     %c0 = constant 0 : index
     %c1 = constant 1 : index
