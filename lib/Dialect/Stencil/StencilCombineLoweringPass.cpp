@@ -370,7 +370,6 @@ struct IfElseRewrite : public CombineLoweringPattern {
 
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
-
     // Handle the extra operands first
     if (!combineOp.lowerext().empty() || !combineOp.upperext().empty())
       return failure();
@@ -421,25 +420,6 @@ void StencilCombineLoweringPass::runOnFunction() {
   // Only run on functions marked as stencil programs
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
-
-  // TODO fix the entire domain size handling -> relax store / buffer verifiers!
-  // // Check the combine tree root is connected to a buffer or store op
-  // // (ensures the domain sizes of outputs written on a subdomain is known)
-  // bool hasApplyOpUsers = false;
-  // funcOp.walk([&](stencil::CombineOp combineOp) {
-  //   if (llvm::any_of(combineOp.getOperation()->getUsers(), [](Operation *op)
-  //   {
-  //         return !(isa<stencil::BufferOp>(op) || isa<stencil::StoreOp>(op) ||
-  //                  isa<stencil::CombineOp>(op));
-  //       }))
-  //     hasApplyOpUsers = true;
-  // });
-  // // Keep doing internal combine op lowerings by enhancing the output size
-  // if (hasApplyOpUsers && !internalOnly) {
-  //   funcOp.emitOpError("exectue shape correction before combine lowering");
-  //   signalPassFailure();
-  //   return;
-  // }
 
   // Poppulate the pattern list depending on the config
   OwningRewritePatternList patterns;
