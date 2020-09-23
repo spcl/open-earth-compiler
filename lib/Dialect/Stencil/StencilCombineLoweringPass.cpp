@@ -23,9 +23,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstddef>
 #include <cstdint>
-#include <iterator>
 
 using namespace mlir;
 using namespace stencil;
@@ -34,12 +32,8 @@ namespace {
 
 // Base class of the combine lowering patterns
 struct CombineLoweringPattern : public OpRewritePattern<stencil::CombineOp> {
-  CombineLoweringPattern(MLIRContext *context, bool internalOnly,
-                         PatternBenefit benefit = 1)
-      : OpRewritePattern<stencil::CombineOp>(context, benefit),
-        internalOnly(internalOnly) {}
-
-  bool internalOnly;
+  CombineLoweringPattern(MLIRContext *context, PatternBenefit benefit = 1)
+      : OpRewritePattern<stencil::CombineOp>(context, benefit) {}
 };
 
 // Fuse two apply ops connected to the same combine
@@ -112,12 +106,12 @@ struct FuseRewrite : public CombineLoweringPattern {
                                        returnOp1.unroll());
     rewriter.eraseOp(returnOp1);
     rewriter.eraseOp(returnOp2);
-    
+
     // Replace all uses of the two apply operations
-    rewriter.replaceOp(
-        applyOp1, newOp.getResults().take_front(applyOp1.getNumResults()));
-    rewriter.replaceOp(
-        applyOp2, newOp.getResults().take_back(applyOp2.getNumResults()));
+    rewriter.replaceOp(applyOp1,
+                       newOp.getResults().take_front(applyOp1.getNumResults()));
+    rewriter.replaceOp(applyOp2,
+                       newOp.getResults().take_back(applyOp2.getNumResults()));
     return success();
   }
 
@@ -143,7 +137,7 @@ struct FuseRewrite : public CombineLoweringPattern {
 };
 
 // Introduce empty stores to eliminate extra operands
-struct EmptyStoreRewrite : public CombineLoweringPattern {
+struct MirrorRewrite : public CombineLoweringPattern {
   using CombineLoweringPattern::CombineLoweringPattern;
 
   // Introduce empty stores for the extra operands
@@ -270,8 +264,6 @@ struct EmptyStoreRewrite : public CombineLoweringPattern {
   }
 };
 
-// TODO support multiple apply operations? -> separate pattern!
-
 // Pattern replacing stencil.combine ops by if/else
 struct IfElseRewrite : public CombineLoweringPattern {
   using CombineLoweringPattern::CombineLoweringPattern;
@@ -393,21 +385,29 @@ struct IfElseRewrite : public CombineLoweringPattern {
     auto lowerOp = dyn_cast<stencil::ApplyOp>(*definingLowerOps.begin());
     auto upperOp = dyn_cast<stencil::ApplyOp>(*definingUpperOps.begin());
     if (lowerOp && upperOp) {
-      // Check the apply op is an internal op if the pass flag is set
-      if (internalOnly) {
-        auto rootOp = combineOp.getCombineTreeRoot().getOperation();
-        if (llvm::none_of(rootOp->getUsers(), [](Operation *op) {
-              return isa<stencil::ApplyOp>(op);
-            }))
-          return failure();
-      }
-
       // Lower the combine op and its predecessors to a single apply
       return lowerStencilCombine(lowerOp, upperOp, combineOp, rewriter);
     }
     return failure();
   }
-}; // namespace
+};
+
+// Pattern replacing stencil.combine ops by if/else
+struct InternalIfElseRewrite : public IfElseRewrite {
+  using IfElseRewrite::IfElseRewrite;
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    // Check the apply op is an internal op if the pass flag is set
+    auto rootOp = combineOp.getCombineTreeRoot().getOperation();
+    if (llvm::none_of(rootOp->getUsers(),
+                      [](Operation *op) { return isa<stencil::ApplyOp>(op); }))
+      return failure();
+
+    // Run the standard if else rewrite
+    return IfElseRewrite::matchAndRewrite(combineOp, rewriter);
+  }
+};
 
 struct StencilCombineLoweringPass
     : public StencilCombineLoweringPassBase<StencilCombineLoweringPass> {
@@ -441,10 +441,13 @@ void StencilCombineLoweringPass::runOnFunction() {
   //   return;
   // }
 
-  // TODO do not run all patterns on internal nodes?
+  // Poppulate the pattern list depending on the config
   OwningRewritePatternList patterns;
-  patterns.insert<IfElseRewrite, EmptyStoreRewrite, FuseRewrite>(&getContext(),
-                                                                 internalOnly);
+  if (internalOnly) {
+    patterns.insert<InternalIfElseRewrite>(&getContext());
+  } else {
+    patterns.insert<IfElseRewrite, MirrorRewrite, FuseRewrite>(&getContext());
+  }
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }
 
