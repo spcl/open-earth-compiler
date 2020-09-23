@@ -39,54 +39,28 @@ struct CombineLoweringPattern : public OpRewritePattern<stencil::CombineOp> {
       : OpRewritePattern<stencil::CombineOp>(context, benefit),
         internalOnly(internalOnly) {}
 
-  bool isConnectedToStoreOp(stencil::ApplyOp applyOp) const {
-    return llvm::any_of(applyOp.getOperation()->getUsers(), [](Operation *op) {
-      return isa<stencil::StoreOp>(op);
-    });
-  }
-
   bool internalOnly;
 };
 
-// Reroute apply op outputs through the combine op
-struct RerouteRewrite : public CombineLoweringPattern {
+// Introduce empty stores to eliminate extra operands
+struct EmptyStoreRewrite : public CombineLoweringPattern {
   using CombineLoweringPattern::CombineLoweringPattern;
 
-  // Compute the list of stores results
-  SmallVector<OpResult, 10> getStoreResults(stencil::ApplyOp applyOp) const {
-    SmallVector<OpResult, 10> storeResults;
-    for (auto result : applyOp.getResults()) {
-      if (llvm::all_of(result.getUsers(),
-                       [](Operation *op) { return isa<stencil::StoreOp>(op); }))
-        storeResults.push_back(result);
-    }
-    return storeResults;
-  }
-
-  // Introduce empty stores for the store results of the neighbor
-  stencil::ApplyOp addEmptyStores(stencil::ApplyOp applyOp,
-                                  ArrayRef<OpResult> storeResults,
+  // Introduce empty stores for the extra operands
+  stencil::ApplyOp addEmptyStores(stencil::ApplyOp applyOp, OperandRange range,
                                   stencil::CombineOp combineOp,
                                   PatternRewriter &rewriter) const {
     // Compute the result types
     SmallVector<Type, 10> newResultTypes(applyOp.getResultTypes().begin(),
                                          applyOp.getResultTypes().end());
-    llvm::transform(
-        storeResults, std::back_inserter(newResultTypes), [&](Value value) {
-          auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
-          auto storeType = value.getType().cast<TempType>();
-          auto storeShape = storeType.getShape();
-          auto newShape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
-                                              std::minus<int64_t>());
-          // Check that the shapes match except for the combine dimension
-          assert(llvm::all_of(llvm::enumerate(newShape),
-                              [&](auto en) {
-                                return en.value() == storeShape[en.index()] ||
-                                       en.index() == combineOp.dim();
-                              }) &&
-                 "expected shapes of the upper and lower apply to match");
-          return TempType::get(storeType.getElementType(), newShape);
-        });
+    // Introduce the emtpy result types using the shape of the op
+    auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
+    for (auto operand : range) {
+      auto newShape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
+                                          std::minus<int64_t>());
+      newResultTypes.push_back(TempType::get(
+          operand.getType().cast<TempType>().getElementType(), newShape));
+    }
 
     // Replace the apply operation
     rewriter.setInsertionPoint(applyOp);
@@ -102,11 +76,11 @@ struct RerouteRewrite : public CombineLoweringPattern {
 
     // Insert the empty stores
     SmallVector<Value, 10> newOperands = returnOp.getOperands();
-    for (auto storeResult : storeResults) {
-      auto resultType = ResultType::get(
-          storeResult.getType().cast<TempType>().getElementType());
+    for (auto operand : range) {
       auto resultOp = rewriter.create<stencil::StoreResultOp>(
-          returnOp.getLoc(), resultType, ValueRange());
+          returnOp.getLoc(),
+          ResultType::get(operand.getType().cast<TempType>().getElementType()),
+          ValueRange());
       newOperands.append(returnOp.getUnrollFac(), resultOp);
     }
     rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
@@ -115,127 +89,88 @@ struct RerouteRewrite : public CombineLoweringPattern {
     return newOp;
   }
 
-  // Append the combine results of the new apply op
-  void appendCombineResults(stencil::ApplyOp applyOp, stencil::ApplyOp newOp,
-                            stencil::CombineOp combineOp,
-                            SmallVector<Value, 10> &newOperands) const {
-    for (OpResult result : applyOp.getResults()) {
-      if (llvm::is_contained(result.getUsers(), combineOp.getOperation())) {
-        assert(result.hasOneUse() && "expected the result to have one use");
-        newOperands.push_back(newOp.getResult(result.getResultNumber()));
-      }
-    }
-  }
-
-  // Append the store results of the new apply op 
-  void appendStoreResults(stencil::ApplyOp newOp,
-                          ArrayRef<OpResult> storeResults,
+  // Iterate the operand range and append append the new op operands
+  void appendOperandRange(stencil::ApplyOp oldOp, stencil::ApplyOp newOp,
+                          OperandRange range,
                           SmallVector<Value, 10> &newOperands) const {
-    for (OpResult result : storeResults) {
-      newOperands.push_back(newOp.getResult(result.getResultNumber()));
+    for (auto value : range) {
+      auto it = llvm::find(oldOp.getResults(), value);
+      assert(it != oldOp.getResults().end() &&
+             "expected to find the result matching the combine operand");
+      newOperands.push_back(
+          newOp.getResult(std::distance(oldOp.getResults().begin(), it)));
     }
-  }
-
-  // Append the empty results of the new apply op
-  void appendEmptyResults(stencil::ApplyOp newOp,
-                          ArrayRef<OpResult> storeResults,
-                          SmallVector<Value, 10> &newOperands) const {
-    auto emptyStores = newOp.getResults().take_back(storeResults.size());
-    newOperands.append(emptyStores.begin(), emptyStores.end());
-  }
-
-  // Replace the store results by the corresponding combine op results  
-  SmallVector<Value, 10> computeRepResults(stencil::ApplyOp applyOp,
-                                           stencil::ApplyOp newOp,
-                                           ArrayRef<OpResult> storeResults,
-                                           ResultRange newStoreResults) const {
-    SmallVector<Value, 10> repResults(applyOp.getResults().size(),
-                                      newOp.getResults().front());
-    for (auto en : llvm::enumerate(storeResults)) {
-      repResults[en.value().getResultNumber()] = newStoreResults[en.index()];
-    }
-    return repResults;
   }
 
   // Reroute the store result of the apply ops via a combine op
-  LogicalResult rerouteStoreResults(stencil::ApplyOp lowerOp,
-                                    stencil::ApplyOp upperOp,
-                                    ArrayRef<OpResult> lowerStoreResults,
-                                    ArrayRef<OpResult> upperStoreResults,
-                                    stencil::CombineOp combineOp,
-                                    PatternRewriter &rewriter) const {
+  LogicalResult mirrorExtraResults(stencil::ApplyOp lowerOp,
+                                   stencil::ApplyOp upperOp,
+                                   stencil::CombineOp combineOp,
+                                   PatternRewriter &rewriter) const {
     // Compute the updated apply operations
     auto newLowerOp =
-        addEmptyStores(lowerOp, upperStoreResults, combineOp, rewriter);
+        addEmptyStores(lowerOp, combineOp.upperext(), combineOp, rewriter);
     auto newUpperOp =
-        addEmptyStores(upperOp, lowerStoreResults, combineOp, rewriter);
-
-    // Compute the new result types
-    SmallVector<Type, 10> newResultTypes(combineOp.getResultTypes().begin(),
-                                         combineOp.getResultTypes().end());
-    llvm::transform(lowerStoreResults, std::back_inserter(newResultTypes),
-                    [](Value result) { return result.getType(); });
-    llvm::transform(upperStoreResults, std::back_inserter(newResultTypes),
-                    [](Value result) { return result.getType(); });
+        addEmptyStores(upperOp, combineOp.lowerext(), combineOp, rewriter);
 
     // Update the combine operation
     SmallVector<Value, 10> newLowerOperands;
     SmallVector<Value, 10> newUpperOperands;
-    appendCombineResults(lowerOp, newLowerOp, combineOp, newLowerOperands);
-    appendCombineResults(upperOp, newUpperOp, combineOp, newUpperOperands);
-    // Append the stores of the lower apply op
-    appendStoreResults(newLowerOp, lowerStoreResults, newLowerOperands);
-    appendEmptyResults(newUpperOp, lowerStoreResults, newUpperOperands);
-    // Append the stores of the upper apply op
-    appendEmptyResults(newLowerOp, upperStoreResults, newLowerOperands);
-    appendStoreResults(newUpperOp, upperStoreResults, newUpperOperands);
+    // Append the lower and upper operands
+    appendOperandRange(lowerOp, newLowerOp, combineOp.lower(),
+                       newLowerOperands);
+    appendOperandRange(upperOp, newUpperOp, combineOp.upper(),
+                       newUpperOperands);
+    // Append the extra operands of the lower and empty of the upper op
+    appendOperandRange(lowerOp, newLowerOp, combineOp.lowerext(),
+                       newLowerOperands);
+    auto upperEmptyStores =
+        newUpperOp.getResults().take_back(combineOp.lowerext().size());
+    newUpperOperands.append(upperEmptyStores.begin(), upperEmptyStores.end());
+    // Append the empty lower and the extra operands of the upper op
+    auto lowerEmptyStores =
+        newLowerOp.getResults().take_back(combineOp.upperext().size());
+    newLowerOperands.append(lowerEmptyStores.begin(), lowerEmptyStores.end());
+    appendOperandRange(upperOp, newUpperOp, combineOp.upperext(),
+                       newUpperOperands);
 
-    // Introduce a new stencil apply right after the later apply op
-    rewriter.setInsertionPointAfter(
-        lowerOp.getOperation()->isBeforeInBlock(upperOp.getOperation())
-            ? upperOp
-            : lowerOp);
-    // TODO handle extra options
+    // Introduce a new stencil combine operation that has no extra operands
+    rewriter.setInsertionPoint(combineOp);
     auto newOp = rewriter.create<stencil::CombineOp>(
-        combineOp.getLoc(), newResultTypes, combineOp.dim(), combineOp.index(),
-        newLowerOperands, newUpperOperands, ValueRange(), ValueRange(), combineOp.lbAttr(),
-        combineOp.ubAttr());
+        combineOp.getLoc(), combineOp.getResultTypes(), combineOp.dim(),
+        combineOp.index(), newLowerOperands, newUpperOperands, ValueRange(),
+        ValueRange(), combineOp.lbAttr(), combineOp.ubAttr());
 
     // Replace the combine operation
-    auto repResults = newOp.getResults().take_front(combineOp.getNumResults());
-    rewriter.replaceOp(combineOp, repResults);
-
-    // Replace the store results
-    auto lowerRepResults =
-        computeRepResults(lowerOp, newLowerOp, lowerStoreResults,
-                          newOp.getResults().slice(combineOp.getNumResults(),
-                                                   lowerStoreResults.size()));
-    auto upperRepResults =
-        computeRepResults(upperOp, newUpperOp, upperStoreResults,
-                          newOp.getResults().slice(combineOp.getNumResults() +
-                                                       lowerStoreResults.size(),
-                                                   upperStoreResults.size()));
-    rewriter.replaceOp(lowerOp, lowerRepResults);
-    rewriter.replaceOp(upperOp, upperRepResults);
+    rewriter.replaceOp(combineOp, newOp.getResults());
+    rewriter.eraseOp(lowerOp);
+    rewriter.eraseOp(upperOp);
     return success();
   }
 
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
-    // Get the lower and the upper apply up
-    auto lowerOp = dyn_cast<stencil::ApplyOp>(combineOp.getLowerOp());
-    auto upperOp = dyn_cast<stencil::ApplyOp>(combineOp.getUpperOp());
+    // Handling extra operands is not needed
+    if (combineOp.lowerext().empty() && combineOp.upperext().empty())
+      return failure();
+
+    // Handle multiple input operations first
+    auto definingLowerOps = combineOp.getLowerDefiningOps();
+    auto definingUpperOps = combineOp.getUpperDefiningOps();
+    if (definingLowerOps.size() != 1 && definingUpperOps.size() != 1)
+      return failure();
+
+    // Try to get the lower and the upper apply op
+    auto lowerOp = dyn_cast<stencil::ApplyOp>(*definingLowerOps.begin());
+    auto upperOp = dyn_cast<stencil::ApplyOp>(*definingUpperOps.begin());
     if (lowerOp && upperOp) {
-      auto lowerStoreResults = getStoreResults(lowerOp);
-      auto upperStoreResults = getStoreResults(upperOp);
-      if (lowerStoreResults.size() > 0 || upperStoreResults.size() > 0) {
-        return rerouteStoreResults(lowerOp, upperOp, lowerStoreResults,
-                                   upperStoreResults, combineOp, rewriter);
-      }
+      return mirrorExtraResults(lowerOp, upperOp, combineOp, rewriter);
     }
     return failure();
   }
 };
+
+// TODO support multiple apply operations? -> separate pattern!
 
 // Pattern replacing stencil.combine ops by if/else
 struct IfElseRewrite : public CombineLoweringPattern {
@@ -279,7 +214,6 @@ struct IfElseRewrite : public CombineLoweringPattern {
                        upperOp.getOperands().end());
 
     // Create a new apply op that updates the lower and upper domains
-    // (rerun shape inference after the pass to avoid bound computations)
     auto newOp = rewriter.create<stencil::ApplyOp>(
         loc, combineOp.getResultTypes(), newOperands, combineOp.lb(),
         combineOp.ub());
@@ -336,7 +270,6 @@ struct IfElseRewrite : public CombineLoweringPattern {
         newOp.getBody()->getArguments().take_front(upperOp.getNumOperands()));
 
     // Remove the combine op and the attached apply ops
-    // (assuming the apply ops have not other uses than the combine)
     rewriter.replaceOp(combineOp, newOp.getResults());
     rewriter.eraseOp(upperOp);
     rewriter.eraseOp(lowerOp);
@@ -345,13 +278,21 @@ struct IfElseRewrite : public CombineLoweringPattern {
 
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
-    // Get the lower and the upper apply up
-    auto lowerOp = dyn_cast<stencil::ApplyOp>(combineOp.getLowerOp());
-    auto upperOp = dyn_cast<stencil::ApplyOp>(combineOp.getUpperOp());
-    if (lowerOp && upperOp) {
-      if (isConnectedToStoreOp(lowerOp) || isConnectedToStoreOp(upperOp))
-        return failure();
 
+    // Handle the extra operands first
+    if (!combineOp.lowerext().empty() || !combineOp.upperext().empty())
+      return failure();
+
+    // Handle multiple input operations first
+    auto definingLowerOps = combineOp.getLowerDefiningOps();
+    auto definingUpperOps = combineOp.getUpperDefiningOps();
+    if (definingLowerOps.size() != 1 && definingUpperOps.size() != 1)
+      return failure();
+
+    // Try to get the lower and the upper apply op
+    auto lowerOp = dyn_cast<stencil::ApplyOp>(*definingLowerOps.begin());
+    auto upperOp = dyn_cast<stencil::ApplyOp>(*definingUpperOps.begin());
+    if (lowerOp && upperOp) {
       // Check the apply op is an internal op if the pass flag is set
       if (internalOnly) {
         auto rootOp = combineOp.getCombineTreeRoot().getOperation();
@@ -381,11 +322,28 @@ void StencilCombineLoweringPass::runOnFunction() {
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
 
-  // TODO check unique lower and upper op!
-  // (should this always be the case???)
+  // TODO fix the entire domain size handling -> relax store / buffer verifiers!
+  // // Check the combine tree root is connected to a buffer or store op
+  // // (ensures the domain sizes of outputs written on a subdomain is known)
+  // bool hasApplyOpUsers = false;
+  // funcOp.walk([&](stencil::CombineOp combineOp) {
+  //   if (llvm::any_of(combineOp.getOperation()->getUsers(), [](Operation *op)
+  //   {
+  //         return !(isa<stencil::BufferOp>(op) || isa<stencil::StoreOp>(op) ||
+  //                  isa<stencil::CombineOp>(op));
+  //       }))
+  //     hasApplyOpUsers = true;
+  // });
+  // // Keep doing internal combine op lowerings by enhancing the output size
+  // if (hasApplyOpUsers && !internalOnly) {
+  //   funcOp.emitOpError("exectue shape correction before combine lowering");
+  //   signalPassFailure();
+  //   return;
+  // }
 
   OwningRewritePatternList patterns;
-  patterns.insert<IfElseRewrite, RerouteRewrite>(&getContext(), internalOnly);
+  patterns.insert<IfElseRewrite, EmptyStoreRewrite>(&getContext(),
+                                                    internalOnly);
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }
 

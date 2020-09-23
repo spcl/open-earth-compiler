@@ -238,12 +238,8 @@ stencil::StoreResultOp::getReturnOpOperands() {
 
 namespace {
 // Check if operands connect one-by-one to one combine or to multiple apply ops
-bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra) {
-  DenseSet<Operation *> definingOps;
-  for (auto operand : base)
-    definingOps.insert(operand.getDefiningOp());
-  for (auto operand : extra)
-    definingOps.insert(operand.getDefiningOp());
+bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra,
+                                 const DenseSet<Operation *> &definingOps) {
   // Check all operands have one use
   if (!(llvm::all_of(base, [](Value value) { return value.hasOneUse(); }) &&
         llvm::all_of(extra, [](Value value) { return value.hasOneUse(); })))
@@ -265,7 +261,7 @@ bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra) {
 }
 
 // Helper to check type compatibility given the combine dim
-bool areCompatibleTempTypes(Type type1, Type type2, int64_t dim) {
+bool checkTempTypesMatch(Type type1, Type type2, int64_t dim) {
   auto tempType1 = type1.cast<TempType>();
   auto tempType2 = type2.cast<TempType>();
   // Check the element type
@@ -300,43 +296,44 @@ static LogicalResult verify(stencil::CombineOp op) {
   // Check the lower and upper operand types match
   if (!llvm::all_of(llvm::zip(op.lower().getTypes(), op.upper().getTypes()),
                     [&](std::tuple<Type, Type> x) {
-                      return areCompatibleTempTypes(std::get<0>(x),
-                                                    std::get<1>(x), op.dim());
+                      return checkTempTypesMatch(std::get<0>(x), std::get<1>(x),
+                                                 op.dim());
                     }))
     return op.emitOpError("expected lower and upper operand types to match");
 
   // Check the lower/upper operand types match the result types
   if (!llvm::all_of(llvm::zip(op.lower().getTypes(), op.res().getTypes()),
                     [&](std::tuple<Type, Type> x) {
-                      return areCompatibleTempTypes(std::get<0>(x),
-                                                    std::get<1>(x), op.dim());
+                      return checkTempTypesMatch(std::get<0>(x), std::get<1>(x),
+                                                 op.dim());
                     }))
     return op.emitOpError("expected the lower/upper and result types to match");
 
   // Check the if the extra types match the corresponding result types
   auto lowerExtResTypes = op.res().getTypes().drop_front(op.lower().size());
+  auto upperExtResTypes = op.res().getTypes().take_back(op.upperext().size());
   if (!llvm::all_of(llvm::zip(op.lowerext().getTypes(), lowerExtResTypes),
                     [&](std::tuple<Type, Type> x) {
-                      return areCompatibleTempTypes(std::get<0>(x),
-                                                    std::get<1>(x), op.dim());
+                      return checkTempTypesMatch(std::get<0>(x), std::get<1>(x),
+                                                 op.dim());
                     }))
     return op.emitOpError("expected the lowerext and result types to match");
-  auto upperExtResTypes = op.res().getTypes().take_back(op.upperext().size());
   if (!llvm::all_of(llvm::zip(op.upperext().getTypes(), upperExtResTypes),
                     [&](std::tuple<Type, Type> x) {
-                      return areCompatibleTempTypes(std::get<0>(x),
-                                                    std::get<1>(x), op.dim());
+                      return checkTempTypesMatch(std::get<0>(x), std::get<1>(x),
+                                                 op.dim());
                     }))
     return op.emitOpError("expected the upperext and result types to match");
 
   // Check the operands either connect to one combine or multiple apply ops
-  if (!checkOneByOneOperandMapping(op.lower(), op.lowerext()))
+  auto lowerDefiningOps = op.getLowerDefiningOps();
+  auto upperDefiningOps = op.getUpperDefiningOps();
+  if (!checkOneByOneOperandMapping(op.lower(), op.lowerext(), lowerDefiningOps))
     return op.emitOpError("expected the lower operands to connect one-by-one "
                           "to one combine or multiple apply ops");
-  if (!checkOneByOneOperandMapping(op.upper(), op.upperext()))
+  if (!checkOneByOneOperandMapping(op.upper(), op.upperext(), upperDefiningOps))
     return op.emitOpError("expected the upper operands to connect one-by-one "
                           "to one combine or multiple apply ops");
-  
   return success();
 }
 

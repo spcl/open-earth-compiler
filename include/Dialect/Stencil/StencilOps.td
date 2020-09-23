@@ -616,9 +616,22 @@ def Stencil_CombineOp : Stencil_Op<"combine", [
   }];
 
   let extraClassDeclaration = [{
-    Operation* getLowerOp() { return lower().front().getDefiningOp(); }
-    Operation* getUpperOp() { return upper().front().getDefiningOp(); }
-
+    DenseSet<Operation*> getLowerDefiningOps() {
+      DenseSet<Operation*> definingOps;
+      for(auto value : lower())
+        definingOps.insert(value.getDefiningOp());
+      for(auto value : lowerext())
+        definingOps.insert(value.getDefiningOp());
+      return definingOps;  
+    }
+    DenseSet<Operation*> getUpperDefiningOps() {
+      DenseSet<Operation*> definingOps;
+      for(auto value : upper())
+        definingOps.insert(value.getDefiningOp());
+      for(auto value : upperext())
+        definingOps.insert(value.getDefiningOp());
+      return definingOps;  
+    }
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     stencil::CombineOp getCombineTreeRoot();

@@ -158,14 +158,14 @@ func @extra_stores(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?
     stencil.return %7, %8, %9 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
   } to ([32, 0, 0] : [64, 64, 60])
   // CHECK: stencil.return [[IF_RES]]#0, [[IF_RES]]#1, [[IF_RES]]#2, [[IF_RES]]#3 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
-  %6 = stencil.combine 0 at 32 lower = (%4#0 : !stencil.temp<32x64x60xf64>) upper = (%5#1 : !stencil.temp<32x64x60xf64>) ([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64>
+  %6:4 = stencil.combine 0 at 32 lower = (%4#0 : !stencil.temp<32x64x60xf64>) upper = (%5#1 : !stencil.temp<32x64x60xf64>) lowerext = (%4#1 : !stencil.temp<32x64x60xf64>) upperext = (%5#0, %5#2 : !stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>) ([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64>, !stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>
   // CHECK: stencil.store [[APPLY_RES]]#0 to {{%.*}}([0, 0, 0] : [64, 64, 60])
   // CHECK: stencil.store [[APPLY_RES]]#1 to {{%.*}}([0, 0, 0] : [32, 64, 60])
   // CHECK: stencil.store [[APPLY_RES]]#2 to {{%.*}}([32, 0, 0] : [64, 64, 60])
   // CHECK: stencil.store [[APPLY_RES]]#3 to {{%.*}}([32, 0, 0] : [64, 64, 60])
-  stencil.store %6 to %0([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
-  stencil.store %4#1 to %1([0, 0, 0] : [32, 64, 60]) : !stencil.temp<32x64x60xf64> to !stencil.field<70x70x60xf64>
-  stencil.store %5#0 to %2([32, 0, 0] : [64, 64, 60]) : !stencil.temp<32x64x60xf64> to !stencil.field<70x70x60xf64>
-  stencil.store %5#2 to %3([32, 0, 0] : [64, 64, 60]) : !stencil.temp<32x64x60xf64> to !stencil.field<70x70x60xf64>
+  stencil.store %6#0 to %0([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
+  stencil.store %6#1 to %1([0, 0, 0] : [32, 64, 60]) : !stencil.temp<32x64x60xf64> to !stencil.field<70x70x60xf64>
+  stencil.store %6#2 to %2([32, 0, 0] : [64, 64, 60]) : !stencil.temp<32x64x60xf64> to !stencil.field<70x70x60xf64>
+  stencil.store %6#3 to %3([32, 0, 0] : [64, 64, 60]) : !stencil.temp<32x64x60xf64> to !stencil.field<70x70x60xf64>
   return
 }
