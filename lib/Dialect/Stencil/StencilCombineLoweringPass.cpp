@@ -42,6 +42,106 @@ struct CombineLoweringPattern : public OpRewritePattern<stencil::CombineOp> {
   bool internalOnly;
 };
 
+// Fuse two apply ops connected to the same combine
+struct FuseRewrite : public CombineLoweringPattern {
+  using CombineLoweringPattern::CombineLoweringPattern;
+
+  // Fuse two apply ops into a single apply op
+  LogicalResult fuseApplyOps(stencil::ApplyOp applyOp1,
+                             stencil::ApplyOp applyOp2,
+                             stencil::CombineOp combineOp,
+                             PatternRewriter &rewriter) const {
+    // Check the shapes match
+    auto shapeOp1 = cast<ShapeOp>(applyOp1.getOperation());
+    auto shapeOp2 = cast<ShapeOp>(applyOp2.getOperation());
+    if (shapeOp1.hasShape() && shapeOp2.hasShape() &&
+        (shapeOp1.getLB() != shapeOp2.getLB() &&
+         shapeOp1.getUB() != shapeOp2.getUB())) {
+      combineOp.emitWarning("expected shapes to match");
+      return failure();
+    }
+
+    // Compute the new result types
+    SmallVector<Type, 10> newResultTypes;
+    newResultTypes.append(applyOp1.getResultTypes().begin(),
+                          applyOp1.getResultTypes().end());
+    newResultTypes.append(applyOp2.getResultTypes().begin(),
+                          applyOp2.getResultTypes().end());
+
+    // Compute the new operands
+    SmallVector<Value, 10> newOperands;
+    newOperands.append(applyOp1.getOperands().begin(),
+                       applyOp1.getOperands().end());
+    newOperands.append(applyOp2.getOperands().begin(),
+                       applyOp2.getOperands().end());
+
+    // Get return operations
+    auto returnOp1 =
+        cast<stencil::ReturnOp>(applyOp1.getBody()->getTerminator());
+    auto returnOp2 =
+        cast<stencil::ReturnOp>(applyOp2.getBody()->getTerminator());
+
+    // Check both apply operations have the same unroll configuration if any
+    if (returnOp1.getUnrollFac() != returnOp2.getUnrollFac() ||
+        returnOp1.getUnrollDim() != returnOp2.getUnrollDim()) {
+      combineOp.emitWarning("expected matching unroll configurations");
+      return failure();
+    }
+
+    // Introduce a new apply op
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        combineOp.getLoc(), newResultTypes, newOperands, applyOp1.lb(),
+        applyOp1.ub());
+    rewriter.mergeBlocks(
+        applyOp1.getBody(), newOp.getBody(),
+        newOp.getBody()->getArguments().take_front(applyOp1.getNumOperands()));
+    rewriter.mergeBlocks(
+        applyOp2.getBody(), newOp.getBody(),
+        newOp.getBody()->getArguments().take_back(applyOp2.getNumOperands()));
+
+    // Compute the new operands
+    SmallVector<Value, 10> newReturnOperands;
+    newReturnOperands.append(returnOp1.getOperands().begin(),
+                             returnOp1.getOperands().end());
+    newReturnOperands.append(returnOp2.getOperands().begin(),
+                             returnOp2.getOperands().end());
+
+    // Introduce a new return op
+    rewriter.setInsertionPointToEnd(newOp.getBody());
+    rewriter.create<stencil::ReturnOp>(combineOp.getLoc(), newReturnOperands,
+                                       returnOp1.unroll());
+    rewriter.eraseOp(returnOp1);
+    rewriter.eraseOp(returnOp2);
+    
+    // Replace all uses of the two apply operations
+    rewriter.replaceOp(
+        applyOp1, newOp.getResults().take_front(applyOp1.getNumResults()));
+    rewriter.replaceOp(
+        applyOp2, newOp.getResults().take_back(applyOp2.getNumResults()));
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    // Handle the case if multiple applies are connected to lower
+    auto definingLowerOps = combineOp.getLowerDefiningOps();
+    if (definingLowerOps.size() > 1) {
+      auto applyOp1 = cast<stencil::ApplyOp>(*definingLowerOps.begin());
+      auto applyOp2 = cast<stencil::ApplyOp>(*(++definingLowerOps.begin()));
+      return fuseApplyOps(applyOp1, applyOp2, combineOp, rewriter);
+    }
+
+    // Handle the case if multiple applyies are connected to higher
+    auto definingUpperOps = combineOp.getUpperDefiningOps();
+    if (definingUpperOps.size() > 1) {
+      auto applyOp1 = cast<stencil::ApplyOp>(*definingUpperOps.begin());
+      auto applyOp2 = cast<stencil::ApplyOp>(*(++definingUpperOps.begin()));
+      return fuseApplyOps(applyOp1, applyOp2, combineOp, rewriter);
+    }
+    return failure();
+  }
+};
+
 // Introduce empty stores to eliminate extra operands
 struct EmptyStoreRewrite : public CombineLoweringPattern {
   using CombineLoweringPattern::CombineLoweringPattern;
@@ -157,7 +257,7 @@ struct EmptyStoreRewrite : public CombineLoweringPattern {
     // Handle multiple input operations first
     auto definingLowerOps = combineOp.getLowerDefiningOps();
     auto definingUpperOps = combineOp.getUpperDefiningOps();
-    if (definingLowerOps.size() != 1 && definingUpperOps.size() != 1)
+    if (definingLowerOps.size() != 1 || definingUpperOps.size() != 1)
       return failure();
 
     // Try to get the lower and the upper apply op
@@ -286,7 +386,7 @@ struct IfElseRewrite : public CombineLoweringPattern {
     // Handle multiple input operations first
     auto definingLowerOps = combineOp.getLowerDefiningOps();
     auto definingUpperOps = combineOp.getUpperDefiningOps();
-    if (definingLowerOps.size() != 1 && definingUpperOps.size() != 1)
+    if (definingLowerOps.size() != 1 || definingUpperOps.size() != 1)
       return failure();
 
     // Try to get the lower and the upper apply op
@@ -341,9 +441,10 @@ void StencilCombineLoweringPass::runOnFunction() {
   //   return;
   // }
 
+  // TODO do not run all patterns on internal nodes?
   OwningRewritePatternList patterns;
-  patterns.insert<IfElseRewrite, EmptyStoreRewrite>(&getContext(),
-                                                    internalOnly);
+  patterns.insert<IfElseRewrite, EmptyStoreRewrite, FuseRewrite>(&getContext(),
+                                                                 internalOnly);
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }
 
