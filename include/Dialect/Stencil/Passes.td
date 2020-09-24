@@ -4,8 +4,8 @@
 include "mlir/Pass/PassBase.td"
 
 def StencilDomainSplitPass : FunctionPass<"stencil-domain-split"> {
-let summary = "Copy apply ops used in multiple domains";
-let constructor = "mlir::createStencilDomainSplitPass()";
+  let summary = "Copy apply ops used in multiple domains";
+  let constructor = "mlir::createStencilDomainSplitPass()";
 }
 
 def StencilInliningPass : FunctionPass<"stencil-inlining"> {
@@ -24,9 +24,9 @@ def StencilUnrollingPass : FunctionPass<"stencil-unrolling"> {
   ];
 }
 
-def StencilCombineLoweringPass : FunctionPass<"stencil-combine-lowering"> {
+def CombineToIfElsePass : FunctionPass<"stencil-combine-to-ifelse"> {
   let summary = "Lower stencil combine ops to if/else";
-  let constructor = "mlir::createStencilCombineLoweringPass()";
+  let constructor = "mlir::createCombineToIfElsePass()";
   let options = [
     Option<"internalOnly", "internal-only", "bool", /*default=*/"false", 
            "Lower only combine ops embedded in between apply ops">,
@@ -36,6 +36,11 @@ def StencilCombineLoweringPass : FunctionPass<"stencil-combine-lowering"> {
 def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
   let summary = "Infer loop bounds and storage shapes";
   let constructor = "mlir::createShapeInferencePass()";
+}
+
+def StorageMaterializationPass : FunctionPass<"stencil-storage-materialization"> {
+  let summary = "Introduce explicit storage and adapt the shape of existing storage to match the write set";
+  let constructor = "mlir::createStorageMaterializationPass()";
 }
 
 #endif // DIALECT_STENCIL_PASSES

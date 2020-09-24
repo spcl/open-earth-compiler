@@ -1,5 +1,5 @@
-// RUN: oec-opt %s -split-input-file --stencil-combine-lowering -cse | oec-opt | FileCheck %s
-// RUN: oec-opt %s -split-input-file --stencil-combine-lowering='internal-only' -cse | oec-opt | FileCheck --check-prefix=CHECKINT %s
+// RUN: oec-opt %s -split-input-file --stencil-combine-to-ifelse -cse | oec-opt | FileCheck %s
+// RUN: oec-opt %s -split-input-file --stencil-combine-to-ifelse='internal-only' -cse | oec-opt | FileCheck --check-prefix=CHECKINT %s
 
 // CHECK-LABEL: func @simple
 // CHECKINT-LABEL: func @simple

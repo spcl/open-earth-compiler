@@ -12,9 +12,11 @@ std::unique_ptr<OperationPass<FuncOp>> createStencilInliningPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createStencilUnrollingPass();
 
-std::unique_ptr<OperationPass<FuncOp>> createStencilCombineLoweringPass();
+std::unique_ptr<OperationPass<FuncOp>> createCombineToIfElsePass();
 
 std::unique_ptr<OperationPass<FuncOp>> createShapeInferencePass();
+
+std::unique_ptr<OperationPass<FuncOp>> createStorageMaterializationPass();
 
 //===----------------------------------------------------------------------===//
 // Registration

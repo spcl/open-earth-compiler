@@ -31,14 +31,14 @@ using namespace stencil;
 namespace {
 
 // Base class of the combine lowering patterns
-struct CombineLoweringPattern : public OpRewritePattern<stencil::CombineOp> {
-  CombineLoweringPattern(MLIRContext *context, PatternBenefit benefit = 1)
+struct CombineToIfElsePattern : public OpRewritePattern<stencil::CombineOp> {
+  CombineToIfElsePattern(MLIRContext *context, PatternBenefit benefit = 1)
       : OpRewritePattern<stencil::CombineOp>(context, benefit) {}
 };
 
 // Fuse two apply ops connected to the same combine
-struct FuseRewrite : public CombineLoweringPattern {
-  using CombineLoweringPattern::CombineLoweringPattern;
+struct FuseRewrite : public CombineToIfElsePattern {
+  using CombineToIfElsePattern::CombineToIfElsePattern;
 
   // Fuse two apply ops into a single apply op
   LogicalResult fuseApplyOps(stencil::ApplyOp applyOp1,
@@ -137,8 +137,8 @@ struct FuseRewrite : public CombineLoweringPattern {
 };
 
 // Introduce empty stores to eliminate extra operands
-struct MirrorRewrite : public CombineLoweringPattern {
-  using CombineLoweringPattern::CombineLoweringPattern;
+struct MirrorRewrite : public CombineToIfElsePattern {
+  using CombineToIfElsePattern::CombineToIfElsePattern;
 
   // Introduce empty stores for the extra operands
   stencil::ApplyOp addEmptyStores(stencil::ApplyOp applyOp, OperandRange range,
@@ -265,8 +265,8 @@ struct MirrorRewrite : public CombineLoweringPattern {
 };
 
 // Pattern replacing stencil.combine ops by if/else
-struct IfElseRewrite : public CombineLoweringPattern {
-  using CombineLoweringPattern::CombineLoweringPattern;
+struct IfElseRewrite : public CombineToIfElsePattern {
+  using CombineToIfElsePattern::CombineToIfElsePattern;
 
   // Apply the apply to combine op operand mapping to the return op operands
   SmallVector<Value, 10>
@@ -408,13 +408,13 @@ struct InternalIfElseRewrite : public IfElseRewrite {
   }
 };
 
-struct StencilCombineLoweringPass
-    : public StencilCombineLoweringPassBase<StencilCombineLoweringPass> {
+struct CombineToIfElsePass
+    : public CombineToIfElsePassBase<CombineToIfElsePass> {
 
   void runOnFunction() override;
 };
 
-void StencilCombineLoweringPass::runOnFunction() {
+void CombineToIfElsePass::runOnFunction() {
   FuncOp funcOp = getFunction();
 
   // Only run on functions marked as stencil programs
@@ -434,6 +434,6 @@ void StencilCombineLoweringPass::runOnFunction() {
 } // namespace
 
 std::unique_ptr<OperationPass<FuncOp>>
-mlir::createStencilCombineLoweringPass() {
-  return std::make_unique<StencilCombineLoweringPass>();
+mlir::createCombineToIfElsePass() {
+  return std::make_unique<CombineToIfElsePass>();
 }
