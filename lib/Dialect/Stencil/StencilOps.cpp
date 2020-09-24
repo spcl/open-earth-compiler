@@ -240,12 +240,12 @@ namespace {
 // Check if operands connect one-by-one to one combine or to multiple apply ops
 bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra,
                                  const DenseSet<Operation *> &definingOps) {
-  // Check all operands have one use
-  if (!(llvm::all_of(base, [](Value value) { return value.hasOneUse(); }) &&
-        llvm::all_of(extra, [](Value value) { return value.hasOneUse(); })))
-    return false;
   // Check the defining op is a unique combine op with one-by-one mapping
   if (auto combineOp = dyn_cast<stencil::CombineOp>(*definingOps.begin())) {
+    // Check all operands have one use
+    if (!(llvm::all_of(base, [](Value value) { return value.hasOneUse(); }) &&
+          llvm::all_of(extra, [](Value value) { return value.hasOneUse(); })))
+      return false;
     return definingOps.size() == 1 &&
            combineOp.getNumResults() == base.size() + extra.size();
   }
@@ -257,7 +257,12 @@ bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra,
       return false;
     numResults += definingOp->getNumResults();
   }
-  return numResults == base.size() + extra.size();
+  // Check all operands are unique
+  DenseSet<Value> operands;
+  operands.insert(base.begin(), base.end());
+  operands.insert(extra.begin(), extra.end());
+  return numResults == operands.size() &&
+         numResults == base.size() + extra.size();
 }
 
 // Helper to check type compatibility given the combine dim
