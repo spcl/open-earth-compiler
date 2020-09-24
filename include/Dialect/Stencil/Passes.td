@@ -39,7 +39,7 @@ def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
 }
 
 def StorageMaterializationPass : FunctionPass<"stencil-storage-materialization"> {
-  let summary = "Introduce explicit storage and adapt the shape of existing storage to match the write set";
+  let summary = "Introduce explicit storage between combine and apply ops";
   let constructor = "mlir::createStorageMaterializationPass()";
 }
 
