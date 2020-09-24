@@ -188,7 +188,7 @@ stencil::DynAccessOp::getAccessExtent() {
 }
 
 //===----------------------------------------------------------------------===//
-// stencil.make_result
+// stencil.store_result
 //===----------------------------------------------------------------------===//
 
 Optional<SmallVector<OpOperand *, 10>>
