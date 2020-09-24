@@ -178,13 +178,14 @@ void ShapeInferencePass::runOnFunction() {
     }
   }
 
-  // Extend the shape of stencil stores if the loop executes on a bigger domain
-  // (TODO instead store outputs only on a smaller domain)
-  funcOp.walk([](stencil::StoreOp storeOp) {
-    auto applyOp = cast<ShapeOp>(storeOp.temp().getDefiningOp());
-    auto shapeOp = cast<ShapeOp>(storeOp.getOperation());
-    shapeOp.updateShape(applyOp.getLB(), applyOp.getUB());
-  });
+  // Extend the shape of stores if the flag is set
+  if (extendStorage) {
+    funcOp.walk([](stencil::StoreOp storeOp) {
+      auto applyOp = cast<ShapeOp>(storeOp.temp().getDefiningOp());
+      auto shapeOp = cast<ShapeOp>(storeOp.getOperation());
+      shapeOp.updateShape(applyOp.getLB(), applyOp.getUB());
+    });
+  }
 }
 
 std::unique_ptr<OperationPass<FuncOp>> mlir::createShapeInferencePass() {

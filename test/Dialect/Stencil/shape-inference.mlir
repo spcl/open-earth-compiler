@@ -1,6 +1,4 @@
-// RUN: oec-opt %s -split-input-file --stencil-shape-inference | oec-opt | FileCheck %s
-
-// -----
+// RUN: oec-opt %s -split-input-file --stencil-shape-inference='extend-storage' | oec-opt | FileCheck %s
 
 // CHECK-LABEL: func @simple(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
 func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {

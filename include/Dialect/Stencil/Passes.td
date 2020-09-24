@@ -36,6 +36,10 @@ def CombineToIfElsePass : FunctionPass<"stencil-combine-to-ifelse"> {
 def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
   let summary = "Infer loop bounds and storage shapes";
   let constructor = "mlir::createShapeInferencePass()";
+  let options = [
+    Option<"extendStorage", "extend-storage", "bool", /*default=*/"false", 
+           "Extend the shape of store and buffer ops">,
+  ];
 }
 
 def StorageMaterializationPass : FunctionPass<"stencil-storage-materialization"> {
