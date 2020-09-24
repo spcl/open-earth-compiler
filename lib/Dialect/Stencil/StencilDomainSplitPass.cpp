@@ -65,75 +65,62 @@ void StencilDomainSplitPass::runOnFunction() {
           cast<ShapeOp>(storeOp.getOperation()).getLB();
       positive[storeOp.getOperation()] =
           cast<ShapeOp>(storeOp.getOperation()).getUB();
-    // For applies split them if they participate in multiple domains
+      // For applies split them if they participate in multiple domains
     } else if (ApplyOp applyOp = dyn_cast<ApplyOp>(*op)) {
       // List of all domains an apply participates with
       SmallVector<std::tuple<Index, Index>, 10> domains;
       // Map of what use of what result of the apply participates in what domain
-      // Order of dimension: NumResults, NumDomains, NumUses
-      SmallVector<SmallVector<SmallVector<Operation *, 10>, 10>, 10> users;
-      for(size_t k = 0; k < applyOp.getNumResults(); k++) {
-        users.emplace_back(SmallVector<SmallVector<Operation*, 10>, 10>());
-      }
-
+      DenseMap<OpOperand *, std::tuple<Index, Index>> useToDomain;
       // Loop over all results and all uses for every result
-      for(size_t k = 0; k < applyOp.getNumResults(); k++) {
-        for (auto user : applyOp.getOperation()->getResult(k).getUsers()) {
+      for (auto result : applyOp.getOperation()->getResults()) {
+        for (auto &use : result.getUses()) {
           // Check if domain of this use of this result already exists
           if (llvm::all_of(domains, [&](std::tuple<Index, Index> tuple) {
-                return get<0>(tuple) != negative[user] ||
-                       get<1>(tuple) != positive[user];
+                return get<0>(tuple) != negative[use.getOwner()] ||
+                       get<1>(tuple) != positive[use.getOwner()];
               })) {
-            // Add new domain, construct empty vectors for new domain
-            domains.emplace_back(
-                std::tuple<Index, Index>(negative[user], positive[user]));
-            for(size_t k = 0; k < applyOp.getNumResults(); k++) {
-              users[k].emplace_back(SmallVector<Operation *, 10>());
-            }
-            users[k].back().push_back(user);
+            // If the domain does not already exist, add the new domain
+            domains.push_back(std::tuple<Index, Index>(
+                negative[use.getOwner()], positive[use.getOwner()]));
+            useToDomain[&use] = std::tuple<Index, Index>(
+                negative[use.getOwner()], positive[use.getOwner()]);
           } else {
-            // Add use to already existing domains
-            for (size_t i = 0; i < domains.size(); i++) {
-              if (std::get<0>(domains[i]) == negative[user] &&
-                  std::get<1>(domains[i]) == positive[user]) {
-                users[k][i].push_back(user);
+            // If the domain already exists add the use to the domain
+            for (auto domain : domains) {
+              if (std::get<0>(domain) == negative[use.getOwner()] &&
+                  std::get<1>(domain) == positive[use.getOwner()]) {
+                useToDomain[&use] = std::tuple<Index, Index>(
+                    negative[use.getOwner()], positive[use.getOwner()]);
               }
             }
           }
         }
       }
 
-      // Set domain for applyOp in global datastructure
+      // Set domain for applyOp in global map
       negative[applyOp.getOperation()] = std::get<0>(domains[0]);
       positive[applyOp.getOperation()] = std::get<1>(domains[0]);
-
-      // Construct blockList for substitution of k-th result
-      SmallVector<SmallPtrSet<Operation*, 10>, 10> blockList;
-      for(size_t k = 0; k < applyOp.getNumResults(); k++) {
-        blockList.emplace_back(SmallPtrSet<Operation*, 10>());
-        for (Operation *user : users[k][0]) {
-          blockList[k].insert(user);
-        }
-      }
 
       OpBuilder builder(applyOp);
       builder.setInsertionPointAfter(applyOp);
 
       // For every domain construct one copy of the applyOp
-      for (size_t i = 1; i < domains.size(); i++) {
+      for (size_t i = 1, e = domains.size(); i < e; i++) {
         Operation *clonedOp = builder.clone(*applyOp.getOperation());
         // Add domain of new applyOp to global map
         negative[clonedOp] = std::get<0>(domains[i]);
         positive[clonedOp] = std::get<1>(domains[i]);
-        // Replace all uses of all results of the applyOp for domains not yet
-        // looked at
-        for(size_t k = 0; k < applyOp.getNumResults(); k++) {
-          applyOp.getResult(k).replaceAllUsesExcept(clonedOp->getResult(k),
-                                                    blockList[k]);
-          // Extend blockLists by current domain
-          for (Operation *user : users[k][i]) {
-            blockList[k].insert(user);
-          }
+        // Replace uses of results with the applyOp of the according domain
+        for (auto res : llvm::enumerate(
+                 llvm::zip(applyOp.getResults(), clonedOp->getResults()))) {
+          std::get<0>(res.value())
+              .replaceUsesWithIf(std::get<1>(res.value()),
+                                 [&](OpOperand &operand) {
+                                   return std::get<0>(useToDomain[&operand]) ==
+                                              std::get<0>(domains[i]) &&
+                                          std::get<1>(useToDomain[&operand]) ==
+                                              std::get<1>(domains[i]);
+                                 });
         }
       }
     }
