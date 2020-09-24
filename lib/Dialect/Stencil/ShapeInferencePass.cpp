@@ -54,6 +54,19 @@ public:
           positive = applyFunElementWise(positive, ub, max);
         }
       });
+      // Subtract the unroll factor minus one from the positive extent
+      auto returnOp =
+          cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+      if (returnOp.unroll().hasValue()) {
+        for (auto operand : applyOp.getOperands()) {
+          if (extents[operation].count(operand) == 1) {
+            auto &positive = extents[operation][operand].positive;
+            positive = applyFunElementWise(
+                positive, returnOp.getUnroll(),
+                [](int64_t x, int64_t y) { return x - y + 1; });
+          }
+        }
+      }
     });
   }
 
@@ -145,17 +158,6 @@ void ShapeInferencePass::runOnFunction() {
   // Only run on functions marked as stencil programs
   if (!stencil::StencilDialect::isStencilProgram(funcOp))
     return;
-
-  // Ensure shape inference runs before stencil unrolling
-  bool hasUnrolledStencils = false;
-  funcOp.walk([&](stencil::ReturnOp returnOp) {
-    if (returnOp.unroll().hasValue())
-      hasUnrolledStencils = true;
-  });
-  if (hasUnrolledStencils) {
-    funcOp.emitOpError("execute shape inference before stencil unrolling");
-    signalPassFailure();
-  }
 
   // Compute the extent analysis
   AccessExtents &extents = getAnalysis<AccessExtents>();
