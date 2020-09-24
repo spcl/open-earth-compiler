@@ -48,8 +48,7 @@ struct StorageMaterializationPattern : public OpRewritePattern<SourceOp> {
     return false;
   }
 
-  // Buffer the results of the cloned operation and replace the matched
-  // operation
+  // Buffer the results of the cloned operation and replace the matched op
   LogicalResult introduceResultBuffers(Operation *matchedOp,
                                        Operation *clonedOp,
                                        PatternRewriter &rewriter) const {
@@ -72,27 +71,20 @@ struct ApplyOpRewrite : public StorageMaterializationPattern<stencil::ApplyOp> {
   using StorageMaterializationPattern<
       stencil::ApplyOp>::StorageMaterializationPattern;
 
-  // Introduce buffer on the output edge connected to another apply
-  LogicalResult introduceOutputBuffers(stencil::ApplyOp applyOp,
-                                       PatternRewriter &rewriter) const {
-    // Create another apply operation and move the body
-    auto clonedOp = rewriter.create<stencil::ApplyOp>(
-        applyOp.getLoc(), applyOp.getResultTypes(), applyOp.getOperands(),
-        applyOp.lb(), applyOp.ub());
-    rewriter.mergeBlocks(applyOp.getBody(), clonedOp.getBody(),
-                         clonedOp.getBody()->getArguments());
-
-    // Introduce a buffer on every result connected to another result
-    introduceResultBuffers(applyOp, clonedOp, rewriter);
-    return success();
-  }
-
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
     if (llvm::any_of(applyOp.getResults(), [&](Value value) {
           return doesEdgeRequireBuffering(value);
-        }))
-      return introduceOutputBuffers(applyOp, rewriter);
+        })) {
+      // Clone the apply op and move the body
+      auto clonedOp = rewriter.cloneWithoutRegions(applyOp);
+      rewriter.inlineRegionBefore(applyOp.region(), clonedOp.region(),
+                                  clonedOp.region().begin());
+
+      // Introduce a buffer on every result connected to another apply
+      introduceResultBuffers(applyOp, clonedOp, rewriter);
+      return success();
+    }
     return failure();
   }
 };
@@ -103,23 +95,18 @@ struct CombineOpRewrite
   using StorageMaterializationPattern<
       stencil::CombineOp>::StorageMaterializationPattern;
 
-  // Introduce buffer on the output edge connected to another apply
-  LogicalResult introduceOutputBuffers(stencil::CombineOp combineOp,
-                                       PatternRewriter &rewriter) const {
-    // Create another apply operation and move the body
-    auto clonedOp = rewriter.clone(*combineOp.getOperation());
-
-    // Introduce a buffer on every result connected to another result
-    introduceResultBuffers(combineOp, clonedOp, rewriter);
-    return success();
-  }
-
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
     if (llvm::any_of(combineOp.getResults(), [&](Value value) {
           return doesEdgeRequireBuffering(value);
-        }))
-      return introduceOutputBuffers(combineOp, rewriter);
+        })) {
+      // Clone the combine op
+      auto clonedOp = rewriter.clone(*combineOp.getOperation());
+
+      // Introduce a buffer on every result connected to another apply
+      introduceResultBuffers(combineOp, clonedOp, rewriter);
+      return success();
+    }
     return failure();
   }
 };
