@@ -1,4 +1,5 @@
-// RUN: oec-opt %s -split-input-file --stencil-shape-inference='extend-storage' | oec-opt | FileCheck %s
+// RUN: oec-opt %s -split-input-file --stencil-shape-inference | oec-opt | FileCheck %s
+// RUN: oec-opt %s -split-input-file --stencil-shape-inference='extend-storage' | oec-opt | FileCheck --check-prefix=CHECKEXT %s
 
 // CHECK-LABEL: func @simple(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
 func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
@@ -76,20 +77,25 @@ func @lower(%arg0: !stencil.field<?x?x0xf64>, %arg1: !stencil.field<?x?x?xf64>) 
 // -----
 
 // CHECK-LABEL: func @twostores(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+// CHECKEXT-LABEL: func @twostores(%{{.*}}: !stencil.field<?x?x?xf64>, %{{.*}}: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
 func @twostores(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
-  //  CHECK: %{{.*}}:2 = stencil.apply -> (!stencil.temp<64x66x60xf64>, !stencil.temp<64x66x60xf64>) {
+  // CHECK: %{{.*}}:2 = stencil.apply -> (!stencil.temp<64x66x60xf64>, !stencil.temp<64x66x60xf64>) {
+  // CHECKEXT: %{{.*}}:2 = stencil.apply -> (!stencil.temp<64x66x60xf64>, !stencil.temp<64x66x60xf64>) {
   %2,%3 = stencil.apply -> (!stencil.temp<?x?x?xf64>, !stencil.temp<?x?x?xf64>) {
     %4 = constant 1.0 : f64
     %5 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
     %6 = stencil.store_result %4 : (f64) -> !stencil.result<f64>
     stencil.return %5, %6 : !stencil.result<f64>, !stencil.result<f64>
-  //  CHECK: } to ([0, -1, 0] : [64, 65, 60])
+  // CHECK: } to ([0, -1, 0] : [64, 65, 60])
+  // CHECKEXT: } to ([0, -1, 0] : [64, 65, 60])
   }
-  //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
+  // CHECK: stencil.store %{{.*}} to %{{.*}}([0, 0, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
+  // CHECKEXT: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
   stencil.store %2 to %0([0, 0, 0] : [64, 65, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
-  //  CHECK: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
+  // CHECK: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 64, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
+  // CHECKEXT: stencil.store %{{.*}} to %{{.*}}([0, -1, 0] : [64, 65, 60]) : !stencil.temp<64x66x60xf64> to !stencil.field<70x70x60xf64>
   stencil.store %3 to %1([0, -1, 0] : [64, 64, 60]) : !stencil.temp<?x?x?xf64> to !stencil.field<70x70x60xf64>
   return
 }
