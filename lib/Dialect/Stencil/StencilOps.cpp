@@ -255,6 +255,11 @@ bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra,
     // Check all defining ops are apply ops
     if (!isa<stencil::ApplyOp>(definingOp))
       return false;
+    // Check the apply ops connect to combine ops only
+    if (llvm::any_of(definingOp->getUsers(), [](Operation *op) {
+          return !isa<stencil::CombineOp>(op);
+        }))
+      return false;
     numResults += definingOp->getNumResults();
   }
   // Check all operands are unique
