@@ -301,10 +301,11 @@ def Stencil_BufferOp : Stencil_Op<"buffer", [DeclareOpInterfaceMethods<ShapeOp>]
   }];
 
   let verifier = [{
-    if(!isa<stencil::ApplyOp>(temp().getDefiningOp()))
-      return emitOpError("expected input to buffer to be apply op");
-    if(!temp().hasOneUse())
-      return emitOpError("expected input to buffer to be only used once");
+    if(!(isa<stencil::ApplyOp>(temp().getDefiningOp()) ||
+         isa<stencil::CombineOp>(temp().getDefiningOp())))
+      return emitOpError("expected buffer to connect to an apply or combine op");
+    if (!llvm::all_of(temp().getUsers(), [](Operation *op) { return isa<stencil::BufferOp>(op); })) 
+      return emitOpError("expected only buffers use the same value");
     return success();
   }];
 
