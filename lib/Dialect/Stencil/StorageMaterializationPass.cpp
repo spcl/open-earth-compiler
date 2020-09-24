@@ -31,52 +31,95 @@ using namespace stencil;
 
 namespace {
 
-// // Base class of all storage materialization patterns
-// struct StorageMaterializationPattern
-//     : public OpRewritePattern<stencil::ApplyOp> {
-//   StorageMaterializationPattern(MLIRContext *context,
-//                                 PatternBenefit benefit = 1)
-//       : OpRewritePattern<stencil::ApplyOp>(context, benefit) {}
-// };
+// Base class of all storage materialization patterns
+template <typename SourceOp>
+struct StorageMaterializationPattern : public OpRewritePattern<SourceOp> {
+  StorageMaterializationPattern(MLIRContext *context,
+                                PatternBenefit benefit = 1)
+      : OpRewritePattern<SourceOp>(context, benefit) {}
+
+  // Buffer all outputs connected to an apply but not to a store op
+  bool doesEdgeRequireBuffering(Value value) const {
+    if (llvm::any_of(value.getUsers(),
+                     [](Operation *op) { return isa<stencil::ApplyOp>(op); }) &&
+        llvm::none_of(value.getUsers(),
+                      [](Operation *op) { return isa<stencil::StoreOp>(op); }))
+      return true;
+    return false;
+  }
+
+  // Buffer the results of the cloned operation and replace the matched
+  // operation
+  LogicalResult introduceResultBuffers(Operation *matchedOp,
+                                       Operation *clonedOp,
+                                       PatternRewriter &rewriter) const {
+    SmallVector<Value, 10> repResults = clonedOp->getResults();
+    for (auto result : matchedOp->getResults()) {
+      if (doesEdgeRequireBuffering(result)) {
+        auto bufferOp = rewriter.create<stencil::BufferOp>(
+            matchedOp->getLoc(), result.getType(),
+            clonedOp->getResult(result.getResultNumber()), nullptr, nullptr);
+        repResults[result.getResultNumber()] = bufferOp;
+      }
+    }
+    rewriter.replaceOp(matchedOp, repResults);
+    return success();
+  }
+};
 
 // Pattern introducing buffers between consecutive apply ops
-struct ApplyOpRewrite : public OpRewritePattern<stencil::ApplyOp> {
-  ApplyOpRewrite(MLIRContext *context, PatternBenefit benefit = 1)
-      : OpRewritePattern<stencil::ApplyOp>(context, benefit) {}
+struct ApplyOpRewrite : public StorageMaterializationPattern<stencil::ApplyOp> {
+  using StorageMaterializationPattern<
+      stencil::ApplyOp>::StorageMaterializationPattern;
 
   // Introduce buffer on the output edge connected to another apply
   LogicalResult introduceOutputBuffers(stencil::ApplyOp applyOp,
                                        PatternRewriter &rewriter) const {
-    auto loc = applyOp.getLoc();
-
     // Create another apply operation and move the body
-    auto newOp = rewriter.create<stencil::ApplyOp>(
-        loc, applyOp.getResultTypes(), applyOp.getOperands(), applyOp.lb(),
-        applyOp.ub());
-    rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(),
-                         newOp.getBody()->getArguments());
+    auto clonedOp = rewriter.create<stencil::ApplyOp>(
+        applyOp.getLoc(), applyOp.getResultTypes(), applyOp.getOperands(),
+        applyOp.lb(), applyOp.ub());
+    rewriter.mergeBlocks(applyOp.getBody(), clonedOp.getBody(),
+                         clonedOp.getBody()->getArguments());
 
     // Introduce a buffer on every result connected to another result
-    SmallVector<Value, 10> repResults = newOp.getResults();
-    for (auto result : applyOp.getResults()) {
-      if (llvm::any_of(result.getUsers(), [](Operation *op) {
-            return isa<stencil::ApplyOp>(op);
-          })) {
-        auto bufferOp = rewriter.create<stencil::BufferOp>(
-            loc, result.getType(), newOp.getResult(result.getResultNumber()),
-            nullptr, nullptr);
-        repResults[result.getResultNumber()] = bufferOp;
-      }
-    }
-    rewriter.replaceOp(applyOp, repResults);
+    introduceResultBuffers(applyOp, clonedOp, rewriter);
     return success();
   }
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    if (llvm::any_of(applyOp.getOperation()->getUsers(),
-                     [](Operation *op) { return isa<stencil::ApplyOp>(op); }))
+    if (llvm::any_of(applyOp.getResults(), [&](Value value) {
+          return doesEdgeRequireBuffering(value);
+        }))
       return introduceOutputBuffers(applyOp, rewriter);
+    return failure();
+  }
+};
+
+// Pattern introducing buffers between consecutive apply ops
+struct CombineOpRewrite
+    : public StorageMaterializationPattern<stencil::CombineOp> {
+  using StorageMaterializationPattern<
+      stencil::CombineOp>::StorageMaterializationPattern;
+
+  // Introduce buffer on the output edge connected to another apply
+  LogicalResult introduceOutputBuffers(stencil::CombineOp combineOp,
+                                       PatternRewriter &rewriter) const {
+    // Create another apply operation and move the body
+    auto clonedOp = rewriter.clone(*combineOp.getOperation());
+
+    // Introduce a buffer on every result connected to another result
+    introduceResultBuffers(combineOp, clonedOp, rewriter);
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    if (llvm::any_of(combineOp.getResults(), [&](Value value) {
+          return doesEdgeRequireBuffering(value);
+        }))
+      return introduceOutputBuffers(combineOp, rewriter);
     return failure();
   }
 };
@@ -96,7 +139,7 @@ void StorageMaterializationPass::runOnFunction() {
 
   // Poppulate the pattern list depending on the config
   OwningRewritePatternList patterns;
-  patterns.insert<ApplyOpRewrite>(&getContext());
+  patterns.insert<ApplyOpRewrite, CombineOpRewrite>(&getContext());
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }
 
