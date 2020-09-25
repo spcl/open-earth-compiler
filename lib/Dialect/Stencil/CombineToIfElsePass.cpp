@@ -63,9 +63,7 @@ struct FuseRewrite : public CombineToIfElsePattern {
                           applyOp2.getResultTypes().end());
 
     // Compute the new operands
-    SmallVector<Value, 10> newOperands;
-    newOperands.append(applyOp1.getOperands().begin(),
-                       applyOp1.getOperands().end());
+    SmallVector<Value, 10> newOperands = applyOp1.getOperands();
     newOperands.append(applyOp2.getOperands().begin(),
                        applyOp2.getOperands().end());
 
@@ -118,19 +116,14 @@ struct FuseRewrite : public CombineToIfElsePattern {
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
     // Handle the case if multiple applies are connected to lower
-    auto definingLowerOps = combineOp.getLowerDefiningOps();
-    if (definingLowerOps.size() > 1) {
-      auto applyOp1 = cast<stencil::ApplyOp>(*definingLowerOps.begin());
-      auto applyOp2 = cast<stencil::ApplyOp>(*(++definingLowerOps.begin()));
-      return fuseApplyOps(applyOp1, applyOp2, combineOp, rewriter);
-    }
-
-    // Handle the case if multiple applyies are connected to higher
-    auto definingUpperOps = combineOp.getUpperDefiningOps();
-    if (definingUpperOps.size() > 1) {
-      auto applyOp1 = cast<stencil::ApplyOp>(*definingUpperOps.begin());
-      auto applyOp2 = cast<stencil::ApplyOp>(*(++definingUpperOps.begin()));
-      return fuseApplyOps(applyOp1, applyOp2, combineOp, rewriter);
+    auto lowerAndUpperDefiningOps = {combineOp.getUpperDefiningOps(),
+                                     combineOp.getLowerDefiningOps()};
+    for (auto definingOps : lowerAndUpperDefiningOps) {
+      if (definingOps.size() > 1) {
+        auto applyOp1 = cast<stencil::ApplyOp>(*definingOps.begin());
+        auto applyOp2 = cast<stencil::ApplyOp>(*(++definingOps.begin()));
+        return fuseApplyOps(applyOp1, applyOp2, combineOp, rewriter);
+      }
     }
     return failure();
   }
