@@ -421,6 +421,21 @@ void CombineToIfElsePass::runOnFunction() {
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
 
+  // Check all combine op operands have one use
+  bool hasOperandsWithMultipleUses = false;
+  funcOp.walk([&](stencil::CombineOp combineOp) {
+    for (auto operand : combineOp.getOperands()) {
+      if (!operand.hasOneUse()) {
+        hasOperandsWithMultipleUses = true;
+      }
+    }
+  });
+  if (hasOperandsWithMultipleUses) {
+    funcOp.emitOpError("execute domain splitting before combine op conversion");
+    signalPassFailure();
+    return;
+  }
+
   // Poppulate the pattern list depending on the config
   OwningRewritePatternList patterns;
   if (internalOnly) {
@@ -433,7 +448,6 @@ void CombineToIfElsePass::runOnFunction() {
 
 } // namespace
 
-std::unique_ptr<OperationPass<FuncOp>>
-mlir::createCombineToIfElsePass() {
+std::unique_ptr<OperationPass<FuncOp>> mlir::createCombineToIfElsePass() {
   return std::make_unique<CombineToIfElsePass>();
 }
