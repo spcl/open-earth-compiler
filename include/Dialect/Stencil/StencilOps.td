@@ -275,7 +275,8 @@ def Stencil_LoadOp : Stencil_Op<"load", [
   }];
 }
 
-def Stencil_BufferOp : Stencil_Op<"buffer", [DeclareOpInterfaceMethods<ShapeOp>]> {
+def Stencil_BufferOp : Stencil_Op<"buffer", 
+  [DeclareOpInterfaceMethods<ShapeOp>]> {
   let summary = "buffer operation";
   let description = [{
     Prevents fusion of consecutive stencil.apply operations.
