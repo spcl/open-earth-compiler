@@ -30,7 +30,7 @@ public:
   using Type::Type;
 
   static bool classof(Type type);
-  
+
   /// Constants used to mark dynamic size or scalarized dimensions
   static constexpr int64_t kDynamicDimension = -1;
   static constexpr int64_t kScalarDimension = 0;
@@ -42,52 +42,26 @@ public:
   ArrayRef<int64_t> getShape() const;
 
   /// Return the rank of the type
-  int64_t getRank() const { return getShape().size(); }
+  int64_t getRank() const;
 
   /// Return true if all dimensions have a dynamic shape
-  int64_t hasDynamicShape() const {
-    return llvm::all_of(getShape(), [](int64_t size) {
-      return size == kDynamicDimension || size == kScalarDimension;
-    });
-  }
+  int64_t hasDynamicShape() const;
 
   /// Return true if all dimensions have a static
-  int64_t hasStaticShape() const {
-    return llvm::none_of(
-        getShape(), [](int64_t size) { return size == kDynamicDimension; });
-  }
+  int64_t hasStaticShape() const;
 
   /// Return the allocated / non-scalar dimensions
-  SmallVector<bool, 3> getAllocation() const {
-    SmallVector<bool, 3> result; 
-    result.resize(getRank());
-    llvm::transform(getShape(), result.begin(),
-                    [](int64_t x) { return x != kScalarDimension; });
-    return result;
-  }
+  SmallVector<bool, 3> getAllocation() const;
 
   /// Return the compatible memref shape
   /// (reverse shape from column-major to row-major)
-  SmallVector<int64_t, 3> getMemRefShape() const {
-    SmallVector<int64_t, 3> result;
-    for (auto size : llvm::reverse(getShape())) {
-      switch (size) {
-      case (kDynamicDimension):
-        result.push_back(ShapedType::kDynamicSize);
-        break;
-      case (kScalarDimension):
-        break;
-      default:
-        result.push_back(size);
-      }
-    }
-    return result;
-  }
+  SmallVector<int64_t, 3> getMemRefShape() const;
 
   /// Return true if the dimension size is dynamic
   static constexpr bool isDynamic(int64_t dimSize) {
     return dimSize == kDynamicDimension;
   }
+
   /// Return true for scalarized dimensions
   static constexpr bool isScalar(int64_t dimSize) {
     return dimSize == kScalarDimension;

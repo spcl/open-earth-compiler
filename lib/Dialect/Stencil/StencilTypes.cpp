@@ -99,6 +99,43 @@ ArrayRef<int64_t> GridType::getShape() const {
   return static_cast<ImplType *>(impl)->getShape();
 }
 
+int64_t GridType::getRank() const { return getShape().size(); }
+
+int64_t GridType::hasDynamicShape() const {
+  return llvm::all_of(getShape(), [](int64_t size) {
+    return size == kDynamicDimension || size == kScalarDimension;
+  });
+}
+
+int64_t GridType::hasStaticShape() const {
+  return llvm::none_of(getShape(),
+                       [](int64_t size) { return size == kDynamicDimension; });
+}
+
+SmallVector<bool, 3> GridType::getAllocation() const {
+  SmallVector<bool, 3> result;
+  result.resize(getRank());
+  llvm::transform(getShape(), result.begin(),
+                  [](int64_t x) { return x != kScalarDimension; });
+  return result;
+}
+
+SmallVector<int64_t, 3> GridType::getMemRefShape() const {
+  SmallVector<int64_t, 3> result;
+  for (auto size : llvm::reverse(getShape())) {
+    switch (size) {
+    case (kDynamicDimension):
+      result.push_back(ShapedType::kDynamicSize);
+      break;
+    case (kScalarDimension):
+      break;
+    default:
+      result.push_back(size);
+    }
+  }
+  return result;
+}
+
 //===----------------------------------------------------------------------===//
 // FieldType
 //===----------------------------------------------------------------------===//
