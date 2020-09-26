@@ -1,5 +1,6 @@
 #include "Dialect/Stencil/StencilTypes.h"
 #include "Dialect/Stencil/StencilDialect.h"
+#include "Dialect/Stencil/StencilUtils.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -150,6 +151,17 @@ FieldType FieldType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
 
 TempType TempType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
   return Base::get(elementType.getContext(), elementType, shape);
+}
+
+TempType TempType::get(TempType oldType, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
+  auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
+  for(auto en : llvm::enumerate(oldType.getShape())) {
+    assert(oldType.getRank() == shape.size() &&
+                "expected result type to have operation rank");
+    if (GridType::isScalar(en.value()))
+      shape[en.index()] = GridType::kScalarDimension;
+  }
+  return TempType::get(oldType.getElementType(), shape);
 }
 
 //===----------------------------------------------------------------------===//

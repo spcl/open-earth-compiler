@@ -48,23 +48,10 @@ def ShapeOp : OpInterface<"ShapeOp"> {
         });
         $_op.lbAttr(ArrayAttr::get(lbAttr, $_op.getContext()));
         $_op.ubAttr(ArrayAttr::get(ubAttr, $_op.getContext()));
-        // Compute the shape
-        SmallVector<int64_t, 3> shape;
-        llvm::transform(llvm::zip(lb, ub), std::back_inserter(shape),
-          [](std::tuple<int64_t, int64_t> x) { 
-            return std::get<1>(x) - std::get<0>(x); 
-          });
         // Update the result types
         for (auto result : $_op.getOperation()->getResults()) {
           auto oldType = result.getType().template cast<TempType>();
-          assert(oldType.getRank() == shape.size() &&
-                "expected result type to have operation rank");
-          for(auto en : llvm::enumerate(oldType.getShape())) {
-            if (GridType::isScalar(en.value()))
-              shape[en.index()] = GridType::kScalarDimension;
-          }
-          auto newType = TempType::get(oldType.getElementType(), shape);
-          result.setType(newType);
+          result.setType(TempType::get(oldType, lb, ub));
         }
     }]>,    
     InterfaceMethod<"/*Verify if the operation has valid bounds*/",

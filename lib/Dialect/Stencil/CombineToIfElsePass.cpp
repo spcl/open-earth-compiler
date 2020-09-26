@@ -143,10 +143,8 @@ struct MirrorRewrite : public CombineToIfElsePattern {
     // Introduce the emtpy result types using the shape of the op
     auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
     for (auto operand : range) {
-      auto newShape = applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(),
-                                          std::minus<int64_t>());
-      newResultTypes.push_back(TempType::get(
-          operand.getType().cast<TempType>().getElementType(), newShape));
+      newResultTypes.push_back(TempType::get(operand.getType().cast<TempType>(),
+                                             shapeOp.getLB(), shapeOp.getUB()));
     }
 
     // Replace the apply operation
