@@ -85,10 +85,9 @@ public:
 
     // Remove all result types from the operand list
     SmallVector<Value, 4> newOperands;
-    llvm::copy_if(yieldOp.getOperands(), std::back_inserter(newOperands),
-                  [](Value value) {
-                    return !value.getType().isa<stencil::ResultType>();
-                  });
+    llvm::copy_if(
+        yieldOp.getOperands(), std::back_inserter(newOperands),
+        [](Value value) { return !value.getType().isa<ResultType>(); });
     assert(newOperands.size() < yieldOp.getNumOperands() &&
            "expected if op to return results");
 
@@ -110,7 +109,7 @@ public:
     // Remove all result types from the result list
     SmallVector<Type, 4> newTypes;
     llvm::copy_if(ifOp.getResultTypes(), std::back_inserter(newTypes),
-                  [](Type type) { return !type.isa<stencil::ResultType>(); });
+                  [](Type type) { return !type.isa<ResultType>(); });
     assert(newTypes.size() < ifOp.getNumResults() &&
            "expected if op to return results");
 
@@ -132,7 +131,7 @@ public:
                                      newOp.getResults().front());
     auto it = newOp.getResults().begin();
     for (auto en : llvm::enumerate(ifOp.getResultTypes())) {
-      if (!en.value().isa<stencil::ResultType>())
+      if (!en.value().isa<ResultType>())
         newResults[en.index()] = *it++;
     }
     rewriter.replaceOp(ifOp, newResults);
@@ -174,8 +173,8 @@ public:
     auto tempType = loadOp.res().getType().cast<TempType>();
 
     // Compute the shape of the subview
-    auto subViewShape = computeSubViewShape(fieldType, operation,
-                                            valueToLB.lookup(loadOp.field()));
+    auto subViewShape =
+        computeSubViewShape(fieldType, operation, valueToLB[loadOp.field()]);
     assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
            "expected to get result memref shape");
 
@@ -195,7 +194,20 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
+    auto loc = operation->getLoc();
     auto bufferOp = cast<stencil::BufferOp>(operation);
+
+    // Free the buffer memory after the last use
+    assert(isa<AllocOp>(operands[0].getDefiningOp()) &&
+           "expected the temporary points to an allocation");
+    Operation *lastUser = bufferOp.getOperation();
+    for (auto user : bufferOp.getResult().getUsers()) {
+      if (lastUser->isBeforeInBlock(user))
+        lastUser = user;
+    }
+    rewriter.setInsertionPointAfter(lastUser);
+    rewriter.create<DeallocOp>(loc, bufferOp.temp());
+
     rewriter.replaceOp(operation, bufferOp.temp());
     return success();
   }
@@ -205,6 +217,15 @@ class ApplyOpLowering : public StencilOpToStdPattern<stencil::ApplyOp> {
 public:
   using StencilOpToStdPattern<stencil::ApplyOp>::StencilOpToStdPattern;
 
+  Value createBufferAllocation(Location loc, Type type,
+                               ConversionPatternRewriter &rewriter) const {
+    // Create the buffer allocation
+    auto memRefType = typeConverter.convertType(type).cast<MemRefType>();
+    assert(memRefType.hasStaticShape() &&
+           "expected buffer to have a static shape");
+    return rewriter.create<AllocOp>(loc, memRefType);
+  }
+
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
@@ -212,16 +233,26 @@ public:
     auto applyOp = cast<stencil::ApplyOp>(operation);
     auto shapeOp = cast<ShapeOp>(operation);
 
-    // Allocate storage for every stencil output
+    // Allocate storage for buffers or introduce get a view of the output field
     SmallVector<Value, 10> newResults;
-    for (unsigned i = 0, e = applyOp.getNumResults(); i != e; ++i) {
-      assert(applyOp.getResult(i).getType().cast<TempType>().hasStaticShape() &&
-             "expected the result types have a static shape");
-      auto allocType = typeConverter.convertType(applyOp.getResult(i).getType())
-                           .cast<MemRefType>();
-      auto allocOp = rewriter.create<AllocOp>(loc, allocType);
-      newResults.push_back(allocOp.getResult());
+    for (auto result : applyOp.getResults()) {
+      Type allocType = nullptr;
+      // Create a temporary allocation given the shape of the store op
+      if (auto storeOp = getUserOp<stencil::StoreOp>(result)) {
+        auto shapeOp = cast<ShapeOp>(storeOp.getOperation());
+        auto allocType =
+            TempType::get(storeOp.temp().getType().cast<TempType>(),
+                          shapeOp.getLB(), shapeOp.getUB());
+        newResults.push_back(createBufferAllocation(loc, allocType, rewriter));
+      }
+      // Create a buffer allocation given the result type
+      if (auto bufferOp = getUserOp<stencil::BufferOp>(result)) {
+        auto allocType = bufferOp.getResult().getType();
+        newResults.push_back(createBufferAllocation(loc, allocType, rewriter));
+      }
     }
+    assert(newResults.size() == applyOp.getNumResults() &&
+           "expected store or buffer op for every result");
 
     // Compute the loop bounds starting from zero
     // (in case of loop unrolling adjust the step of the loop)
@@ -264,13 +295,6 @@ public:
 
     // Replace the applyOp
     rewriter.replaceOp(applyOp, newResults);
-
-    // Deallocate the temporary storage
-    rewriter.setInsertionPoint(
-        applyOp.getParentRegion()->back().getTerminator());
-    for (auto newResult : newResults) {
-      rewriter.create<DeallocOp>(loc, newResult);
-    }
     return success();
   }
 };
@@ -463,8 +487,8 @@ public:
     auto tempType = storeOp.temp().getType().cast<TempType>();
 
     // Compute the shape of the subview
-    auto subViewShape = computeSubViewShape(fieldType, operation,
-                                            valueToLB.lookup(storeOp.field()));
+    auto subViewShape =
+        computeSubViewShape(fieldType, operation, valueToLB[storeOp.field()]);
     assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
            "expected to get result memref shape");
 
@@ -475,11 +499,6 @@ public:
         loc, operands[1], std::get<0>(subViewShape), std::get<1>(subViewShape),
         std::get<2>(subViewShape), ValueRange(), ValueRange(), ValueRange());
     rewriter.replaceOp(allocOp, subViewOp.getResult());
-
-    // Remove the deallocation and the store operation
-    auto deallocOp = getUserOp<DeallocOp>(operands[0]);
-    assert(deallocOp && "expected dealloc operation");
-    rewriter.eraseOp(deallocOp);
     rewriter.eraseOp(operation);
     return success();
   }
@@ -499,14 +518,12 @@ public:
       return !StencilDialect::isStencilProgram(funcOp);
     }
     if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
-      return llvm::none_of(ifOp.getResultTypes(), [](Type type) {
-        return type.isa<stencil::ResultType>();
-      });
+      return llvm::none_of(ifOp.getResultTypes(),
+                           [](Type type) { return type.isa<ResultType>(); });
     }
     if (auto yieldOp = dyn_cast<scf::YieldOp>(op)) {
-      return llvm::none_of(yieldOp.getOperandTypes(), [](Type type) {
-        return type.isa<stencil::ResultType>();
-      });
+      return llvm::none_of(yieldOp.getOperandTypes(),
+                           [](Type type) { return type.isa<ResultType>(); });
     }
     return true;
   }
@@ -540,11 +557,10 @@ void StencilToStandardPass::runOnOperation() {
   if (!allShapesValid)
     return;
 
-  // Store the lower bounds of the input stencil program
+  // Store the input bounds of the stencil program
   DenseMap<Value, Index> valueToLB;
   module.walk([&](stencil::CastOp castOp) {
-    auto shapeOp = cast<ShapeOp>(castOp.getOperation());
-    valueToLB[castOp.res()] = shapeOp.getLB();
+    valueToLB[castOp.res()] = cast<ShapeOp>(castOp.getOperation()).getLB();
   });
   module.walk([&](stencil::ApplyOp applyOp) {
     // Store the lower bounds for all arguments
@@ -559,10 +575,33 @@ void StencilToStandardPass::runOnOperation() {
     }
   });
 
+  // Check there is exactly one storage operation per apply op result
+  bool allApplyOpResultsHaveUniqueStorage = true;
+  module.walk([&](stencil::ApplyOp applyOp) {
+    for (auto result : applyOp.getResults()) {
+      unsigned storageOps = 0;
+      for (auto user : result.getUsers()) {
+        if (isa<stencil::BufferOp>(user) || isa<stencil::StoreOp>(user)) {
+          storageOps++;
+        }
+      }
+      if (storageOps != 1) {
+        allApplyOpResultsHaveUniqueStorage = false;
+        applyOp.emitOpError("expected apply op results to have storage");
+        signalPassFailure();
+        return;
+      }
+    }
+  });
+  if (!allApplyOpResultsHaveUniqueStorage)
+    return;
+
   // Store the return op operands for the result values
+  bool allStoredResultsMappedToReturnOp = true;
   DenseMap<Value, SmallVector<OpOperand *, 10>> valueToReturnOpOperands;
   module.walk([&](stencil::StoreResultOp resultOp) {
     if (!resultOp.getReturnOpOperands()) {
+      allStoredResultsMappedToReturnOp = false;
       resultOp.emitOpError("expected valid return op operands");
       signalPassFailure();
       return;
@@ -570,6 +609,8 @@ void StencilToStandardPass::runOnOperation() {
     valueToReturnOpOperands[resultOp.res()] =
         resultOp.getReturnOpOperands().getValue();
   });
+  if (!allStoredResultsMappedToReturnOp)
+    return;
 
   StencilTypeConverter typeConverter(module.getContext());
   populateStencilToStdConversionPatterns(typeConverter, valueToLB,

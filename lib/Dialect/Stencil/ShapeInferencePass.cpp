@@ -93,14 +93,22 @@ struct ShapeInferencePass : public ShapeInferencePassBase<ShapeInferencePass> {
 
 /// Update the shape given updated bounds
 void updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
-  shapeOp.updateShape(lb, ub);    
-  
+  shapeOp.updateShape(lb, ub);
+
   // Update the region arguments of dependent shape operations
   // (needed for operations such as the stencil apply op)
   for (auto user : shapeOp.getOperation()->getUsers()) {
     if (auto shapeOp = dyn_cast<ShapeOp>(user))
       shapeOp.updateArgumentTypes();
   }
+}
+
+/// Update the shape given the old and the new shape op
+void updateStorageShape(ShapeOp shapeOp, ShapeOp resultShape) {
+  // Compute the update bounds
+  auto lb = applyFunElementWise(shapeOp.getLB(), resultShape.getLB(), min);
+  auto ub = applyFunElementWise(shapeOp.getUB(), resultShape.getUB(), max);
+  updateShape(shapeOp, lb, ub);
 }
 
 /// Extend the loop bounds for the given use
@@ -250,9 +258,7 @@ void ShapeInferencePass::runOnFunction() {
           signalPassFailure();
           return;
         }
-        auto lb = applyFunElementWise(shapeOp.getLB(), resultShape.getLB(), min);
-        auto ub = applyFunElementWise(shapeOp.getUB(), resultShape.getUB(), max);
-        updateShape(shapeOp, lb, ub);
+        updateStorageShape(shapeOp, resultShape);
         storeOp.emitWarning(
             "adapted shape to match the write set of the defining op");
       }
@@ -271,9 +277,7 @@ void ShapeInferencePass::runOnFunction() {
           signalPassFailure();
           return;
         }
-        auto lb = applyFunElementWise(shapeOp.getLB(), resultShape.getLB(), min);
-        auto ub = applyFunElementWise(shapeOp.getUB(), resultShape.getUB(), max);
-        updateShape(shapeOp, lb, ub);
+        updateStorageShape(shapeOp, resultShape);
       }
     });
   }

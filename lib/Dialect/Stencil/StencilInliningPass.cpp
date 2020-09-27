@@ -253,8 +253,7 @@ struct InliningRewrite : public StencilInliningPattern {
           SmallVector<Type, 10> newTypes;
           llvm::transform(ifOp.getResultTypes(), std::back_inserter(newTypes),
                           [](Type type) {
-                            if (auto resultType =
-                                    type.dyn_cast<stencil::ResultType>())
+                            if (auto resultType = type.dyn_cast<ResultType>())
                               return resultType.getResultType();
                             return type;
                           });
