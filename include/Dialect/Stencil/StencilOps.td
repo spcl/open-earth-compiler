@@ -51,7 +51,7 @@ def Stencil_CastOp : Stencil_Op<"cast", [
     if(fieldType.getAllocation() != resType.getAllocation())
       return emitOpError("expected the field and result types to have the same allocation");
     if (fieldType.getElementType() != resType.getElementType())
-      return emitOpError("the field and result types have different element type");
+      return emitOpError("the field and result types have different element types");
     if(shapeOp.getRank() != fieldType.getRank() || shapeOp.getRank() != resType.getRank())
       return emitOpError("expected op and the field and result types to have the same rank");
     
@@ -261,7 +261,7 @@ def Stencil_LoadOp : Stencil_Op<"load", [
     if (fieldType.getAllocation() != resType.getAllocation())
       return emitOpError("the field and temp types have different allocation");
     if (fieldType.getElementType() != resType.getElementType())
-      return emitOpError("the field and temp types have different element type");
+      return emitOpError("the field and temp types have different element types");
     
     if(!isa<stencil::CastOp>(field().getDefiningOp()))
       return emitOpError("expected the defining op of the field is a cast operation");
@@ -302,9 +302,20 @@ def Stencil_BufferOp : Stencil_Op<"buffer",
   }];
 
   let verifier = [{
+    // Check the temp and result types
+    auto tempType = temp().getType().cast<stencil::GridType>();
+    auto resType = res().getType().cast<stencil::GridType>();
+    if (resType.getRank() != tempType.getRank())
+      return emitOpError("the result and temp types have different rank");
+    if (resType.getAllocation() != tempType.getAllocation())
+      return emitOpError("the result and temp types have different allocation");
+    if (resType.getElementType() != tempType.getElementType())
+      return emitOpError("the result and temp types have different element types");
+
     if(!(isa<stencil::ApplyOp>(temp().getDefiningOp()) ||
          isa<stencil::CombineOp>(temp().getDefiningOp())))
       return emitOpError("expected buffer to connect to an apply or combine op");
+    
     if (!llvm::all_of(temp().getUsers(), [](Operation *op) { return isa<stencil::BufferOp>(op); })) 
       return emitOpError("expected only buffers use the same value");
     return success();
@@ -359,7 +370,7 @@ def Stencil_StoreOp : Stencil_Op<"store", [
     if (fieldType.getAllocation() != tempType.getAllocation())
       return emitOpError("the field and temp types have different allocation");
     if (fieldType.getElementType() != tempType.getElementType())
-      return emitOpError("the field and temp types have different element type");
+      return emitOpError("the field and temp types have different element types");
     
     if (!(dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()) || 
           dyn_cast<stencil::CombineOp>(temp().getDefiningOp())))

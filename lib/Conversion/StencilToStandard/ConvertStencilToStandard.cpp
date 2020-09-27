@@ -26,6 +26,7 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <functional>
@@ -217,13 +218,18 @@ class ApplyOpLowering : public StencilOpToStdPattern<stencil::ApplyOp> {
 public:
   using StencilOpToStdPattern<stencil::ApplyOp>::StencilOpToStdPattern;
 
-  Value createBufferAllocation(Location loc, Type type,
-                               ConversionPatternRewriter &rewriter) const {
-    // Create the buffer allocation
-    auto memRefType = typeConverter.convertType(type).cast<MemRefType>();
-    assert(memRefType.hasStaticShape() &&
-           "expected buffer to have a static shape");
-    return rewriter.create<AllocOp>(loc, memRefType);
+  // Get the temporary and the shape of the buffer
+  std::tuple<Value, ShapeOp> getShapeAndTemporary(Value value) const {
+    if (auto storeOp = getUserOp<stencil::StoreOp>(value)) {
+      return std::make_tuple(storeOp.temp(),
+                             cast<ShapeOp>(storeOp.getOperation()));
+    }
+    if (auto bufferOp = getUserOp<stencil::BufferOp>(value)) {
+      return std::make_tuple(bufferOp.temp(),
+                             cast<ShapeOp>(bufferOp.getOperation()));
+    }
+    llvm_unreachable("expected a valid storage operation");
+    return std::make_tuple(nullptr, nullptr);
   }
 
   LogicalResult
@@ -236,23 +242,16 @@ public:
     // Allocate storage for buffers or introduce get a view of the output field
     SmallVector<Value, 10> newResults;
     for (auto result : applyOp.getResults()) {
-      Type allocType = nullptr;
-      // Create a temporary allocation given the shape of the store op
-      if (auto storeOp = getUserOp<stencil::StoreOp>(result)) {
-        auto shapeOp = cast<ShapeOp>(storeOp.getOperation());
-        auto allocType =
-            TempType::get(storeOp.temp().getType().cast<TempType>(),
-                          shapeOp.getLB(), shapeOp.getUB());
-        newResults.push_back(createBufferAllocation(loc, allocType, rewriter));
-      }
-      // Create a buffer allocation given the result type
-      if (auto bufferOp = getUserOp<stencil::BufferOp>(result)) {
-        auto allocType = bufferOp.getResult().getType();
-        newResults.push_back(createBufferAllocation(loc, allocType, rewriter));
-      }
+      Value temp;
+      ShapeOp shapeOp;
+      std::tie(temp, shapeOp) = getShapeAndTemporary(result);
+      auto tempType = TempType::get(temp.getType().cast<TempType>(),
+                                    shapeOp.getLB(), shapeOp.getUB());
+      auto allocType = typeConverter.convertType(tempType).cast<MemRefType>();
+      assert(allocType.hasStaticShape() &&
+             "expected buffer to have a static shape");
+      newResults.push_back(rewriter.create<AllocOp>(loc, allocType));
     }
-    assert(newResults.size() == applyOp.getNumResults() &&
-           "expected store or buffer op for every result");
 
     // Compute the loop bounds starting from zero
     // (in case of loop unrolling adjust the step of the loop)
@@ -297,7 +296,7 @@ public:
     rewriter.replaceOp(applyOp, newResults);
     return success();
   }
-};
+}; // namespace
 
 class StoreResultOpLowering
     : public StencilOpToStdPattern<stencil::StoreResultOp> {
