@@ -350,7 +350,7 @@ struct IfElseRewrite : public CombineToIfElsePattern {
         newOp.getBody()->getArguments().take_front(lowerOp.getNumOperands()));
     rewriter.mergeBlocks(
         upperOp.getBody(), ifOp.getBody(1),
-        newOp.getBody()->getArguments().take_front(upperOp.getNumOperands()));
+        newOp.getBody()->getArguments().take_back(upperOp.getNumOperands()));
 
     // Remove the combine op and the attached apply ops
     rewriter.replaceOp(combineOp, newOp.getResults());

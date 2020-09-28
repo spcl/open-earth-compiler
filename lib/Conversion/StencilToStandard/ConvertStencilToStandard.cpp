@@ -176,8 +176,6 @@ public:
     // Compute the shape of the subview
     auto subViewShape =
         computeSubViewShape(fieldType, operation, valueToLB[loadOp.field()]);
-    assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
-           "expected to get result memref shape");
 
     // Replace the load op by a subview op
     auto subViewOp = rewriter.create<SubViewOp>(
@@ -488,8 +486,6 @@ public:
     // Compute the shape of the subview
     auto subViewShape =
         computeSubViewShape(fieldType, operation, valueToLB[storeOp.field()]);
-    assert(std::get<1>(subViewShape) == tempType.getMemRefShape() &&
-           "expected to get result memref shape");
 
     // Replace the allocation by a subview
     auto allocOp = operands[0].getDefiningOp();
