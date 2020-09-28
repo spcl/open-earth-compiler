@@ -40,7 +40,7 @@ func @index(%arg0 : f64, %arg1 : !stencil.field<?x?x?xf64>) attributes { stencil
     %6 = select %5, %arg2, %4 : f64
     %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
     stencil.return %7 : !stencil.result<f64>
-  } to ([0, 0, 0]:[64, 64, 64])
+  } to ([0, 0, 0]:[64, 64, 60])
   stencil.store %1 to %0([0, 0, 0]:[64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<70x70x60xf64>
   return
 }
@@ -90,7 +90,7 @@ func @peel_loop(%arg0 : !stencil.field<?x?x?xf64>, %arg1 : !stencil.field<?x?x?x
   // CHECK: [[BODY:%.*]] = stencil.apply ({{%.*}} = {{%.*}} : !stencil.temp<64x61x60xf64>) -> !stencil.temp<64x60x60xf64> {
   // CHECK: } to ([0, 0, 0] : [64, 60, 60])
   // CHECK: {{%.*}} = stencil.combine 1 at 60 lower = ([[BODY]] : !stencil.temp<64x60x60xf64>) upper = ([[PEEL]] : !stencil.temp<64x1x60xf64>) ([0, 0, 0] : [64, 61, 60]) : !stencil.temp<64x61x60xf64>
-  stencil.store %3 to %1([0, 0, 0]:[64, 64, 60]) : !stencil.temp<64x61x60xf64> to !stencil.field<70x70x60xf64>
+  stencil.store %3 to %1([0, 0, 0]:[64, 61, 60]) : !stencil.temp<64x61x60xf64> to !stencil.field<70x70x60xf64>
   return
 }
 

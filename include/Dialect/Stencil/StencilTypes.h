@@ -50,6 +50,12 @@ public:
   /// Return true if all dimensions have a static
   int64_t hasStaticShape() const;
 
+  /// Return true if the type matches the shape
+  bool isEqualThanShape(ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) const;
+
+  /// Return true if the type is larger or equal than the shape
+  bool isLargerOrEqualThanShape(ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) const;
+
   /// Return the allocated / non-scalar dimensions
   SmallVector<bool, 3> getAllocation() const;
 

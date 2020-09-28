@@ -56,11 +56,7 @@ def Stencil_CastOp : Stencil_Op<"cast", [
       return emitOpError("expected op and the field and result types to have the same rank");
     
     // Ensure the shape matches the result type
-    if (llvm::any_of(
-          llvm::zip(resType.getAllocation(),
-                    resType.getShape(),
-                    applyFunElementWise(shapeOp.getUB(), shapeOp.getLB(), std::minus<int64_t>())),
-          [&](std::tuple<int64_t, int64_t, int64_t> x) { return std::get<0>(x) && (std::get<1>(x) != std::get<2>(x)); }))
+    if (!resType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
       return emitOpError("expected op and result type to have the same shape");
 
     // Verify all users fit the shape
@@ -263,6 +259,15 @@ def Stencil_LoadOp : Stencil_Op<"load", [
     if (fieldType.getElementType() != resType.getElementType())
       return emitOpError("the field and temp types have different element types");
     
+    // Ensure the shape matches the field and result types
+    auto shapeOp = cast<ShapeOp>(this->getOperation());
+    if(shapeOp.hasShape()) {
+      if (!fieldType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+        return emitOpError("expected the field type to be larger than the op shape");
+      if (!resType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+        return emitOpError("expected op and result type to have the same shape");
+    }
+
     if(!isa<stencil::CastOp>(field().getDefiningOp()))
       return emitOpError("expected the defining op of the field is a cast operation");
 
@@ -311,6 +316,15 @@ def Stencil_BufferOp : Stencil_Op<"buffer",
       return emitOpError("the result and temp types have different allocation");
     if (resType.getElementType() != tempType.getElementType())
       return emitOpError("the result and temp types have different element types");
+
+    // Ensure the shape matches the temp and result types
+    auto shapeOp = cast<ShapeOp>(this->getOperation());
+    if(shapeOp.hasShape()) {
+      if (!tempType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+        return emitOpError("expected the temp type to be larger than the op shape");
+      if (!resType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+        return emitOpError("expected op and result type to have the same shape");
+    }
 
     if(!(isa<stencil::ApplyOp>(temp().getDefiningOp()) ||
          isa<stencil::CombineOp>(temp().getDefiningOp())))
@@ -371,7 +385,14 @@ def Stencil_StoreOp : Stencil_Op<"store", [
       return emitOpError("the field and temp types have different allocation");
     if (fieldType.getElementType() != tempType.getElementType())
       return emitOpError("the field and temp types have different element types");
-    
+
+    // Ensure the shape matches the temp and result types
+    auto shapeOp = cast<ShapeOp>(this->getOperation());
+    if (!fieldType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+      return emitOpError("expected the field type to be larger than the op shape");
+    if (!tempType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+      return emitOpError("expected the temp type to be larger than the op shape");
+
     if (!(dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()) || 
           dyn_cast<stencil::CombineOp>(temp().getDefiningOp())))
       return emitOpError("output temp not result of an apply or a combine op");
@@ -447,8 +468,12 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
     auto shapeOp = cast<ShapeOp>(this->getOperation());
     for(auto result : res()) {
       auto tempType = result.getType().cast<GridType>();
-      if(shapeOp.hasShape() && shapeOp.getRank() != tempType.getRank())
-        return emitOpError("expected result rank to match the operation rank");
+      if(shapeOp.hasShape()) {
+        if(shapeOp.getRank() != tempType.getRank())
+          return emitOpError("expected result rank to match the operation rank");
+        if (!tempType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+          return emitOpError("expected temp type to have the shape of the op");
+      }
     }
     return success();
   }];

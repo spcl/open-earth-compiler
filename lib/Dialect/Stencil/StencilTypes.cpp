@@ -113,6 +113,28 @@ int64_t GridType::hasStaticShape() const {
                        [](int64_t size) { return size == kDynamicDimension; });
 }
 
+bool GridType::isEqualThanShape(ArrayRef<int64_t> lb,
+                              ArrayRef<int64_t> ub) const {
+  auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
+  return llvm::all_of(llvm::zip(getAllocation(), getShape(), shape),
+                      [&](std::tuple<bool, int64_t, int64_t> x) {
+                        return !std::get<0>(x) ||
+                               GridType::isDynamic(std::get<1>(x)) ||
+                               (std::get<1>(x) == std::get<2>(x));
+                      });
+}
+
+bool GridType::isLargerOrEqualThanShape(ArrayRef<int64_t> lb,
+                                        ArrayRef<int64_t> ub) const {
+  auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
+  return llvm::all_of(llvm::zip(getAllocation(), getShape(), shape),
+                      [&](std::tuple<bool, int64_t, int64_t> x) {
+                        return !std::get<0>(x) ||
+                               GridType::isDynamic(std::get<1>(x)) ||
+                               (std::get<1>(x) >= std::get<2>(x));
+                      });
+}
+
 SmallVector<bool, 3> GridType::getAllocation() const {
   SmallVector<bool, 3> result;
   result.resize(getRank());
@@ -153,11 +175,12 @@ TempType TempType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
   return Base::get(elementType.getContext(), elementType, shape);
 }
 
-TempType TempType::get(TempType oldType, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
+TempType TempType::get(TempType oldType, ArrayRef<int64_t> lb,
+                       ArrayRef<int64_t> ub) {
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
-  for(auto en : llvm::enumerate(oldType.getShape())) {
+  for (auto en : llvm::enumerate(oldType.getShape())) {
     assert(oldType.getRank() == shape.size() &&
-                "expected result type to have operation rank");
+           "expected result type to have operation rank");
     if (GridType::isScalar(en.value()))
       shape[en.index()] = GridType::kScalarDimension;
   }
