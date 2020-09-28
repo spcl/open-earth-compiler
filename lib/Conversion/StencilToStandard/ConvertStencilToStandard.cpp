@@ -337,9 +337,9 @@ public:
         assert(bufferCount == 0 && "expected valid buffer allocation");
 
         // Compute the static store offset
-        auto offset = valueToLB[opOperand->get()];
-        llvm::transform(offset, offset.begin(), std::negate<int64_t>());
-        offset[unrollDim] += opOperand->getOperandNumber() % unrollFac;
+        auto lb = valueToLB[opOperand->get()];
+        llvm::transform(lb, lb.begin(), std::negate<int64_t>());
+        lb[unrollDim] += opOperand->getOperandNumber() % unrollFac;
 
         // Set the insertion point to the defining op if possible
         auto result = resultOp.operands().front();
@@ -349,9 +349,9 @@ public:
 
         // Compute the index values and introduce the store operation
         auto inductionVars = getInductionVars(operation);
-        SmallVector<bool, 3> allocation(offset.size(), true);
+        SmallVector<bool, 3> allocation(lb.size(), true);
         auto storeOffset =
-            computeIndexValues(inductionVars, offset, allocation, rewriter);
+            computeIndexValues(inductionVars, lb, allocation, rewriter);
         rewriter.create<mlir::StoreOp>(loc, result, allocOp, storeOffset);
       }
     }
@@ -568,9 +568,23 @@ void StencilToStandardPass::runOnOperation() {
         valueToLB[applyOp.getBody()->getArgument(en.index())] = shapeOp.getLB();
     }
     // Store the lower bounds for all results
-    auto LB = cast<ShapeOp>(applyOp.getOperation()).getLB();
-    for (auto value : applyOp.getBody()->getTerminator()->getOperands()) {
-      valueToLB[value] = LB;
+    auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+    for (auto result : llvm::enumerate(applyOp.getResults())) {
+      Index lb;
+      for (auto use : result.value().getUsers()) {
+        // Collect the lower bound of the storage op
+        if (auto storeOp = dyn_cast<stencil::StoreOp>(use))
+          lb = cast<ShapeOp>(storeOp.getOperation()).getLB();
+        if (auto bufferOp = dyn_cast<stencil::BufferOp>(use))
+          lb = cast<ShapeOp>(bufferOp.getOperation()).getLB();
+      }
+      assert(lb.size() == cast<ShapeOp>(applyOp.getOperation()).getRank() &&
+             "expected to find valid storage shape");
+      // Store the bound for all return op operands writting to the result
+      unsigned unrollFac = returnOp.getUnrollFac();
+      for (unsigned i = 0, e = unrollFac; i != e; ++i) {
+        valueToLB[returnOp.getOperand(result.index() * unrollFac + i)] = lb;
+      }
     }
   });
 

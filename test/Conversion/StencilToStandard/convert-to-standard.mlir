@@ -75,36 +75,6 @@ func @parallel_loop_unroll(%arg0 : f64) attributes {stencil.program} {
 
 // -----
 
-// CHECK-LABEL: @alloc_temp
-func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
-  // CHECK: [[TEMP1:%.*]] = alloc() : memref<7x7x7xf64>
-  // CHECK: [[TEMP2:%.*]] = alloc() : memref<7x7x7xf64>
-  %0,%1 = stencil.apply (%arg1 = %arg0 : f64) -> (!stencil.temp<7x7x7xf64>, !stencil.temp<7x7x7xf64>) {
-    // CHECK: store %{{.*}}, [[TEMP1]]
-    // CHECK: store %{{.*}}, [[TEMP2]]  
-    %6 = stencil.store_result %arg1 : (f64) -> !stencil.result<f64>
-    %7 = stencil.store_result %arg1 : (f64) -> !stencil.result<f64>
-    stencil.return %6, %7 : !stencil.result<f64>, !stencil.result<f64>
-  } to ([0, 0, 0]:[7, 7, 7]) 
-  %2 = stencil.buffer %0([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
-  %3 = stencil.buffer %1([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
-  // CHECK: dealloc [[TEMP2]] : memref<7x7x7xf64>
-  // CHECK: [[TEMP3:%.*]] = alloc() : memref<7x7x7xf64>
-  %4 = stencil.apply (%arg1 = %2 : !stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64> {
-    // CHECK: load [[TEMP1]]
-    // CHECK: store %{{.*}}, [[TEMP3]]    
-    %6 = stencil.access %arg1[0,0,0] : (!stencil.temp<7x7x7xf64>) -> f64
-    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
-    stencil.return %7 : !stencil.result<f64>
-  } to ([0, 0, 0]:[7, 7, 7])
-  %5 = stencil.buffer %4([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
-  // CHECK: dealloc [[TEMP1]] : memref<7x7x7xf64>
-  // CHECK: dealloc [[TEMP3]] : memref<7x7x7xf64>
-  return
-}
-
-// -----
-
 // CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
 // CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
 
@@ -182,7 +152,7 @@ func @if_lowering(%arg0: f64) attributes {stencil.program} {
     %cond = constant 1 : i1
     // CHECK: %{{.*}} = scf.if %{{.*}} -> (f64) { 
     %1, %2 = scf.if %cond -> (!stencil.result<f64>, f64) {
-      // CHECK: store %{{.*}}, %{{.*}}{{\[}}%{{.*}}, %{{.*}}, %{{.*}} : memref<7x7x7xf64> 
+      // CHECK: store %{{.*}}, %{{.*}}{{\[}}%{{.*}}, %{{.*}}, %{{.*}}] : memref<7x7x7xf64> 
       // CHECK: scf.yield %{{.*}} : f64 
       %3 = stencil.store_result %arg1 : (f64) -> !stencil.result<f64>
       scf.yield %3, %arg1 : !stencil.result<f64>, f64
@@ -310,5 +280,50 @@ func @dyn_access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.
     stencil.return unroll %4 : !stencil.result<f64>
   } to ([0, 0, 0] : [7, 7, 7])
   %3 = stencil.buffer %2([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
+  return
+}
+
+// -----
+
+// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+
+// CHECK-LABEL: @alloc_temp
+func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
+  // CHECK: [[TEMP1:%.*]] = alloc() : memref<7x7x7xf64>
+  // CHECK: [[TEMP2:%.*]] = alloc() : memref<6x6x6xf64>
+  // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
+  %0,%1 = stencil.apply (%arg1 = %arg0 : f64) -> (!stencil.temp<7x7x7xf64>, !stencil.temp<7x7x7xf64>) {
+    // CHECK-DAG: [[C0:%.*]] = constant 0 : index
+    // CHECK-DAG: [[C1:%.*]] = constant 0 : index
+    // CHECK-DAG: [[C2:%.*]] = constant 0 : index
+    // CHECK-DAG: [[C3:%.*]] = constant -1 : index
+    // CHECK-DAG: [[C4:%.*]] = constant -1 : index
+    // CHECK-DAG: [[C5:%.*]] = constant -1 : index
+    // CHECK-DAG: [[IDX0:%.*]] = affine.apply [[MAP1]](%{{.*}}, [[C0]])
+    // CHECK-DAG: [[IDX1:%.*]] = affine.apply [[MAP1]](%{{.*}}, [[C1]])
+    // CHECK-DAG: [[IDX2:%.*]] = affine.apply [[MAP1]](%{{.*}}, [[C2]])
+    // CHECK-DAG: [[IDX3:%.*]] = affine.apply [[MAP1]](%{{.*}}, [[C3]])
+    // CHECK-DAG: [[IDX4:%.*]] = affine.apply [[MAP1]](%{{.*}}, [[C4]])
+    // CHECK-DAG: [[IDX5:%.*]] = affine.apply [[MAP1]](%{{.*}}, [[C5]])
+    // CHECK-DAG: store %{{.*}}, [[TEMP1]]{{\[}}[[IDX2]], [[IDX1]], [[IDX0]]] : memref<7x7x7xf64> 
+    // CHECK-DAG: store %{{.*}}, [[TEMP2]]{{\[}}[[IDX5]], [[IDX4]], [[IDX3]]] : memref<6x6x6xf64> 
+    %6 = stencil.store_result %arg1 : (f64) -> !stencil.result<f64>
+    %7 = stencil.store_result %arg1 : (f64) -> !stencil.result<f64>
+    stencil.return %6, %7 : !stencil.result<f64>, !stencil.result<f64>
+  } to ([0, 0, 0]:[7, 7, 7]) 
+  %2 = stencil.buffer %0([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
+  %3 = stencil.buffer %1([1, 1, 1]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<6x6x6xf64>
+  // CHECK: dealloc [[TEMP2]] : memref<6x6x6xf64>
+  // CHECK: [[TEMP3:%.*]] = alloc() : memref<7x7x7xf64>
+  %4 = stencil.apply (%arg1 = %2 : !stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64> {
+    // CHECK: load [[TEMP1]]
+    // CHECK: store %{{.*}}, [[TEMP3]]    
+    %6 = stencil.access %arg1[0,0,0] : (!stencil.temp<7x7x7xf64>) -> f64
+    %7 = stencil.store_result %6 : (f64) -> !stencil.result<f64>
+    stencil.return %7 : !stencil.result<f64>
+  } to ([0, 0, 0]:[7, 7, 7])
+  %5 = stencil.buffer %4([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
+  // CHECK: dealloc [[TEMP1]] : memref<7x7x7xf64>
+  // CHECK: dealloc [[TEMP3]] : memref<7x7x7xf64>
   return
 }
