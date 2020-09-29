@@ -40,6 +40,33 @@ func @apply_res(%arg0: !stencil.temp<?x?x?xf64>, %arg1: !stencil.temp<?x?x?xf64>
 
 // -----
 
+// CHECK-LABEL: func @apply_load
+func @apply_load(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) -> !stencil.temp<64x64x64xf64> attributes {stencil.program} {
+  %0 = stencil.cast %arg0([-4, -4, -4] : [68, 68, 68]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<72x72x72xf64>
+  %1 = stencil.cast %arg1([-4, -4, -4] : [68, 68, 68]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<72x72x72xf64>
+  // CHECK: [[VAL0:%.*]] = stencil.load %{{.*}}([0, 0, 0] : [64, 64, 64]) : (!stencil.field<72x72x72xf64>) -> !stencil.temp<64x64x64xf64>
+  // CHECK: [[VAL1:%.*]] = stencil.load %{{.*}}([-1, -1, 0] : [65, 65, 64]) : (!stencil.field<72x72x72xf64>) -> !stencil.temp<66x66x64xf64>
+  %2 = stencil.load %0([-1, 0, 0] : [65, 64, 64]) : (!stencil.field<72x72x72xf64>) -> !stencil.temp<66x64x64xf64>
+  %3 = stencil.load %0([0, -1, 0] : [64, 65, 64]) : (!stencil.field<72x72x72xf64>) -> !stencil.temp<64x66x64xf64>
+  %4 = stencil.load %1([0, 0, 0] : [64, 64, 64]) : (!stencil.field<72x72x72xf64>) -> !stencil.temp<64x64x64xf64>
+  // CHECK: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<66x66x64xf64>, [[ARG1:%.*]] = %{{.*}} : !stencil.temp<64x64x64xf64>) -> !stencil.temp<64x64x64xf64> {
+  %5 = stencil.apply (%arg2 = %2 : !stencil.temp<66x64x64xf64>, %arg3 = %4 : !stencil.temp<64x64x64xf64>, %arg4 = %3 : !stencil.temp<64x66x64xf64>) -> !stencil.temp<64x64x64xf64> {
+    // CHECK: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<66x66x64xf64>) -> f64
+    // CHECK: %{{.*}} = stencil.access [[ARG1]] [0, 0, 0] : (!stencil.temp<64x64x64xf64>) -> f64
+    // CHECK: %{{.*}} = stencil.access [[ARG0]] [0, 1, 0] : (!stencil.temp<66x66x64xf64>) -> f64
+    %6 = stencil.access %arg2[-1, 0, 0] : (!stencil.temp<66x64x64xf64>) -> f64
+    %7 = stencil.access %arg3[0, 0, 0] : (!stencil.temp<64x64x64xf64>) -> f64
+    %8 = stencil.access %arg4[0, 1, 0] : (!stencil.temp<64x66x64xf64>) -> f64
+    %9 = addf %6, %7 : f64
+    %10 = addf %9, %8 : f64
+    %11 = stencil.store_result %10 : (f64) -> !stencil.result<f64>
+    stencil.return %11 : !stencil.result<f64>
+  } to ([0, 0, 0] : [64, 64, 64])
+  return %5 : !stencil.temp<64x64x64xf64>
+}
+
+// -----
+
 // CHECK-LABEL: func @hoist
 func @hoist(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   // CHECK: stencil.cast

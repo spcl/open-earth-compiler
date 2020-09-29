@@ -615,7 +615,9 @@ struct StoreOpHoisting : public OpRewritePattern<stencil::StoreOp> {
 // Register canonicalization patterns
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<ApplyOpArgumentCleaner, ApplyOpResultCleaner>(context);
+  results
+      .insert<ApplyOpArgumentCleaner, ApplyOpResultCleaner, ApplyOpLoadCleaner>(
+          context);
 }
 
 void stencil::CastOp::getCanonicalizationPatterns(
