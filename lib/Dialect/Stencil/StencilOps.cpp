@@ -24,12 +24,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
-#include <algorithm>
-#include <bits/stdint-intn.h>
 #include <cstdint>
-#include <functional>
-#include <iterator>
-#include <tuple>
 
 using namespace mlir;
 using namespace stencil;

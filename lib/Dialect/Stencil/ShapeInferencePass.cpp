@@ -11,10 +11,8 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
-#include <bits/stdint-intn.h>
 #include <cstdint>
 #include <cstdlib>
-#include <iterator>
 
 using namespace mlir;
 using namespace stencil;
