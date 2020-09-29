@@ -50,8 +50,8 @@ def ShapeOp : OpInterface<"ShapeOp"> {
         $_op.ubAttr(ArrayAttr::get(ubAttr, $_op.getContext()));
         // Update the result types
         for (auto result : $_op.getOperation()->getResults()) {
-          auto oldType = result.getType().template cast<TempType>();
-          result.setType(TempType::get(oldType, lb, ub));
+          auto oldType = result.getType().template cast<GridType>();
+          result.setType(TempType::get(oldType.getElementType(), oldType.getAllocation(), lb, ub));
         }
     }]>,    
     InterfaceMethod<"/*Verify if the operation has valid bounds*/",

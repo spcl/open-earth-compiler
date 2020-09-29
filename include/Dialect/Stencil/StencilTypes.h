@@ -54,7 +54,8 @@ public:
   bool isEqualThanShape(ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) const;
 
   /// Return true if the type is larger or equal than the shape
-  bool isLargerOrEqualThanShape(ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) const;
+  bool isLargerOrEqualThanShape(ArrayRef<int64_t> lb,
+                                ArrayRef<int64_t> ub) const;
 
   /// Return the allocated / non-scalar dimensions
   SmallVector<bool, 3> getAllocation() const;
@@ -100,7 +101,8 @@ public:
   static TempType get(Type elementType, ArrayRef<int64_t> shape);
 
   // Update the shape of an existing temp type
-  static TempType get(TempType oldType, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub);
+  static TempType get(Type elementType, ArrayRef<bool> allocation,
+                      ArrayRef<int64_t> lb, ArrayRef<int64_t> ub);
 };
 
 //===----------------------------------------------------------------------===//

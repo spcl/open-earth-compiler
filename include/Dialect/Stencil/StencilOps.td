@@ -235,10 +235,22 @@ def Stencil_LoadOp : Stencil_Op<"load", [
   let hasCanonicalizer = 1;
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, Value field", [{
+    OpBuilder<"OpBuilder &builder, OperationState &state, Value field, "
+              "Optional<ArrayAttr> lb, Optional<ArrayAttr> ub", [{
       state.addOperands(field);
       auto fieldType = field.getType().cast<stencil::GridType>();
-      state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getShape()));
+      if(lb.hasValue() && ub.hasValue()) {
+        state.addAttribute(getLBAttrName(), lb.getValue());
+        state.addAttribute(getUBAttrName(), ub.getValue()); 
+        Index lower, upper;
+        for (auto &elem : lb.getValue()) 
+          lower.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
+        for (auto &elem : ub.getValue()) 
+          upper.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
+        state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getAllocation(), lower, upper));
+      } else {
+        state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getShape()));
+      }
     }]>
   ];
 
@@ -654,20 +666,28 @@ def Stencil_CombineOp : Stencil_Op<"combine", [
   }];
 
   let extraClassDeclaration = [{
-    DenseSet<Operation*> getLowerDefiningOps() {
-      DenseSet<Operation*> definingOps;
-      for(auto value : lower())
-        definingOps.insert(value.getDefiningOp());
-      for(auto value : lowerext())
-        definingOps.insert(value.getDefiningOp());
+    SmallVector<Operation*, 4> getLowerDefiningOps() {
+      SmallVector<Operation*, 4> definingOps;
+      for(auto value : lower()) {
+        if(!llvm::is_contained(definingOps, value.getDefiningOp()))
+          definingOps.push_back(value.getDefiningOp());
+      }
+      for(auto value : lowerext()) {
+        if(!llvm::is_contained(definingOps, value.getDefiningOp()))
+          definingOps.push_back(value.getDefiningOp());
+      }
       return definingOps;  
     }
-    DenseSet<Operation*> getUpperDefiningOps() {
-      DenseSet<Operation*> definingOps;
-      for(auto value : upper())
-        definingOps.insert(value.getDefiningOp());
-      for(auto value : upperext())
-        definingOps.insert(value.getDefiningOp());
+    SmallVector<Operation*, 4> getUpperDefiningOps() {
+      SmallVector<Operation*, 4> definingOps;
+      for(auto value : upper()) {
+        if(!llvm::is_contained(definingOps, value.getDefiningOp()))
+          definingOps.push_back(value.getDefiningOp());
+      }
+      for(auto value : upperext()) {
+        if(!llvm::is_contained(definingOps, value.getDefiningOp()))
+          definingOps.push_back(value.getDefiningOp());
+      }
       return definingOps;  
     }
     static StringRef getLBAttrName() { return "lb"; }

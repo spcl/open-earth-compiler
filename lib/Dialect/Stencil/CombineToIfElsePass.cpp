@@ -41,15 +41,19 @@ struct FuseRewrite : public CombineToIfElsePattern {
   using CombineToIfElsePattern::CombineToIfElsePattern;
 
   // Fuse two apply ops into a single apply op
-  LogicalResult fuseApplyOps(stencil::ApplyOp applyOp1,
-                             stencil::ApplyOp applyOp2,
+  LogicalResult fuseApplyOps(ArrayRef<Operation *> definingOps,
                              stencil::CombineOp combineOp,
                              PatternRewriter &rewriter) const {
+    // Extract the apply ops
+    assert(definingOps.size() >= 2 && "expected multiple apply operations");
+    auto applyOp1 = cast<stencil::ApplyOp>(definingOps[0]);
+    auto applyOp2 = cast<stencil::ApplyOp>(definingOps[1]);
+
     // Check the shapes match
     auto shapeOp1 = cast<ShapeOp>(applyOp1.getOperation());
     auto shapeOp2 = cast<ShapeOp>(applyOp2.getOperation());
     if (shapeOp1.hasShape() && shapeOp2.hasShape() &&
-        (shapeOp1.getLB() != shapeOp2.getLB() &&
+        (shapeOp1.getLB() != shapeOp2.getLB() ||
          shapeOp1.getUB() != shapeOp2.getUB())) {
       combineOp.emitWarning("expected shapes to match");
       return failure();
@@ -115,16 +119,13 @@ struct FuseRewrite : public CombineToIfElsePattern {
 
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
-    // Handle the case if multiple applies are connected to lower
-    auto lowerAndUpperDefiningOps = {combineOp.getUpperDefiningOps(),
-                                     combineOp.getLowerDefiningOps()};
-    for (auto definingOps : lowerAndUpperDefiningOps) {
-      if (definingOps.size() > 1) {
-        auto applyOp1 = cast<stencil::ApplyOp>(*definingOps.begin());
-        auto applyOp2 = cast<stencil::ApplyOp>(*(++definingOps.begin()));
-        return fuseApplyOps(applyOp1, applyOp2, combineOp, rewriter);
-      }
-    }
+    // Apply fusion in case there are multiple apply ops
+    auto lowerDefiningOps = combineOp.getLowerDefiningOps();
+    auto upperDefiningOps = combineOp.getUpperDefiningOps();
+    if (lowerDefiningOps.size() > 1)
+      return fuseApplyOps(lowerDefiningOps, combineOp, rewriter);
+    if (upperDefiningOps.size() > 1)
+      return fuseApplyOps(upperDefiningOps, combineOp, rewriter);
     return failure();
   }
 };
@@ -143,7 +144,9 @@ struct MirrorRewrite : public CombineToIfElsePattern {
     // Introduce the emtpy result types using the shape of the op
     auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
     for (auto operand : range) {
-      newResultTypes.push_back(TempType::get(operand.getType().cast<TempType>(),
+      auto operandType = operand.getType().cast<TempType>();
+      newResultTypes.push_back(TempType::get(operandType.getElementType(),
+                                             operandType.getAllocation(),
                                              shapeOp.getLB(), shapeOp.getUB()));
     }
 

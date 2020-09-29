@@ -243,8 +243,10 @@ public:
       Value temp;
       ShapeOp shapeOp;
       std::tie(temp, shapeOp) = getShapeAndTemporary(result);
-      auto tempType = TempType::get(temp.getType().cast<TempType>(),
-                                    shapeOp.getLB(), shapeOp.getUB());
+      auto oldType = temp.getType().cast<TempType>();
+      auto tempType =
+          TempType::get(oldType.getElementType(), oldType.getAllocation(),
+                        shapeOp.getLB(), shapeOp.getUB());
       auto allocType = typeConverter.convertType(tempType).cast<MemRefType>();
       assert(allocType.hasStaticShape() &&
              "expected buffer to have a static shape");

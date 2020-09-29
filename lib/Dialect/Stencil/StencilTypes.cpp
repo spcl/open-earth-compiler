@@ -114,7 +114,7 @@ int64_t GridType::hasStaticShape() const {
 }
 
 bool GridType::isEqualThanShape(ArrayRef<int64_t> lb,
-                              ArrayRef<int64_t> ub) const {
+                                ArrayRef<int64_t> ub) const {
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
   return llvm::all_of(llvm::zip(getAllocation(), getShape(), shape),
                       [&](std::tuple<bool, int64_t, int64_t> x) {
@@ -175,16 +175,14 @@ TempType TempType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
   return Base::get(elementType.getContext(), elementType, shape);
 }
 
-TempType TempType::get(TempType oldType, ArrayRef<int64_t> lb,
-                       ArrayRef<int64_t> ub) {
+TempType TempType::get(Type elementType, ArrayRef<bool> allocation,
+                       ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
-  for (auto en : llvm::enumerate(oldType.getShape())) {
-    assert(oldType.getRank() == shape.size() &&
-           "expected result type to have operation rank");
-    if (GridType::isScalar(en.value()))
+  for(auto en : llvm::enumerate(allocation)) {
+    if(!en.value())
       shape[en.index()] = GridType::kScalarDimension;
   }
-  return TempType::get(oldType.getElementType(), shape);
+  return TempType::get(elementType, shape);
 }
 
 //===----------------------------------------------------------------------===//

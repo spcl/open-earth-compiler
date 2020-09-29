@@ -234,7 +234,7 @@ stencil::StoreResultOp::getReturnOpOperands() {
 namespace {
 // Check if operands connect one-by-one to one combine or to multiple apply ops
 bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra,
-                                 const DenseSet<Operation *> &definingOps) {
+                                 ArrayRef<Operation *> definingOps) {
   // Check the defining op is a unique combine op with one-by-one mapping
   if (auto combineOp = dyn_cast<stencil::CombineOp>(*definingOps.begin())) {
     // Check all operands have one use
@@ -399,6 +399,70 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
 }
 
 namespace {
+
+/// This is a pattern to remove duplicate loads
+struct ApplyOpLoadCleaner : public stencil::ApplyOpPattern {
+  using ApplyOpPattern::ApplyOpPattern;
+
+  LogicalResult cleanupLoadOps(DenseSet<Operation *> &loadOps,
+                               stencil::ApplyOp applyOp,
+                               PatternRewriter &rewriter) const {
+    // Check all load ops have a shape (otherwise cse is sufficient)
+    if (llvm::any_of(loadOps,
+                     [](ShapeOp shapeOp) { return !shapeOp.hasShape(); }))
+      return failure();
+
+    // Compute the bounding box of all load shapes
+    auto lb = cast<ShapeOp>(*loadOps.begin()).getLB();
+    auto ub = cast<ShapeOp>(*loadOps.begin()).getUB();
+    for (auto loadOp : loadOps) {
+      auto shapeOp = cast<ShapeOp>(loadOp);
+      lb = applyFunElementWise(shapeOp.getLB(), lb, min);
+      ub = applyFunElementWise(shapeOp.getUB(), ub, max);
+    }
+
+    // Create a new load operation
+    auto loadOp = rewriter.create<stencil::LoadOp>(
+        applyOp.getLoc(), cast<stencil::LoadOp>(*loadOps.begin()).field(),
+        rewriter.getI64ArrayAttr(lb), rewriter.getI64ArrayAttr(ub));
+
+    // Compute the new operand list
+    SmallVector<Value, 10> newOperands;
+    llvm::transform(applyOp.getOperands(), std::back_inserter(newOperands),
+                    [&](Value value) {
+                      return loadOps.count(value.getDefiningOp()) == 1 ? loadOp
+                                                                       : value;
+                    });
+
+    // Replace the apply operation using the new load op
+    auto newOp = rewriter.create<stencil::ApplyOp>(
+        applyOp.getLoc(), applyOp.getResultTypes(), newOperands, applyOp.lb(),
+        applyOp.ub());
+    rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(),
+                         newOp.getBody()->getArguments());
+    rewriter.replaceOp(applyOp, newOp.getResults());
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
+                                PatternRewriter &rewriter) const override {
+    // Compute mapping of the loaded fields to the load ops
+    DenseMap<Value, DenseSet<Operation *>> fieldToLoadOps;
+    for (auto value : applyOp.getOperands()) {
+      if (auto loadOp =
+              dyn_cast_or_null<stencil::LoadOp>(value.getDefiningOp())) {
+        fieldToLoadOps[loadOp.field()].insert(loadOp.getOperation());
+      }
+    }
+    // Replace multiple loads of the same field
+    for (auto entry : fieldToLoadOps) {
+      if (entry.getSecond().size() > 1) {
+        return cleanupLoadOps(entry.getSecond(), applyOp, rewriter);
+      }
+    }
+    return failure();
+  }
+};
 
 /// This is a pattern to remove duplicate and unused arguments
 struct ApplyOpArgumentCleaner : public stencil::ApplyOpPattern {

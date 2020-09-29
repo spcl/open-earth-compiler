@@ -232,22 +232,22 @@ func @multiple_apply(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?
   %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %2 = stencil.cast %arg2([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
   %3 = stencil.load %2([0, 0, 0] : [32, 64, 60]) : (!stencil.field<70x70x60xf64>) -> !stencil.temp<32x64x60xf64>
-  %4 = stencil.load %2([0, 0, 0] : [32, 64, 60]) : (!stencil.field<70x70x60xf64>) -> !stencil.temp<32x64x60xf64>
-  // CHECK: {{%.*}}:2 = stencil.apply ([[ARG0:%.*]] = {{%.*}} : !stencil.temp<32x64x60xf64>, [[ARG1:%.*]] = {{%.*}} : !stencil.temp<32x64x60xf64>) -> (!stencil.temp<64x64x60xf64>, !stencil.temp<64x64x60xf64>) {
+  %4 = stencil.load %2([0, 0, 0] : [33, 64, 60]) : (!stencil.field<70x70x60xf64>) -> !stencil.temp<33x64x60xf64>
+  // CHECK: {{%.*}}:2 = stencil.apply 
   // CHECK-DAG: [[CST2:%.*]] = constant 2.000000e+00 : f64
   // CHECK-DAG: [[CST3:%.*]] = constant 3.000000e+00 : f64
   // CHECK: [[IF_RES:%.*]]:2 = scf.if {{%.*}} -> (!stencil.result<f64>, !stencil.result<f64>) {
   %50 = stencil.apply (%arg3 = %3 : !stencil.temp<32x64x60xf64>) -> (!stencil.temp<32x64x60xf64>) {
-    // CHECK: [[VAL0:%.*]] = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<32x64x60xf64>) -> f64
+    // CHECK-DAG: [[VAL0:%.*]] = stencil.access {{%.*}} [0, 0, 0] : (!stencil.temp<32x64x60xf64>) -> f64
     // CHECK-DAG: [[RES0:%.*]] = stencil.store_result [[VAL0]] : (f64) -> !stencil.result<f64>
     %7 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<32x64x60xf64>) -> f64
     %8 = stencil.store_result %7 : (f64) -> !stencil.result<f64>
     stencil.return %8 : !stencil.result<f64>
   } to ([0, 0, 0] : [32, 64, 60])
-  %51 = stencil.apply (%arg4 = %4 : !stencil.temp<32x64x60xf64>) -> (!stencil.temp<32x64x60xf64>) {
-    // CHECK: [[VAL1:%.*]] = stencil.access [[ARG1]] [0, 0, 0] : (!stencil.temp<32x64x60xf64>) -> f64
+  %51 = stencil.apply (%arg4 = %4 : !stencil.temp<33x64x60xf64>) -> (!stencil.temp<32x64x60xf64>) {
+    // CHECK-DAG: [[VAL1:%.*]] = stencil.access {{%.*}} [1, 0, 0] : (!stencil.temp<33x64x60xf64>) -> f64
     // CHECK-DAG: [[RES1:%.*]] = stencil.store_result [[VAL1]] : (f64) -> !stencil.result<f64>
-    %7 = stencil.access %arg4 [0, 0, 0] : (!stencil.temp<32x64x60xf64>) -> f64
+    %7 = stencil.access %arg4 [1, 0, 0] : (!stencil.temp<33x64x60xf64>) -> f64
     %8 = stencil.store_result %7 : (f64) -> !stencil.result<f64>
     stencil.return %8 : !stencil.result<f64>
     // CHECK-NEXT: scf.yield [[RES0]], [[RES1]] : !stencil.result<f64>, !stencil.result<f64>
