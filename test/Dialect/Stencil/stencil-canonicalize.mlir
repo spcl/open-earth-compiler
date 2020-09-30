@@ -94,3 +94,23 @@ func @hoist(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, 
   return
 }
 
+// -----
+
+// CHECK-LABEL: func @combine_res
+func @combine_res(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  %0 = stencil.cast %arg0([-4, -4, -4] : [68, 68, 68]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<72x72x72xf64>
+  // CHECK: [[VAL0:%.*]] = stencil.apply 
+  // CHECK: [[VAL1:%.*]] = stencil.apply 
+  %1, %2 = stencil.apply -> (!stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>) {
+    %7 = stencil.store_result : () -> !stencil.result<f64>
+    stencil.return %7, %7 : !stencil.result<f64>, !stencil.result<f64>
+  } to ([0, 0, 0] : [32, 64, 60])
+  %3, %4 = stencil.apply -> (!stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>) {
+    %7 = stencil.store_result : () -> !stencil.result<f64>
+    stencil.return %7, %7 : !stencil.result<f64>, !stencil.result<f64>
+  } to ([32, 0, 0] : [64, 64, 60])
+  // CHECK: [[VAL2:%.*]] = stencil.combine 0 at 32 lower = ([[VAL0]] : !stencil.temp<32x64x60xf64>) upper = ([[VAL1]] : !stencil.temp<32x64x60xf64>) ([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64>
+  %5, %6 = stencil.combine 0 at 32 lower = (%1, %2 : !stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>) upper = (%3, %4 : !stencil.temp<32x64x60xf64>, !stencil.temp<32x64x60xf64>) ([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64>, !stencil.temp<64x64x60xf64>
+  stencil.store %6 to %0([0, 0, 0] : [64, 64, 60]) : !stencil.temp<64x64x60xf64> to !stencil.field<72x72x72xf64>
+  return
+}

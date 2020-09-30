@@ -182,16 +182,14 @@ ShapeOp getResultShape(Operation *definingOp, Value result) {
       return cast<ShapeOp>(combineOp.getOperation());
     }
     // If the result is a lower extra result compute the shape recursively
-    resultNumber -= combineOp.lower().size();
-    if (resultNumber < combineOp.lowerext().size()) {
-      return getResultShape(combineOp.lowerext()[resultNumber].getDefiningOp(),
-                            combineOp.lowerext()[resultNumber]);
+    if (auto num = combineOp.getLowerExtraOperandNumber(resultNumber)) {
+      return getResultShape(combineOp.lowerext()[num.getValue()].getDefiningOp(),
+                            combineOp.lowerext()[num.getValue()]);
     }
     // If the result is an upper extra result compute the shape recursively
-    resultNumber -= combineOp.lowerext().size();
-    if (resultNumber < combineOp.upperext().size()) {
-      return getResultShape(combineOp.upperext()[resultNumber].getDefiningOp(),
-                            combineOp.upperext()[resultNumber]);
+    if (auto num = combineOp.getUpperExtraOperandNumber(resultNumber)) {
+      return getResultShape(combineOp.upperext()[num.getValue()].getDefiningOp(),
+                            combineOp.upperext()[num.getValue()]);
     }
   }
   llvm_unreachable("expected an apply or a combine op");

@@ -398,6 +398,10 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
   return nullptr;
 }
 
+stencil::CombineOpPattern::CombineOpPattern(MLIRContext *context,
+                                            PatternBenefit benefit)
+    : OpRewritePattern<stencil::CombineOp>(context, benefit) {}
+
 namespace {
 
 /// This is a pattern to remove duplicate loads
@@ -465,7 +469,7 @@ struct ApplyOpLoadCleaner : public stencil::ApplyOpPattern {
 };
 
 /// This is a pattern to remove duplicate and unused arguments
-struct ApplyOpArgumentCleaner : public stencil::ApplyOpPattern {
+struct ApplyOpArgCleaner : public stencil::ApplyOpPattern {
   using ApplyOpPattern::ApplyOpPattern;
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
@@ -479,7 +483,7 @@ struct ApplyOpArgumentCleaner : public stencil::ApplyOpPattern {
 };
 
 /// This is a pattern removes unused results
-struct ApplyOpResultCleaner : public stencil::ApplyOpPattern {
+struct ApplyOpResCleaner : public stencil::ApplyOpPattern {
   using ApplyOpPattern::ApplyOpPattern;
 
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
@@ -525,10 +529,70 @@ struct ApplyOpResultCleaner : public stencil::ApplyOpPattern {
       // Compute the replacement results
       SmallVector<Value, 10> repResults(applyOp.getNumResults(),
                                         newOp.getResults().front());
-      for (auto en : llvm::enumerate(usedResults)) {
+      for (auto en : llvm::enumerate(usedResults))
         repResults[en.value().getResultNumber()] = newOp.getResult(en.index());
-      }
       rewriter.replaceOp(applyOp, repResults);
+      return success();
+    }
+    return failure();
+  }
+};
+
+/// This is a pattern to remove unused arguments
+struct CombineOpResCleaner : public stencil::CombineOpPattern {
+  using CombineOpPattern::CombineOpPattern;
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    // Compute the updated result list
+    SmallVector<OpResult, 10> usedResults;
+    llvm::copy_if(combineOp.getResults(), std::back_inserter(usedResults),
+                  [](OpResult result) { return !result.use_empty(); });
+
+    if (usedResults.size() != combineOp.getNumResults()) {
+      // Erase the op if it has not uses
+      if (usedResults.size() == 0) {
+        rewriter.eraseOp(combineOp);
+        return success();
+      }
+
+      // Compute the new result types and operands
+      SmallVector<Type, 10> newResultTypes;
+      llvm::transform(usedResults, std::back_inserter(newResultTypes),
+                      [](Value value) { return value.getType(); });
+
+      SmallVector<Value, 10> newLowerOperands, newLowerExtraOperands;
+      SmallVector<Value, 10> newUpperOperands, newUpperExtraOperands;
+      for (auto used : usedResults) {
+        unsigned resultNumber = used.getResultNumber();
+        // Copy the main operands
+        if (auto num = combineOp.getLowerOperandNumber(resultNumber)) {
+          newLowerOperands.push_back(combineOp.lower()[num.getValue()]);
+          newUpperOperands.push_back(combineOp.upper()[num.getValue()]);
+        }
+        // Copy the lower extra operands
+        if (auto num = combineOp.getLowerExtraOperandNumber(resultNumber)) {
+          newLowerExtraOperands.push_back(combineOp.lowerext()[num.getValue()]);
+        }
+        // Copy the upper extra operands
+        if (auto num = combineOp.getUpperExtraOperandNumber(resultNumber)) {
+          newUpperExtraOperands.push_back(combineOp.upperext()[num.getValue()]);
+        }
+      }
+
+      // Create a new combine op that returns only the used results
+      auto newOp = rewriter.create<stencil::CombineOp>(
+          combineOp.getLoc(), newResultTypes, combineOp.dim(),
+          combineOp.index(), newLowerOperands, newUpperOperands,
+          newLowerExtraOperands, newUpperExtraOperands, combineOp.lbAttr(),
+          combineOp.ubAttr());
+
+      // Compute the replacement results
+      SmallVector<Value, 10> repResults(combineOp.getNumResults(),
+                                        newOp.getResults().front());
+      for (auto en : llvm::enumerate(usedResults))
+        repResults[en.value().getResultNumber()] = newOp.getResult(en.index());
+      rewriter.replaceOp(combineOp, repResults);
       return success();
     }
     return failure();
@@ -615,9 +679,13 @@ struct StoreOpHoisting : public OpRewritePattern<stencil::StoreOp> {
 // Register canonicalization patterns
 void stencil::ApplyOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results
-      .insert<ApplyOpArgumentCleaner, ApplyOpResultCleaner, ApplyOpLoadCleaner>(
-          context);
+  results.insert<ApplyOpArgCleaner, ApplyOpResCleaner, ApplyOpLoadCleaner>(
+      context);
+}
+
+void stencil::CombineOp::getCanonicalizationPatterns(
+    OwningRewritePatternList &results, MLIRContext *context) {
+  results.insert<CombineOpResCleaner>(context);
 }
 
 void stencil::CastOp::getCanonicalizationPatterns(

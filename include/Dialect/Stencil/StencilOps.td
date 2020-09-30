@@ -656,6 +656,7 @@ def Stencil_CombineOp : Stencil_Op<"combine", [
                        OptionalAttr<Stencil_Index>:$lb,
                        OptionalAttr<Stencil_Index>:$ub);
   let results = (outs Variadic<Stencil_Temp>:$res);
+  let hasCanonicalizer = 1;
 
   let assemblyFormat = [{
     $dim `at` $index `lower` `=` `(`$lower `:` type($lower)`)` `upper` `=` `(`$upper `:` type($upper)`)` (`lowerext` `=` `(`$lowerext^ `:` type($lowerext)`)`)? (`upperext` `=` `(`$upperext^ `:` type($upperext)`)`)? (`(` $lb^ `:` $ub`)`)? attr-dict-with-keyword `:` type($res)
@@ -689,6 +690,24 @@ def Stencil_CombineOp : Stencil_Op<"combine", [
           definingOps.push_back(value.getDefiningOp());
       }
       return definingOps;  
+    }
+    Optional<unsigned> getLowerOperandNumber(unsigned resultNumber) {
+      if(resultNumber < lower().size()) {
+        return resultNumber;
+      }
+      return llvm::None;
+    }
+    Optional<unsigned> getLowerExtraOperandNumber(unsigned resultNumber) {
+      if(resultNumber >= lower().size() && resultNumber < lower().size() + lowerext().size()) {
+        return resultNumber - lower().size();
+      }
+      return llvm::None;
+    }
+    Optional<unsigned> getUpperExtraOperandNumber(unsigned resultNumber) {
+      if(resultNumber >= lower().size() + lowerext().size() && resultNumber < lower().size() + lowerext().size() + upperext().size()) {
+        return resultNumber - lower().size() - lowerext().size();
+      }
+      return llvm::None;
     }
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
