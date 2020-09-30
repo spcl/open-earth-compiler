@@ -147,6 +147,15 @@ void stencil::ApplyOp::updateArgumentTypes() {
   }
 }
 
+bool stencil::ApplyOp::hasOnlyEmptyStores() {
+  bool hasOnlyEmptyStores = true;
+  walk([&](stencil::StoreResultOp resultOp) {
+    if (resultOp.operands().size() != 0)
+      hasOnlyEmptyStores = false;
+  });
+  return hasOnlyEmptyStores;
+}
+
 //===----------------------------------------------------------------------===//
 // stencil.dyn_access
 //===----------------------------------------------------------------------===//

@@ -491,6 +491,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   }];
 
   let extraClassDeclaration = [{
+    bool hasOnlyEmptyStores();
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     Block *getBody() { return &region().front(); }
