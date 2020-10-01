@@ -30,15 +30,9 @@ using namespace stencil;
 
 namespace {
 
-// Base class of the combine lowering patterns
-struct CombineToIfElsePattern : public OpRewritePattern<stencil::CombineOp> {
-  CombineToIfElsePattern(MLIRContext *context, PatternBenefit benefit = 1)
-      : OpRewritePattern<stencil::CombineOp>(context, benefit) {}
-};
-
 // Fuse two apply ops connected to the same combine
-struct FuseRewrite : public CombineToIfElsePattern {
-  using CombineToIfElsePattern::CombineToIfElsePattern;
+struct FuseRewrite : public CombineOpPattern {
+  using CombineOpPattern::CombineOpPattern;
 
   // Fuse two apply ops into a single apply op
   LogicalResult fuseApplyOps(ArrayRef<Operation *> definingOps,
@@ -131,99 +125,41 @@ struct FuseRewrite : public CombineToIfElsePattern {
 };
 
 // Introduce empty stores to eliminate extra operands
-struct MirrorRewrite : public CombineToIfElsePattern {
-  using CombineToIfElsePattern::CombineToIfElsePattern;
+struct EmptyStoreRewrite : public CombineOpPattern {
+  using CombineOpPattern::CombineOpPattern;
 
-  // Introduce empty stores for the extra operands
-  stencil::ApplyOp addEmptyStores(stencil::ApplyOp applyOp, OperandRange range,
-                                  stencil::CombineOp combineOp,
-                                  PatternRewriter &rewriter) const {
-    // Compute the result types
-    SmallVector<Type, 10> newResultTypes(applyOp.getResultTypes().begin(),
-                                         applyOp.getResultTypes().end());
-    // Introduce the emtpy result types using the shape of the op
-    auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
-    for (auto operand : range) {
-      auto operandType = operand.getType().cast<TempType>();
-      newResultTypes.push_back(TempType::get(operandType.getElementType(),
-                                             operandType.getAllocation(),
-                                             shapeOp.getLB(), shapeOp.getUB()));
+  // Introduce empty applies to complement the extra stencil computations
+  LogicalResult introduceEmptyStores(stencil::CombineOp combineOp,
+                                     PatternRewriter &rewriter) const {
+    // Update the combine op
+    SmallVector<Value, 10> newLowerOperands = combineOp.lower();
+    SmallVector<Value, 10> newUpperOperands = combineOp.upper();
+
+    // Complement the lower extra operands
+    if (combineOp.lowerext().size() != 0) {
+      newLowerOperands.append(combineOp.lowerext().begin(),
+                              combineOp.lowerext().end());
+      // Introduce an empty apply for the upper operands
+      auto emptyOp = createEmptyApply(combineOp, combineOp.index(),
+                                      std::numeric_limits<int64_t>::max(),
+                                      combineOp.lowerext(), rewriter);
+      newUpperOperands.append(emptyOp.getResults().begin(),
+                              emptyOp.getResults().end());
     }
 
-    // Replace the apply operation
-    rewriter.setInsertionPoint(applyOp);
-    auto newOp = rewriter.create<stencil::ApplyOp>(
-        applyOp.getLoc(), newResultTypes, applyOp.getOperands(), applyOp.lb(),
-        applyOp.ub());
-    rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(),
-                         newOp.getBody()->getArguments());
-
-    // Get the return operation
-    auto returnOp = cast<stencil::ReturnOp>(newOp.getBody()->getTerminator());
-    rewriter.setInsertionPoint(returnOp);
-
-    // Insert the empty stores
-    SmallVector<Value, 10> newOperands = returnOp.getOperands();
-    for (auto operand : range) {
-      auto resultOp = rewriter.create<stencil::StoreResultOp>(
-          returnOp.getLoc(),
-          ResultType::get(operand.getType().cast<TempType>().getElementType()),
-          ValueRange());
-      newOperands.append(returnOp.getUnrollFac(), resultOp);
+    // Complement the upper extra operands
+    if (combineOp.upperext().size() != 0) {
+      newUpperOperands.append(combineOp.upperext().begin(),
+                              combineOp.upperext().end());
+      // Introduce an empty apply for the lower operands
+      auto emptyOp =
+          createEmptyApply(combineOp, std::numeric_limits<int64_t>::min(),
+                           combineOp.index(), combineOp.upperext(), rewriter);
+      newLowerOperands.append(emptyOp.getResults().begin(),
+                              emptyOp.getResults().end());
     }
-    rewriter.create<stencil::ReturnOp>(returnOp.getLoc(), newOperands,
-                                       returnOp.unroll());
-    rewriter.eraseOp(returnOp);
-    return newOp;
-  }
-
-  // Iterate the operand range and append append the new op operands
-  void appendOperandRange(stencil::ApplyOp oldOp, stencil::ApplyOp newOp,
-                          OperandRange range,
-                          SmallVector<Value, 10> &newOperands) const {
-    for (auto value : range) {
-      auto it = llvm::find(oldOp.getResults(), value);
-      assert(it != oldOp.getResults().end() &&
-             "expected to find the result matching the combine operand");
-      newOperands.push_back(
-          newOp.getResult(std::distance(oldOp.getResults().begin(), it)));
-    }
-  }
-
-  // Reroute the store result of the apply ops via a combine op
-  LogicalResult mirrorExtraResults(stencil::ApplyOp lowerOp,
-                                   stencil::ApplyOp upperOp,
-                                   stencil::CombineOp combineOp,
-                                   PatternRewriter &rewriter) const {
-    // Compute the updated apply operations
-    auto newLowerOp =
-        addEmptyStores(lowerOp, combineOp.upperext(), combineOp, rewriter);
-    auto newUpperOp =
-        addEmptyStores(upperOp, combineOp.lowerext(), combineOp, rewriter);
-
-    // Update the combine operation
-    SmallVector<Value, 10> newLowerOperands;
-    SmallVector<Value, 10> newUpperOperands;
-    // Append the lower and upper operands
-    appendOperandRange(lowerOp, newLowerOp, combineOp.lower(),
-                       newLowerOperands);
-    appendOperandRange(upperOp, newUpperOp, combineOp.upper(),
-                       newUpperOperands);
-    // Append the extra operands of the lower and empty of the upper op
-    appendOperandRange(lowerOp, newLowerOp, combineOp.lowerext(),
-                       newLowerOperands);
-    auto upperEmptyStores =
-        newUpperOp.getResults().take_back(combineOp.lowerext().size());
-    newUpperOperands.append(upperEmptyStores.begin(), upperEmptyStores.end());
-    // Append the empty lower and the extra operands of the upper op
-    auto lowerEmptyStores =
-        newLowerOp.getResults().take_back(combineOp.upperext().size());
-    newLowerOperands.append(lowerEmptyStores.begin(), lowerEmptyStores.end());
-    appendOperandRange(upperOp, newUpperOp, combineOp.upperext(),
-                       newUpperOperands);
 
     // Introduce a new stencil combine operation that has no extra operands
-    rewriter.setInsertionPoint(combineOp);
     auto newOp = rewriter.create<stencil::CombineOp>(
         combineOp.getLoc(), combineOp.getResultTypes(), combineOp.dim(),
         combineOp.index(), newLowerOperands, newUpperOperands, ValueRange(),
@@ -231,8 +167,6 @@ struct MirrorRewrite : public CombineToIfElsePattern {
 
     // Replace the combine operation
     rewriter.replaceOp(combineOp, newOp.getResults());
-    rewriter.eraseOp(lowerOp);
-    rewriter.eraseOp(upperOp);
     return success();
   }
 
@@ -242,25 +176,20 @@ struct MirrorRewrite : public CombineToIfElsePattern {
     if (combineOp.lowerext().empty() && combineOp.upperext().empty())
       return failure();
 
-    // Handle multiple input operations first
-    auto definingLowerOps = combineOp.getLowerDefiningOps();
-    auto definingUpperOps = combineOp.getUpperDefiningOps();
-    if (definingLowerOps.size() != 1 || definingUpperOps.size() != 1)
-      return failure();
-
-    // Try to get the lower and the upper apply op
-    auto lowerOp = dyn_cast<stencil::ApplyOp>(*definingLowerOps.begin());
-    auto upperOp = dyn_cast<stencil::ApplyOp>(*definingUpperOps.begin());
-    if (lowerOp && upperOp) {
-      return mirrorExtraResults(lowerOp, upperOp, combineOp, rewriter);
+    // Introduce empty stores if all defining ops are apply ops
+    if (llvm::all_of(combineOp.getLowerDefiningOps(),
+                     [](Operation *op) { return isa<stencil::ApplyOp>(op); }) &&
+        llvm::all_of(combineOp.getUpperDefiningOps(),
+                     [](Operation *op) { return isa<stencil::ApplyOp>(op); })) {
+      return introduceEmptyStores(combineOp, rewriter);
     }
     return failure();
   }
 };
 
 // Pattern replacing stencil.combine ops by if/else
-struct IfElseRewrite : public CombineToIfElsePattern {
-  using CombineToIfElsePattern::CombineToIfElsePattern;
+struct IfElseRewrite : public CombineOpPattern {
+  using CombineOpPattern::CombineOpPattern;
 
   // Apply the apply to combine op operand mapping to the return op operands
   SmallVector<Value, 10>
@@ -375,8 +304,8 @@ struct IfElseRewrite : public CombineToIfElsePattern {
       return failure();
 
     // Try to get the lower and the upper apply op
-    auto lowerOp = dyn_cast<stencil::ApplyOp>(*definingLowerOps.begin());
-    auto upperOp = dyn_cast<stencil::ApplyOp>(*definingUpperOps.begin());
+    auto lowerOp = dyn_cast<stencil::ApplyOp>(definingLowerOps[0]);
+    auto upperOp = dyn_cast<stencil::ApplyOp>(definingUpperOps[0]);
     if (lowerOp && upperOp) {
       // Lower the combine op and its predecessors to a single apply
       return lowerStencilCombine(lowerOp, upperOp, combineOp, rewriter);
@@ -435,7 +364,8 @@ void CombineToIfElsePass::runOnFunction() {
   if (internalOnly) {
     patterns.insert<InternalIfElseRewrite>(&getContext());
   } else {
-    patterns.insert<IfElseRewrite, MirrorRewrite, FuseRewrite>(&getContext());
+    patterns.insert<IfElseRewrite, EmptyStoreRewrite, FuseRewrite>(
+        &getContext());
   }
   applyPatternsAndFoldGreedily(funcOp, patterns);
 }

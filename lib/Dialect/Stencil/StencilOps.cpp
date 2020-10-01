@@ -298,6 +298,8 @@ static LogicalResult verify(stencil::CombineOp op) {
   // Check the operand and result sizes match
   if (op.lower().size() != op.upper().size())
     return op.emitOpError("expected the lower and upper operand size to match");
+  if (op.lower().size() == 0)
+    return op.emitOpError("expected at least one lower and upper operand");
   if (op.res().size() !=
       op.lower().size() + op.lowerext().size() + op.upperext().size())
     return op.emitOpError("expected the result and operand sizes to match");
@@ -410,6 +412,67 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
 stencil::CombineOpPattern::CombineOpPattern(MLIRContext *context,
                                             PatternBenefit benefit)
     : OpRewritePattern<stencil::CombineOp>(context, benefit) {}
+
+stencil::ApplyOp stencil::CombineOpPattern::createEmptyApply(
+    stencil::CombineOp combineOp, int64_t lowerLimit, int64_t upperLimit,
+    OperandRange operandRange, PatternRewriter &rewriter) const {
+  // Get the location of the mirrored return operation
+  auto loc = combineOp.getLoc();
+
+  // Get the return op attached to the operand range
+  auto applyOp = cast<stencil::ApplyOp>(operandRange.front().getDefiningOp());
+  auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
+
+  // Get the shape of the combine op
+  auto shapeOp = cast<ShapeOp>(combineOp.getOperation());
+  Index lb, ub;
+
+  // Compute the result types depending on the size information
+  SmallVector<Type, 10> newResultTypes;
+  if (shapeOp.hasShape()) {
+    // Compute the shape of the empty apply
+    lb = shapeOp.getLB();
+    ub = shapeOp.getUB();
+    lb[combineOp.dim()] = max(lowerLimit, lb[combineOp.dim()]);
+    ub[combineOp.dim()] = min(upperLimit, ub[combineOp.dim()]);
+
+    // Resize the operand types
+    for (auto operand : operandRange) {
+      auto operandType = operand.getType().cast<TempType>();
+      newResultTypes.push_back(TempType::get(
+          operandType.getElementType(), operandType.getAllocation(), lb, ub));
+    }
+  } else {
+    // Assume the types have a dynamic shape
+    for (auto operand : operandRange) {
+      auto operandType = operand.getType().cast<TempType>();
+      assert(operandType.hasDynamicShape() &&
+             "expected operand type to have a dynamic shape");
+    }
+  }
+
+  // Create an empty apply op including empty stores
+  auto newOp = rewriter.create<stencil::ApplyOp>(
+      returnOp.getLoc(), newResultTypes,
+      lb.empty() ? nullptr : rewriter.getI64ArrayAttr(lb),
+      ub.empty() ? nullptr : rewriter.getI64ArrayAttr(ub));
+  newOp.region().push_back(new Block());
+
+  // Update the body of the apply op
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(newOp.getBody());
+
+  // Create the empty stores and the return op
+  SmallVector<Value, 10> newOperands;
+  for (auto newResultType : newResultTypes) {
+    auto elementType = newResultType.cast<TempType>().getElementType();
+    auto resultOp = rewriter.create<stencil::StoreResultOp>(
+        loc, ResultType::get(elementType), ValueRange());
+    newOperands.append(returnOp.getUnrollFac(), resultOp);
+  }
+  rewriter.create<stencil::ReturnOp>(loc, newOperands, returnOp.unroll());
+  return newOp;
+}
 
 namespace {
 

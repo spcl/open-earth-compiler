@@ -125,10 +125,10 @@ LogicalResult adjustBounds(const OpOperand &use, const AccessExtents &extents,
     if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
       if (!llvm::is_contained(combineOp.upper(), use.get()) &&
           !llvm::is_contained(combineOp.upperext(), use.get()))
-        ub[combineOp.dim()] = combineOp.index();
+        ub[combineOp.dim()] = min(combineOp.index(), ub[combineOp.dim()]);
       if (!llvm::is_contained(combineOp.lower(), use.get()) &&
           !llvm::is_contained(combineOp.lowerext(), use.get()))
-        lb[combineOp.dim()] = combineOp.index();
+        lb[combineOp.dim()] = max(combineOp.index(), lb[combineOp.dim()]);
     }
     // Update the lower and upper bounds
     if (lower.empty() && upper.empty()) {
@@ -183,13 +183,15 @@ ShapeOp getResultShape(Operation *definingOp, Value result) {
     }
     // If the result is a lower extra result compute the shape recursively
     if (auto num = combineOp.getLowerExtraOperandNumber(resultNumber)) {
-      return getResultShape(combineOp.lowerext()[num.getValue()].getDefiningOp(),
-                            combineOp.lowerext()[num.getValue()]);
+      return getResultShape(
+          combineOp.lowerext()[num.getValue()].getDefiningOp(),
+          combineOp.lowerext()[num.getValue()]);
     }
     // If the result is an upper extra result compute the shape recursively
     if (auto num = combineOp.getUpperExtraOperandNumber(resultNumber)) {
-      return getResultShape(combineOp.upperext()[num.getValue()].getDefiningOp(),
-                            combineOp.upperext()[num.getValue()]);
+      return getResultShape(
+          combineOp.upperext()[num.getValue()].getDefiningOp(),
+          combineOp.upperext()[num.getValue()]);
     }
   }
   llvm_unreachable("expected an apply or a combine op");

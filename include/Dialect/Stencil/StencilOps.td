@@ -460,9 +460,17 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
       }
       auto region = state.addRegion(); 
       region->push_back(new Block());
-      for(auto operand : operands) {
-        region->front().addArgument(operand.getType());
+      region->front().addArguments(operands.getTypes());
+      state.addTypes(resultTypes);
+    }]>,
+    OpBuilder<"OpBuilder &builder, OperationState &state, "
+              "TypeRange resultTypes, "
+              "Optional<ArrayAttr> lb, Optional<ArrayAttr> ub", [{
+      if(lb.hasValue() && ub.hasValue()) {
+        state.addAttribute(getLBAttrName(), lb.getValue());
+        state.addAttribute(getUBAttrName(), ub.getValue()); 
       }
+      state.addRegion();
       state.addTypes(resultTypes);
     }]>
   ];

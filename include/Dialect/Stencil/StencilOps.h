@@ -34,6 +34,11 @@ struct ApplyOpPattern : public OpRewritePattern<stencil::ApplyOp> {
 // Base class for the stencil combine op canonicalization
 struct CombineOpPattern : public OpRewritePattern<stencil::CombineOp> {
   CombineOpPattern(MLIRContext *context, PatternBenefit benefit = 1);
+
+  stencil::ApplyOp createEmptyApply(stencil::CombineOp combineOp,
+                                    int64_t lowerLimit, int64_t upperLimit,
+                                    OperandRange operandRange,
+                                    PatternRewriter &rewriter) const;
 };
 
 } // namespace stencil
