@@ -100,9 +100,12 @@ public:
 
   static TempType get(Type elementType, ArrayRef<int64_t> shape);
 
-  // Update the shape of an existing temp type
+  /// Get a statically sized temp type
   static TempType get(Type elementType, ArrayRef<bool> allocation,
                       ArrayRef<int64_t> lb, ArrayRef<int64_t> ub);
+
+  /// Get a dynamically sized temp type
+  static TempType get(Type elementType, ArrayRef<bool> allocation);
 };
 
 //===----------------------------------------------------------------------===//

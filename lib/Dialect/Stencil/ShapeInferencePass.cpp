@@ -86,13 +86,27 @@ private:
 };
 
 struct ShapeInferencePass : public ShapeInferencePassBase<ShapeInferencePass> {
+
   void runOnFunction() override;
+
+protected:
+  // Shape extension
+  void updateStorageShape(ShapeOp shapeOp, ShapeOp resultShape);
+  bool isShapeExtension(ShapeOp current, ShapeOp update);
+  ShapeOp getResultShape(Operation *definingOp, Value result);
+  LogicalResult extendStorageShape(ShapeOp shapeOp, Value temp);
+
+  // Shape inference
+  void updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub);
+  LogicalResult updateBounds(const OpOperand &use, const AccessExtents &extents,
+                             Index &lower, Index &upper);
+  LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents);
 };
 
 /// Update the shape given updated bounds
-void updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
+void ShapeInferencePass::updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb,
+                                     ArrayRef<int64_t> ub) {
   shapeOp.updateShape(lb, ub);
-
   // Update the region arguments of dependent shape operations
   // (needed for operations such as the stencil apply op)
   for (auto user : shapeOp.getOperation()->getUsers()) {
@@ -101,40 +115,39 @@ void updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
   }
 }
 
-/// Update the shape given the old and the new shape op
-void updateStorageShape(ShapeOp shapeOp, ShapeOp resultShape) {
-  // Compute the update bounds
-  auto lb = applyFunElementWise(shapeOp.getLB(), resultShape.getLB(), min);
-  auto ub = applyFunElementWise(shapeOp.getUB(), resultShape.getUB(), max);
-  updateShape(shapeOp, lb, ub);
-}
-
 /// Extend the loop bounds for the given use
-LogicalResult adjustBounds(const OpOperand &use, const AccessExtents &extents,
-                           Index &lower, Index &upper) {
+LogicalResult ShapeInferencePass::updateBounds(const OpOperand &use,
+                                               const AccessExtents &extents,
+                                               Index &lower, Index &upper) {
   // Copy the bounds of store ops
   if (auto shapeOp = dyn_cast<ShapeOp>(use.getOwner())) {
-    auto lb = shapeOp.getLB();
-    auto ub = shapeOp.getUB();
-    // Adjust the bounds by the access extents if available
-    if (auto opExtents = extents.lookupExtent(use.getOwner(), use.get())) {
-      lb = applyFunElementWise(lb, opExtents->negative, std::plus<int64_t>());
-      ub = applyFunElementWise(ub, opExtents->positive, std::plus<int64_t>());
-    }
-    // Adjust the bounds if the shape is split into subdomains
-    if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
-      if (!llvm::is_contained(combineOp.upper(), use.get()) &&
-          !llvm::is_contained(combineOp.upperext(), use.get()))
-        ub[combineOp.dim()] = min(combineOp.index(), ub[combineOp.dim()]);
-      if (!llvm::is_contained(combineOp.lower(), use.get()) &&
-          !llvm::is_contained(combineOp.lowerext(), use.get()))
-        lb[combineOp.dim()] = max(combineOp.index(), lb[combineOp.dim()]);
-    }
-    // Update the lower and upper bounds
-    if (lower.empty() && upper.empty()) {
-      lower = lb;
-      upper = ub;
-    } else {
+    if (shapeOp.hasShape()) {
+      auto lb = shapeOp.getLB();
+      auto ub = shapeOp.getUB();
+      // Adjust the bounds by the access extents if available
+      if (auto opExtents = extents.lookupExtent(use.getOwner(), use.get())) {
+        lb = applyFunElementWise(lb, opExtents->negative, std::plus<int64_t>());
+        ub = applyFunElementWise(ub, opExtents->positive, std::plus<int64_t>());
+      }
+      // Adjust the bounds if the shape is split into subdomains
+      if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
+        if (!llvm::is_contained(combineOp.upper(), use.get()) &&
+            !llvm::is_contained(combineOp.upperext(), use.get()))
+          ub[combineOp.dim()] = min(combineOp.index(), ub[combineOp.dim()]);
+        if (!llvm::is_contained(combineOp.lower(), use.get()) &&
+            !llvm::is_contained(combineOp.lowerext(), use.get()))
+          lb[combineOp.dim()] = max(combineOp.index(), lb[combineOp.dim()]);
+      }
+
+      // Verify the shape is not empty
+      if (llvm::any_of(llvm::zip(lb, ub), [](std::tuple<int64_t, int64_t> x) {
+            return std::get<0>(x) >= std::get<1>(x);
+          }))
+        return success();
+
+      // Update the bounds given the extend of the use
+      lower = lower.empty() ? lb : lower;
+      upper = upper.empty() ? ub : upper;
       if (lower.size() != shapeOp.getRank() ||
           upper.size() != shapeOp.getRank())
         return shapeOp.emitOpError("expected operations to have the same rank");
@@ -146,27 +159,25 @@ LogicalResult adjustBounds(const OpOperand &use, const AccessExtents &extents,
 }
 
 /// Infer the shape as the maximum bounding box the consumer shapes
-LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents) {
+LogicalResult ShapeInferencePass::inferShapes(ShapeOp shapeOp,
+                                              const AccessExtents &extents) {
   Index lb, ub;
   // Iterate over all uses and adjust the bounds
   for (auto result : shapeOp.getOperation()->getResults()) {
     for (OpOperand &use : result.getUses()) {
-      if (failed(adjustBounds(use, extents, lb, ub)))
+      if (failed(updateBounds(use, extents, lb, ub)))
         return failure();
     }
   }
-  // Update the the operation bounds
-  auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
-  if (shape.empty())
-    return shapeOp.emitOpError("expected shape to have non-zero size");
-  if (llvm::any_of(shape, [](int64_t size) { return size < 1; }))
-    return shapeOp.emitOpError("expected shape to have non-zero entries");
-  updateShape(shapeOp, lb, ub);
+  // Update the shape if the bounds are known
+  if (lb.size() != 0 && ub.size() != 0)
+    updateShape(shapeOp, lb, ub);
   return success();
 }
 
 /// Compute the shape for a given result of a defining op
-ShapeOp getResultShape(Operation *definingOp, Value result) {
+ShapeOp ShapeInferencePass::getResultShape(Operation *definingOp,
+                                           Value result) {
   // If the defining op is an apply op return its shape
   if (auto applyOp = dyn_cast<stencil::ApplyOp>(definingOp)) {
     return cast<ShapeOp>(applyOp.getOperation());
@@ -198,8 +209,17 @@ ShapeOp getResultShape(Operation *definingOp, Value result) {
   return nullptr;
 }
 
+/// Update the shape given the old and the new shape op
+void ShapeInferencePass::updateStorageShape(ShapeOp shapeOp,
+                                            ShapeOp resultShape) {
+  // Compute the update bounds
+  auto lb = applyFunElementWise(shapeOp.getLB(), resultShape.getLB(), min);
+  auto ub = applyFunElementWise(shapeOp.getUB(), resultShape.getUB(), max);
+  updateShape(shapeOp, lb, ub);
+}
+
 /// Check it is a valid shape extension
-bool isShapeExtension(ShapeOp current, ShapeOp update) {
+bool ShapeInferencePass::isShapeExtension(ShapeOp current, ShapeOp update) {
   if (llvm::all_of(llvm::zip(update.getLB(), current.getLB()),
                    [](std::tuple<int64_t, int64_t> x) {
                      return std::get<0>(x) <= std::get<1>(x);
@@ -210,6 +230,25 @@ bool isShapeExtension(ShapeOp current, ShapeOp update) {
                    }))
     return true;
   return false;
+}
+
+/// Update the storage shape if needed
+LogicalResult ShapeInferencePass::extendStorageShape(ShapeOp shapeOp,
+                                                     Value temp) {
+  auto resultShape = getResultShape(temp.getDefiningOp(), temp);
+  // Update the shape
+  if (shapeOp.getLB() != resultShape.getLB() ||
+      shapeOp.getUB() != resultShape.getUB()) {
+    // Update the storage if it is an extension
+    if (isShapeExtension(shapeOp, resultShape)) {
+      updateStorageShape(shapeOp, resultShape);
+      return success();
+    }
+    // Emit an error if the update shrinks the shape
+    shapeOp.emitOpError("cannot shrink the storage size");
+    signalPassFailure();
+  }
+  return failure();
 }
 
 } // namespace
@@ -242,41 +281,15 @@ void ShapeInferencePass::runOnFunction() {
 
   // Extend the shape of stores if the flag is set
   if (extendStorage) {
-    // Update the store shape if need but issue a warning
+    // Update the store shapes and issue a warning
     funcOp.walk([&](stencil::StoreOp storeOp) {
-      auto shapeOp = cast<ShapeOp>(storeOp.getOperation());
-      auto resultShape =
-          getResultShape(storeOp.temp().getDefiningOp(), storeOp.temp());
-      // Update the shape
-      if (shapeOp.getLB() != resultShape.getLB() ||
-          shapeOp.getUB() != resultShape.getUB()) {
-        // Verify it is a shape extension
-        if (!isShapeExtension(shapeOp, resultShape)) {
-          storeOp.emitOpError("cannot shrink the shape of a store");
-          signalPassFailure();
-          return;
-        }
-        updateStorageShape(shapeOp, resultShape);
+      if (succeeded(extendStorageShape(storeOp.getOperation(), storeOp.temp())))
         storeOp.emitWarning(
             "adapted shape to match the write set of the defining op");
-      }
     });
-    // Update the buffer shape
+    // Update the buffer shapes
     funcOp.walk([&](stencil::BufferOp bufferOp) {
-      auto shapeOp = cast<ShapeOp>(bufferOp.getOperation());
-      auto resultShape =
-          getResultShape(bufferOp.temp().getDefiningOp(), bufferOp.temp());
-      // Update the shape
-      if (shapeOp.getLB() != resultShape.getLB() ||
-          shapeOp.getUB() != resultShape.getUB()) {
-        // Verify it is a shape extension
-        if (!isShapeExtension(shapeOp, resultShape)) {
-          bufferOp.emitOpError("cannot shrink the size of a buffer");
-          signalPassFailure();
-          return;
-        }
-        updateStorageShape(shapeOp, resultShape);
-      }
+      extendStorageShape(bufferOp.getOperation(), bufferOp.temp());
     });
   }
 }

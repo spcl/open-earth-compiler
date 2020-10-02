@@ -178,9 +178,18 @@ TempType TempType::get(Type elementType, llvm::ArrayRef<int64_t> shape) {
 TempType TempType::get(Type elementType, ArrayRef<bool> allocation,
                        ArrayRef<int64_t> lb, ArrayRef<int64_t> ub) {
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
-  for(auto en : llvm::enumerate(allocation)) {
-    if(!en.value())
+  for (auto en : llvm::enumerate(allocation)) {
+    if (!en.value())
       shape[en.index()] = GridType::kScalarDimension;
+  }
+  return TempType::get(elementType, shape);
+}
+
+TempType TempType::get(Type elementType, ArrayRef<bool> allocation) {
+  SmallVector<int64_t, kIndexSize> shape;
+  for (auto hasAllocation : allocation) {
+    shape.push_back(hasAllocation ? GridType::kDynamicDimension
+                                  : GridType::kScalarDimension);
   }
   return TempType::get(elementType, shape);
 }

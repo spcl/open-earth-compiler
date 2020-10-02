@@ -281,9 +281,18 @@ bool checkTempTypesMatch(Type type1, Type type2, int64_t dim) {
   // Check the element type
   if (tempType1.getElementType() != tempType2.getElementType())
     return false;
-  // Check the shapes
+  // Check the shape of static shapes match
   for (auto en : llvm::enumerate(tempType1.getShape())) {
-    if (en.index() != dim && en.value() != tempType2.getShape()[en.index()])
+    // Skip the combine dim
+    if (en.index() == dim)
+      continue;
+    // Check neither of the sizes is dynamic
+    auto size1 = en.value();
+    auto size2 = tempType2.getShape()[en.index()];
+    if (GridType::isDynamic(size1) || GridType::isDynamic(size2))
+      continue;
+    // Check the sizes match
+    if(size1 != size2)
       return false;
   }
   return true;
@@ -298,8 +307,6 @@ static LogicalResult verify(stencil::CombineOp op) {
   // Check the operand and result sizes match
   if (op.lower().size() != op.upper().size())
     return op.emitOpError("expected the lower and upper operand size to match");
-  if (op.lower().size() == 0)
-    return op.emitOpError("expected at least one lower and upper operand");
   if (op.res().size() !=
       op.lower().size() + op.lowerext().size() + op.upperext().size())
     return op.emitOpError("expected the result and operand sizes to match");
@@ -439,8 +446,9 @@ stencil::ApplyOp stencil::CombineOpPattern::createEmptyApply(
     // Resize the operand types
     for (auto operand : operandRange) {
       auto operandType = operand.getType().cast<TempType>();
-      newResultTypes.push_back(TempType::get(
-          operandType.getElementType(), operandType.getAllocation(), lb, ub));
+      auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
+      newResultTypes.push_back(
+          TempType::get(operandType.getElementType(), shape));
     }
   } else {
     // Assume the types have a dynamic shape
@@ -610,6 +618,62 @@ struct ApplyOpResCleaner : public stencil::ApplyOpPattern {
   }
 };
 
+/// This is a pattern to remove combines that do not split the domain
+struct CombineOpEmptyCleaner : public stencil::CombineOpPattern {
+  using CombineOpPattern::CombineOpPattern;
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    // Check if the index of the combine op is inside the shape
+    auto shapeOp = cast<ShapeOp>(combineOp.getOperation());
+    if (shapeOp.hasShape()) {
+      // Remove the upper operands if the index is larger than the upper bound
+      if (combineOp.index() > shapeOp.getUB()[combineOp.dim()]) {
+        // Compute the replacement results
+        SmallVector<Value, 10> repResults = combineOp.lower();
+        repResults.append(combineOp.lowerext().begin(),
+                          combineOp.lowerext().end());
+
+        // Introduce empty stores in case there are upper extra results
+        if (combineOp.upperext().size() > 0) {
+          auto newOp =
+              createEmptyApply(combineOp, std::numeric_limits<int64_t>::min(),
+                               std::numeric_limits<int64_t>::max(),
+                               combineOp.upperext(), rewriter);
+          repResults.append(newOp.getResults().begin(),
+                            newOp.getResults().end());
+        }
+
+        // Replace the combine op
+        rewriter.replaceOp(combineOp, repResults);
+        return success();
+      }
+      // Remove the lower operands if the index is smaller than the lower bound
+      if (combineOp.index() < shapeOp.getLB()[combineOp.dim()]) {
+        // Compute the replacement results
+        SmallVector<Value, 10> repResults = combineOp.upper();
+
+        // Introduce empty stores in case there are lower extra results
+        if (combineOp.lowerext().size() > 0) {
+          auto newOp =
+              createEmptyApply(combineOp, std::numeric_limits<int64_t>::min(),
+                               std::numeric_limits<int64_t>::max(),
+                               combineOp.lowerext(), rewriter);
+          repResults.append(newOp.getResults().begin(),
+                            newOp.getResults().end());
+        }
+        repResults.append(combineOp.upperext().begin(),
+                          combineOp.upperext().end());
+
+        // Replace the combine op
+        rewriter.replaceOp(combineOp, repResults);
+        return success();
+      }
+    }
+    return failure();
+  }
+};
+
 /// This is a pattern to remove unused arguments
 struct CombineOpResCleaner : public stencil::CombineOpPattern {
   using CombineOpPattern::CombineOpPattern;
@@ -757,7 +821,7 @@ void stencil::ApplyOp::getCanonicalizationPatterns(
 
 void stencil::CombineOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<CombineOpResCleaner>(context);
+  results.insert<CombineOpResCleaner, CombineOpEmptyCleaner>(context);
 }
 
 void stencil::CastOp::getCanonicalizationPatterns(

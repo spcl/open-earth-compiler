@@ -34,6 +34,11 @@ def ShapeOp : OpInterface<"ShapeOp"> {
         if(isOptionalArrayAttr($_op.lb()) && isOptionalArrayAttr($_op.ub())) {
           $_op.removeAttr($_op.getLBAttrName());
           $_op.removeAttr($_op.getUBAttrName());
+          // Update the result types
+          for (auto result : $_op.getOperation()->getResults()) {
+            auto oldType = result.getType().template cast<GridType>();
+            result.setType(TempType::get(oldType.getElementType(), oldType.getAllocation()));
+          }
         }
     }]>,
     InterfaceMethod<"/*Set the shape of the operation*/",
