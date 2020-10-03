@@ -292,7 +292,7 @@ bool checkTempTypesMatch(Type type1, Type type2, int64_t dim) {
     if (GridType::isDynamic(size1) || GridType::isDynamic(size2))
       continue;
     // Check the sizes match
-    if(size1 != size2)
+    if (size1 != size2)
       return false;
   }
   return true;
@@ -422,12 +422,12 @@ stencil::CombineOpPattern::CombineOpPattern(MLIRContext *context,
 
 stencil::ApplyOp stencil::CombineOpPattern::createEmptyApply(
     stencil::CombineOp combineOp, int64_t lowerLimit, int64_t upperLimit,
-    OperandRange operandRange, PatternRewriter &rewriter) const {
+    ValueRange values, PatternRewriter &rewriter) const {
   // Get the location of the mirrored return operation
   auto loc = combineOp.getLoc();
 
   // Get the return op attached to the operand range
-  auto applyOp = cast<stencil::ApplyOp>(operandRange.front().getDefiningOp());
+  auto applyOp = cast<stencil::ApplyOp>(values.front().getDefiningOp());
   auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
 
   // Get the shape of the combine op
@@ -444,16 +444,16 @@ stencil::ApplyOp stencil::CombineOpPattern::createEmptyApply(
     ub[combineOp.dim()] = min(upperLimit, ub[combineOp.dim()]);
 
     // Resize the operand types
-    for (auto operand : operandRange) {
-      auto operandType = operand.getType().cast<TempType>();
+    for (auto value : values) {
+      auto operandType = value.getType().cast<TempType>();
       auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
       newResultTypes.push_back(
           TempType::get(operandType.getElementType(), shape));
     }
   } else {
     // Assume the types have a dynamic shape
-    for (auto operand : operandRange) {
-      auto operandType = operand.getType().cast<TempType>();
+    for (auto value : values) {
+      auto operandType = value.getType().cast<TempType>();
       assert(operandType.hasDynamicShape() &&
              "expected operand type to have a dynamic shape");
     }
@@ -615,6 +615,60 @@ struct ApplyOpResCleaner : public stencil::ApplyOpPattern {
       return success();
     }
     return failure();
+  }
+};
+
+/// This is a pattern to removes combines with symmetric operands
+struct CombineOpSymmetricCleaner : public stencil::CombineOpPattern {
+  using CombineOpPattern::CombineOpPattern;
+
+  stencil::ApplyOp getDefiningApplyOp(Value value) const {
+    return dyn_cast_or_null<stencil::ApplyOp>(value.getDefiningOp());
+  }
+
+  LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
+                                PatternRewriter &rewriter) const override {
+    // Exit if the combine has extra operands
+    if (combineOp.lowerext().size() > 0 || combineOp.upperext().size() > 0)
+      failure();
+
+    // Compute the empty values
+    SmallVector<Value, 10> emptyValues;
+    for (auto en : llvm::enumerate(combineOp.lower())) {
+      auto lowerOp = getDefiningApplyOp(en.value());
+      auto upperOp = getDefiningApplyOp(combineOp.upper()[en.index()]);
+      if (lowerOp && upperOp && lowerOp.hasOnlyEmptyStores() &&
+          upperOp.hasOnlyEmptyStores()) {
+        emptyValues.push_back(en.value());
+      }
+    }
+
+    // Compare the upper and lower values
+    for (auto en : llvm::enumerate(combineOp.lower())) {
+      if (en.value() != combineOp.upper()[en.index()] &&
+          !llvm::is_contained(emptyValues, en.value()))
+        return failure();
+    }
+
+    // Create an empty apply
+    auto emptyOp = createEmptyApply(
+        combineOp, std::numeric_limits<int64_t>::min(),
+        std::numeric_limits<int64_t>::max(), emptyValues, rewriter);
+
+    // Compute the replacement values
+    unsigned emptyCount = 0;
+    SmallVector<Value, 10> repResults;
+    for (auto en : llvm::enumerate(combineOp.lower())) {
+      if (en.value() == combineOp.upper()[en.index()]) {
+        repResults.push_back(en.value());
+      } else { 
+        repResults.push_back(emptyOp.getResult(emptyCount++));
+      }
+    }
+
+    // Replace the combine op
+    rewriter.replaceOp(combineOp, repResults);
+    return success();
   }
 };
 
@@ -821,7 +875,8 @@ void stencil::ApplyOp::getCanonicalizationPatterns(
 
 void stencil::CombineOp::getCanonicalizationPatterns(
     OwningRewritePatternList &results, MLIRContext *context) {
-  results.insert<CombineOpResCleaner, CombineOpEmptyCleaner>(context);
+  results.insert<CombineOpResCleaner, CombineOpEmptyCleaner,
+                 CombineOpSymmetricCleaner>(context);
 }
 
 void stencil::CastOp::getCanonicalizationPatterns(

@@ -37,7 +37,7 @@ struct CombineOpPattern : public OpRewritePattern<stencil::CombineOp> {
 
   stencil::ApplyOp createEmptyApply(stencil::CombineOp combineOp,
                                     int64_t lowerLimit, int64_t upperLimit,
-                                    OperandRange operandRange,
+                                    ValueRange values,
                                     PatternRewriter &rewriter) const;
 };
 
