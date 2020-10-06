@@ -12,24 +12,29 @@ index 1011e0d7ef6..ee2c6cdb84a 100644
  
  def ParallelOp : SCF_Op<"parallel",
 diff --git a/mlir/lib/Dialect/SCF/SCF.cpp b/mlir/lib/Dialect/SCF/SCF.cpp
-index e36ffc2e6b8..589e907822d 100644
+index e36ffc2e6b8..c119ca59c42 100644
 --- a/mlir/lib/Dialect/SCF/SCF.cpp
 +++ b/mlir/lib/Dialect/SCF/SCF.cpp
-@@ -10,7 +10,13 @@
+@@ -9,8 +9,18 @@
+ #include "mlir/Dialect/SCF/SCF.h"
  #include "mlir/Dialect/StandardOps/IR/Ops.h"
  #include "mlir/IR/BlockAndValueMapping.h"
++#include "mlir/IR/Builders.h"
++#include "mlir/IR/OperationSupport.h"
  #include "mlir/IR/PatternMatch.h"
 +#include "mlir/IR/UseDefLists.h"
++#include "mlir/IR/Value.h"
 +#include "mlir/Support/LogicalResult.h"
  #include "mlir/Transforms/InliningUtils.h"
 +#include "llvm/ADT/STLExtras.h"
 +#include "llvm/ADT/SmallVector.h"
 +#include "llvm/ADT/iterator_range.h"
 +#include <iterator>
++#include <string>
  
  using namespace mlir;
  using namespace mlir::scf;
-@@ -508,6 +514,63 @@ void IfOp::getSuccessorRegions(Optional<unsigned> index,
+@@ -508,6 +518,64 @@ void IfOp::getSuccessorRegions(Optional<unsigned> index,
    regions.push_back(RegionSuccessor(condition ? &thenRegion() : elseRegion));
  }
  
@@ -40,47 +45,48 @@ index e36ffc2e6b8..589e907822d 100644
 +
 +  LogicalResult matchAndRewrite(IfOp op,
 +                                PatternRewriter &rewriter) const override {
-+    // Compute indexes of the used results.
-+    SmallVector<unsigned, 4> usedResults;
-+    for (auto en : llvm::enumerate(op.getResults())) {
-+      if (!en.value().use_empty())
-+        usedResults.push_back(en.index());
-+    }
-+
-+    // Only replace operations that have unused results.
-+    if (usedResults.size() == op.getNumResults())
++    // Only replace operations that return results.
++    if (op.getNumResults() == 0)
 +      return failure();
 +
-+    // Create a new operation that returns only the used results.
-+    SmallVector<Type, 4> newTypes;
-+    llvm::transform(usedResults, std::back_inserter(newTypes),
-+                    [&](unsigned idx) { return op.getResult(idx).getType(); });
-+    auto newOp =
-+        rewriter.create<IfOp>(op.getLoc(), newTypes, op.condition(), true);
-+    rewriter.mergeBlocks(op.getBody(0), newOp.getBody(0));
-+    rewriter.mergeBlocks(op.getBody(1), newOp.getBody(1));
++    // Compute the list of used results.
++    SmallVector<OpResult, 4> usedResults;
++    llvm::copy_if(op.getResults(), std::back_inserter(usedResults),
++                  [](OpResult result) { return !result.use_empty(); });
 +
-+    // Walk all yield operations and remove the operands that have no use.
-+    newOp.walk([&](scf::YieldOp yieldOp) {
-+      SmallVector<Value, 4> newOperands;
-+      llvm::transform(usedResults, std::back_inserter(newOperands),
-+                      [&](unsigned idx) { return yieldOp.getOperand(idx); });
-+      rewriter.setInsertionPoint(yieldOp);
-+      rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, newOperands);
-+    });
++    // Replace the operation if only a subset of its results have uses.
++    if (usedResults.size() < op.getNumResults()) {
++      // Compute the result types of the replacement operation.
++      SmallVector<Type, 4> newTypes;
++      llvm::transform(usedResults, std::back_inserter(newTypes),
++                      [](OpResult result) { return result.getType(); });
 +
-+    // Replace the operation if there are results.
-+    if (newOp.getNumResults() != 0) {
-+      SmallVector<Value, 4> newResults(op.getNumResults(),
-+                                       newOp.getResults().front());
-+      for (auto en : llvm::enumerate(usedResults))
-+        newResults[en.value()] = newOp.getResult(en.index());
-+      rewriter.replaceOp(op, newResults);
-+      return success();
++      // Create the replacement operation and move the bodies
++      auto buildEmptyBody = [](OpBuilder &, Location) {};
++      auto newOp = rewriter.create<IfOp>(op.getLoc(), newTypes, op.condition(),
++                                         buildEmptyBody, buildEmptyBody);
++      rewriter.mergeBlocks(op.getBody(0), newOp.getBody(0));
++      rewriter.mergeBlocks(op.getBody(1), newOp.getBody(1));
++
++      // Walk the yield operations and remove the unused operands.
++      newOp.walk([&](scf::YieldOp yieldOp) {
++        SmallVector<Value, 4> usedOperands;
++        llvm::transform(usedResults, std::back_inserter(usedOperands),
++                        [&](OpResult result) {
++                          return yieldOp.getOperand(result.getResultNumber());
++                        });
++        rewriter.setInsertionPoint(yieldOp);
++        rewriter.replaceOpWithNewOp<scf::YieldOp>(yieldOp, usedOperands);
++      });
++
++      // Replace the operation by the new one.
++      SmallVector<Value, 4> repResults(op.getNumResults());
++      for (auto en : llvm::enumerate(usedResults)) 
++        repResults[en.value().getResultNumber()] = newOp.getResult(en.index());
++      rewriter.replaceOp(op, repResults);
++      success();
 +    }
-+    // Otherwise erase the operation.
-+    rewriter.eraseOp(op);
-+    return success();
++    return failure();
 +  }
 +};
 +} // namespace
