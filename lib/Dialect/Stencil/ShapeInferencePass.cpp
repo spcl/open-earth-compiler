@@ -133,10 +133,10 @@ LogicalResult ShapeInferencePass::updateBounds(const OpOperand &use,
       if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
         if (!llvm::is_contained(combineOp.upper(), use.get()) &&
             !llvm::is_contained(combineOp.upperext(), use.get()))
-          ub[combineOp.dim()] = min(combineOp.index(), ub[combineOp.dim()]);
+          ub[combineOp.dim()] = min(combineOp.getIndex(), ub[combineOp.dim()]);
         if (!llvm::is_contained(combineOp.lower(), use.get()) &&
             !llvm::is_contained(combineOp.lowerext(), use.get()))
-          lb[combineOp.dim()] = max(combineOp.index(), lb[combineOp.dim()]);
+          lb[combineOp.dim()] = max(combineOp.getIndex(), lb[combineOp.dim()]);
       }
 
       // Verify the shape is not empty
@@ -187,7 +187,7 @@ ShapeOp ShapeInferencePass::getResultShape(Operation *definingOp,
     auto it = llvm::find(combineOp.getResults(), result);
     assert(it != combineOp.getResults().end() &&
            "expected to find the result value");
-    auto resultNumber = std::distance(combineOp.getResults().begin(), it);
+    unsigned resultNumber = std::distance(combineOp.getResults().begin(), it);
     // If the result is a combine result return the shape
     if (resultNumber < combineOp.lower().size()) {
       return cast<ShapeOp>(combineOp.getOperation());

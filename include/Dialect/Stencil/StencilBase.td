@@ -10,7 +10,7 @@ include "mlir/IR/OpBase.td"
 def Stencil_Dialect : Dialect {
     let name = "stencil";
     let description = [{A stencil dialect for weather and climate.}];
-    let cppNamespace = "stencil";
+    let cppNamespace = "";
 }
 
 //===----------------------------------------------------------------------===//

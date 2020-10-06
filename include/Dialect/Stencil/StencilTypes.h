@@ -42,7 +42,7 @@ public:
   ArrayRef<int64_t> getShape() const;
 
   /// Return the rank of the type
-  int64_t getRank() const;
+  unsigned getRank() const;
 
   /// Return true if all dimensions have a dynamic shape
   int64_t hasDynamicShape() const;

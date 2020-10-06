@@ -275,7 +275,7 @@ bool checkOneByOneOperandMapping(OperandRange base, OperandRange extra,
 }
 
 // Helper to check type compatibility given the combine dim
-bool checkTempTypesMatch(Type type1, Type type2, int64_t dim) {
+bool checkTempTypesMatch(Type type1, Type type2, unsigned dim) {
   auto tempType1 = type1.cast<TempType>();
   auto tempType2 = type2.cast<TempType>();
   // Check the element type
@@ -661,7 +661,7 @@ struct CombineOpSymmetricCleaner : public stencil::CombineOpPattern {
     for (auto en : llvm::enumerate(combineOp.lower())) {
       if (en.value() == combineOp.upper()[en.index()]) {
         repResults.push_back(en.value());
-      } else { 
+      } else {
         repResults.push_back(emptyOp.getResult(emptyCount++));
       }
     }
@@ -682,7 +682,7 @@ struct CombineOpEmptyCleaner : public stencil::CombineOpPattern {
     auto shapeOp = cast<ShapeOp>(combineOp.getOperation());
     if (shapeOp.hasShape()) {
       // Remove the upper operands if the index is larger than the upper bound
-      if (combineOp.index() > shapeOp.getUB()[combineOp.dim()]) {
+      if (combineOp.getIndex() > shapeOp.getUB()[combineOp.dim()]) {
         // Compute the replacement results
         SmallVector<Value, 10> repResults = combineOp.lower();
         repResults.append(combineOp.lowerext().begin(),
@@ -703,7 +703,7 @@ struct CombineOpEmptyCleaner : public stencil::CombineOpPattern {
         return success();
       }
       // Remove the lower operands if the index is smaller than the lower bound
-      if (combineOp.index() < shapeOp.getLB()[combineOp.dim()]) {
+      if (combineOp.getIndex() < shapeOp.getLB()[combineOp.dim()]) {
         // Compute the replacement results
         SmallVector<Value, 10> repResults = combineOp.upper();
 
@@ -773,7 +773,7 @@ struct CombineOpResCleaner : public stencil::CombineOpPattern {
       // Create a new combine op that returns only the used results
       auto newOp = rewriter.create<stencil::CombineOp>(
           combineOp.getLoc(), newResultTypes, combineOp.dim(),
-          combineOp.index(), newLowerOperands, newUpperOperands,
+          combineOp.getIndex(), newLowerOperands, newUpperOperands,
           newLowerExtraOperands, newUpperExtraOperands, combineOp.lbAttr(),
           combineOp.ubAttr());
 

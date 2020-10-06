@@ -66,12 +66,12 @@ def ShapeOp : OpInterface<"ShapeOp"> {
         return lb.hasValue() && ub.hasValue();
     }]>,   
     InterfaceMethod<"/*Get the rank of the operation*/",
-      "int64_t", "getRank", (ins), [{
+      "unsigned", "getRank", (ins), [{
         Optional<ArrayAttr> lb = $_op.lb();
         Optional<ArrayAttr> ub = $_op.ub();
         assert(lb.getValue().size() == ub.getValue().size() && 
                "expected lower and upper bound to have the same rank");
-        return lb.getValue().size();
+        return (unsigned)lb.getValue().size();
     }]>,
     InterfaceMethod<"/*Update the argument types*/",
       "void", "updateArgumentTypes", (ins ), /*methodBody=*/[{}], [{

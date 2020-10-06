@@ -81,7 +81,6 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = operation->getLoc();
     auto yieldOp = cast<scf::YieldOp>(operation);
 
     // Remove all result types from the operand list
@@ -104,7 +103,6 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = operation->getLoc();
     auto ifOp = cast<scf::IfOp>(operation);
 
     // Remove all result types from the result list
@@ -147,7 +145,6 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = operation->getLoc();
     auto castOp = cast<stencil::CastOp>(operation);
 
     // Compute the static shape of the field and cast the input memref
@@ -171,7 +168,6 @@ public:
 
     // Get the temp and field types
     auto fieldType = loadOp.field().getType().cast<FieldType>();
-    auto tempType = loadOp.res().getType().cast<TempType>();
 
     // Compute the shape of the subview
     auto subViewShape =
@@ -331,7 +327,7 @@ public:
                                (opOperand->getOperandNumber() / unrollFac);
         auto *node = parallelOp.getOperation();
         while (bufferCount != 0 && (node = node->getPrevNode())) {
-          if (allocOp = dyn_cast<AllocOp>(node))
+          if ((allocOp = dyn_cast<AllocOp>(node)))
             bufferCount--;
         }
         assert(bufferCount == 0 && "expected valid buffer allocation");
@@ -380,7 +376,6 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = operation->getLoc();
     auto accessOp = cast<stencil::AccessOp>(operation);
     auto offsetOp = cast<OffsetOp>(accessOp.getOperation());
 
@@ -413,7 +408,6 @@ public:
   LogicalResult
   matchAndRewrite(Operation *operation, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
-    auto loc = operation->getLoc();
     auto dynAccessOp = cast<stencil::DynAccessOp>(operation);
 
     // Get the induction variables
@@ -483,7 +477,6 @@ public:
 
     // Get the temp and field types
     auto fieldType = storeOp.field().getType().cast<FieldType>();
-    auto tempType = storeOp.temp().getType().cast<TempType>();
 
     // Compute the shape of the subview
     auto subViewShape =
@@ -560,6 +553,7 @@ void StencilToStandardPass::runOnOperation() {
     valueToLB[castOp.res()] = cast<ShapeOp>(castOp.getOperation()).getLB();
   });
   module.walk([&](stencil::ApplyOp applyOp) {
+    auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
     // Store the lower bounds for all arguments
     for (auto en : llvm::enumerate(applyOp.getOperands())) {
       if (auto shapeOp = dyn_cast_or_null<ShapeOp>(en.value().getDefiningOp()))
@@ -567,21 +561,21 @@ void StencilToStandardPass::runOnOperation() {
     }
     // Store the lower bounds for all results
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-    for (auto result : llvm::enumerate(applyOp.getResults())) {
+    for (auto en : llvm::enumerate(applyOp.getResults())) {
       Index lb;
-      for (auto use : result.value().getUsers()) {
+      for (auto use : en.value().getUsers()) {
         // Collect the lower bound of the storage op
         if (auto storeOp = dyn_cast<stencil::StoreOp>(use))
           lb = cast<ShapeOp>(storeOp.getOperation()).getLB();
         if (auto bufferOp = dyn_cast<stencil::BufferOp>(use))
           lb = cast<ShapeOp>(bufferOp.getOperation()).getLB();
       }
-      assert(lb.size() == cast<ShapeOp>(applyOp.getOperation()).getRank() &&
+      assert(lb.size() == shapeOp.getRank() &&
              "expected to find valid storage shape");
       // Store the bound for all return op operands writting to the result
       unsigned unrollFac = returnOp.getUnrollFac();
       for (unsigned i = 0, e = unrollFac; i != e; ++i) {
-        valueToLB[returnOp.getOperand(result.index() * unrollFac + i)] = lb;
+        valueToLB[returnOp.getOperand(en.index() * unrollFac + i)] = lb;
       }
     }
   });

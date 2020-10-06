@@ -1,8 +1,8 @@
 diff --git a/mlir/include/mlir/Dialect/SCF/SCFOps.td b/mlir/include/mlir/Dialect/SCF/SCFOps.td
-index 59ba50fbe23..70e0e6b53ce 100644
+index 1011e0d7ef6..ee2c6cdb84a 100644
 --- a/mlir/include/mlir/Dialect/SCF/SCFOps.td
 +++ b/mlir/include/mlir/Dialect/SCF/SCFOps.td
-@@ -265,6 +265,8 @@ def IfOp : SCF_Op<"if",
+@@ -262,6 +262,8 @@ def IfOp : SCF_Op<"if",
                                 : OpBuilder::atBlockEnd(body);
      }
    }];
@@ -12,7 +12,7 @@ index 59ba50fbe23..70e0e6b53ce 100644
  
  def ParallelOp : SCF_Op<"parallel",
 diff --git a/mlir/lib/Dialect/SCF/SCF.cpp b/mlir/lib/Dialect/SCF/SCF.cpp
-index 498246315d6..ed64357df40 100644
+index e36ffc2e6b8..589e907822d 100644
 --- a/mlir/lib/Dialect/SCF/SCF.cpp
 +++ b/mlir/lib/Dialect/SCF/SCF.cpp
 @@ -10,7 +10,13 @@
@@ -72,12 +72,12 @@ index 498246315d6..ed64357df40 100644
 +    // Replace the operation if there are results.
 +    if (newOp.getNumResults() != 0) {
 +      SmallVector<Value, 4> newResults(op.getNumResults(),
-+                                      newOp.getResults().front());
++                                       newOp.getResults().front());
 +      for (auto en : llvm::enumerate(usedResults))
 +        newResults[en.value()] = newOp.getResult(en.index());
 +      rewriter.replaceOp(op, newResults);
 +      return success();
-+    } 
++    }
 +    // Otherwise erase the operation.
 +    rewriter.eraseOp(op);
 +    return success();

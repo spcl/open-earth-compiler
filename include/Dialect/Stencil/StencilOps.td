@@ -589,7 +589,6 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
   let verifier = [{
     auto applyOp = cast<stencil::ApplyOp>(getParentOp());
     unsigned unrollFac = getUnrollFac();
-    size_t unrollDim = getUnrollDim();
 
     // Verify the number of operands matches the number of apply results
     auto results = applyOp.res();
@@ -676,6 +675,7 @@ def Stencil_CombineOp : Stencil_Op<"combine", [
   }];
 
   let extraClassDeclaration = [{
+    int64_t getIndex() { return indexAttr().getValue().getSExtValue(); }
     SmallVector<Operation*, 4> getLowerDefiningOps() {
       SmallVector<Operation*, 4> definingOps;
       for(auto value : lower()) {

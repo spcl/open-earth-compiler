@@ -1,5 +1,5 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 8aa843308cf..2cbf10460d2 100644
+index 56dc7d3f7c6..c1a3d759e2c 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 @@ -100,12 +100,12 @@ protected:
@@ -12,12 +12,12 @@ index 8aa843308cf..2cbf10460d2 100644
 -          llvmIntPtrType,         /* intptr_t blockXDim */
 -          llvmIntPtrType,         /* intptr_t blockYDim */
 -          llvmIntPtrType,         /* intptr_t blockZDim */
-+          llvmInt32Type,         /* intptr_t gridXDim */
-+          llvmInt32Type,         /* intptr_t gridyDim */
-+          llvmInt32Type,         /* intptr_t gridZDim */
-+          llvmInt32Type,         /* intptr_t blockXDim */
-+          llvmInt32Type,         /* intptr_t blockYDim */
-+          llvmInt32Type,         /* intptr_t blockZDim */
++          llvmInt32Type,          /* intptr_t gridXDim */
++          llvmInt32Type,          /* intptr_t gridyDim */
++          llvmInt32Type,          /* intptr_t gridZDim */
++          llvmInt32Type,          /* intptr_t blockXDim */
++          llvmInt32Type,          /* intptr_t blockYDim */
++          llvmInt32Type,          /* intptr_t blockZDim */
            llvmInt32Type,          /* unsigned int sharedMemBytes */
            llvmPointerType,        /* void *hstream */
            llvmPointerPointerType, /* void **kernelParams */
@@ -36,7 +36,7 @@ index 8aa843308cf..2cbf10460d2 100644
 +      "mgpuMemFree", llvmVoidType, {llvmPointerType /* void *ptr */}};
  };
  
- /// A rewrite patter to convert gpu.host_register operations into a GPU runtime
+ /// A rewrite pattern to convert gpu.host_register operations into a GPU runtime
 @@ -185,17 +194,43 @@ class EraseGpuModuleOpPattern : public OpRewritePattern<gpu::GPUModuleOp> {
    }
  };
@@ -82,16 +82,20 @@ index 8aa843308cf..2cbf10460d2 100644
  }
  
  LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
-@@ -280,7 +315,7 @@ Value ConvertLaunchFuncOpToGpuRuntimeCallPattern::generateParamsArray(
+@@ -279,9 +314,9 @@ Value ConvertLaunchFuncOpToGpuRuntimeCallPattern::generateParamsArray(
+   for (auto en : llvm::enumerate(arguments)) {
      auto index = builder.create<LLVM::ConstantOp>(
          loc, llvmInt32Type, builder.getI32IntegerAttr(en.index()));
-     auto fieldPtr =
+-    auto fieldPtr =
 -        builder.create<LLVM::GEPOp>(loc, structType.getPointerTo(), structPtr,
-+        builder.create<LLVM::GEPOp>(loc, argumentTypes[en.index()].getPointerTo(), structPtr,
-                                     ArrayRef<Value>{zero, index.getResult()});
+-                                    ArrayRef<Value>{zero, index.getResult()});
++    auto fieldPtr = builder.create<LLVM::GEPOp>(
++        loc, argumentTypes[en.index()].getPointerTo(), structPtr,
++        ArrayRef<Value>{zero, index.getResult()});
      builder.create<LLVM::StoreOp>(loc, en.value(), fieldPtr);
      auto elementPtr = builder.create<LLVM::GEPOp>(loc, llvmPointerPointerType,
-@@ -385,6 +420,32 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+                                                   arrayPtr, index.getResult());
+@@ -385,6 +420,33 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
    return success();
  }
  
@@ -107,7 +111,8 @@ index 8aa843308cf..2cbf10460d2 100644
 +                                                 rewriter.getI64IntegerAttr(1));
 +    auto allocPtr =
 +        rewriter.create<LLVM::AllocaOp>(loc, llvmPointerPointerType, one, 0);
-+    memAllocCallBuilder.create(loc, rewriter, ArrayRef<Value>{allocPtr, callOp.getOperand(0)});
++    memAllocCallBuilder.create(loc, rewriter,
++                               ArrayRef<Value>{allocPtr, callOp.getOperand(0)});
 +    auto loadOp = rewriter.create<LLVM::LoadOp>(loc, llvmPointerType, allocPtr);
 +    rewriter.replaceOp(op, loadOp.getResult());
 +    return success();
@@ -124,7 +129,7 @@ index 8aa843308cf..2cbf10460d2 100644
  std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
  mlir::createGpuToLLVMConversionPass(StringRef gpuBinaryAnnotation) {
    return std::make_unique<GpuToLLVMConversionPass>(gpuBinaryAnnotation);
-@@ -396,5 +457,6 @@ void mlir::populateGpuToLLVMConversionPatterns(
+@@ -396,5 +458,6 @@ void mlir::populateGpuToLLVMConversionPatterns(
    patterns.insert<ConvertHostRegisterOpToGpuRuntimeCallPattern>(converter);
    patterns.insert<ConvertLaunchFuncOpToGpuRuntimeCallPattern>(
        converter, gpuBinaryAnnotation);
@@ -132,7 +137,7 @@ index 8aa843308cf..2cbf10460d2 100644
    patterns.insert<EraseGpuModuleOpPattern>(&converter.getContext());
  }
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 517fc9fc18f..bd9be5e84e8 100644
+index 517fc9fc18f..e9ca85cb399 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 @@ -14,6 +14,8 @@
@@ -160,7 +165,7 @@ index 517fc9fc18f..bd9be5e84e8 100644
 +  CUevent start, stop;
 +  CUDA_REPORT_IF_ERROR(cuEventCreate(&start, CU_EVENT_DEFAULT));
 +  CUDA_REPORT_IF_ERROR(cuEventCreate(&stop, CU_EVENT_DEFAULT));
-+  
++
 +  CUDA_REPORT_IF_ERROR(cuEventRecord(start, stream));
    CUDA_REPORT_IF_ERROR(cuLaunchKernel(function, gridX, gridY, gridZ, blockX,
 -                                      blockY, blockZ, smem, stream, params,
@@ -192,7 +197,7 @@ index 517fc9fc18f..bd9be5e84e8 100644
  
  // Allows to register byte array with the CUDA runtime. Helpful until we have
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index 9184c9fa20f..e1804d3928a 100644
+index 9184c9fa20f..3d4b813e53d 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 @@ -14,6 +14,8 @@
@@ -221,7 +226,7 @@ index 9184c9fa20f..e1804d3928a 100644
 +  hipEvent_t start, stop;
 +  HIP_REPORT_IF_ERROR(hipEventCreate(&start));
 +  HIP_REPORT_IF_ERROR(hipEventCreate(&stop));
-+  
++
 +  HIP_REPORT_IF_ERROR(hipEventRecord(start, stream));
    HIP_REPORT_IF_ERROR(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
                                              blockX, blockY, blockZ, smem,

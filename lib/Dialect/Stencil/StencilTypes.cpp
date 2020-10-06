@@ -100,7 +100,7 @@ ArrayRef<int64_t> GridType::getShape() const {
   return static_cast<ImplType *>(impl)->getShape();
 }
 
-int64_t GridType::getRank() const { return getShape().size(); }
+unsigned GridType::getRank() const { return (unsigned)getShape().size(); }
 
 int64_t GridType::hasDynamicShape() const {
   return llvm::all_of(getShape(), [](int64_t size) {

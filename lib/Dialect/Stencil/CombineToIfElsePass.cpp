@@ -140,7 +140,7 @@ struct EmptyStoreRewrite : public CombineOpPattern {
       newLowerOperands.append(combineOp.lowerext().begin(),
                               combineOp.lowerext().end());
       // Introduce an empty apply for the upper operands
-      auto emptyOp = createEmptyApply(combineOp, combineOp.index(),
+      auto emptyOp = createEmptyApply(combineOp, combineOp.getIndex(),
                                       std::numeric_limits<int64_t>::max(),
                                       combineOp.lowerext(), rewriter);
       newUpperOperands.append(emptyOp.getResults().begin(),
@@ -152,9 +152,9 @@ struct EmptyStoreRewrite : public CombineOpPattern {
       newUpperOperands.append(combineOp.upperext().begin(),
                               combineOp.upperext().end());
       // Introduce an empty apply for the lower operands
-      auto emptyOp =
-          createEmptyApply(combineOp, std::numeric_limits<int64_t>::min(),
-                           combineOp.index(), combineOp.upperext(), rewriter);
+      auto emptyOp = createEmptyApply(
+          combineOp, std::numeric_limits<int64_t>::min(), combineOp.getIndex(),
+          combineOp.upperext(), rewriter);
       newLowerOperands.append(emptyOp.getResults().begin(),
                               emptyOp.getResults().end());
     }
@@ -162,7 +162,7 @@ struct EmptyStoreRewrite : public CombineOpPattern {
     // Introduce a new stencil combine operation that has no extra operands
     auto newOp = rewriter.create<stencil::CombineOp>(
         combineOp.getLoc(), combineOp.getResultTypes(), combineOp.dim(),
-        combineOp.index(), newLowerOperands, newUpperOperands, ValueRange(),
+        combineOp.getIndex(), newLowerOperands, newUpperOperands, ValueRange(),
         ValueRange(), combineOp.lbAttr(), combineOp.ubAttr());
 
     // Replace the combine operation
@@ -220,7 +220,6 @@ struct IfElseRewrite : public CombineOpPattern {
                                     stencil::CombineOp combineOp,
                                     PatternRewriter &rewriter) const {
     auto loc = combineOp.getLoc();
-    auto shapeOp = cast<stencil::ShapeOp>(combineOp.getOperation());
 
     // Compute the operands of the fused apply op
     // (run canonicalization after the pass to cleanup arguments)
@@ -239,7 +238,7 @@ struct IfElseRewrite : public CombineOpPattern {
     auto indexOp =
         rewriter.create<stencil::IndexOp>(loc, combineOp.dim(), offset);
     auto constOp = rewriter.create<ConstantOp>(
-        loc, rewriter.getIndexAttr(combineOp.index()));
+        loc, rewriter.getIndexAttr(combineOp.getIndex()));
     auto cmpOp =
         rewriter.create<CmpIOp>(loc, CmpIPredicate::ult, indexOp, constOp);
 
