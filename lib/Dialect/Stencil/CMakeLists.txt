@@ -7,7 +7,7 @@ add_mlir_dialect_library(Stencil
   ShapeInferencePass.cpp
   StencilUnrollingPass.cpp
   CombineToIfElsePass.cpp
-  StencilDomainSplitPass.cpp
+  DomainSplitPass.cpp
   StorageMaterializationPass.cpp
 
   ADDITIONAL_HEADER_DIRS

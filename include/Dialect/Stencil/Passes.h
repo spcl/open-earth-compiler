@@ -6,7 +6,7 @@
 
 namespace mlir {
 
-std::unique_ptr<OperationPass<FuncOp>> createStencilDomainSplitPass();
+std::unique_ptr<OperationPass<FuncOp>> createDomainSplitPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createStencilInliningPass();
 

@@ -718,19 +718,13 @@ def Stencil_CombineOp : Stencil_Op<"combine", [
       }
       return llvm::None;
     }
-    bool isLower(unsigned operandNumber) {
-      return operandNumber < lower().size();
+    bool isLowerOperand(unsigned operandNumber) {
+      return operandNumber < lower().size() ||
+        (operandNumber >= lower().size() + upper().size() && 
+         operandNumber < lower().size() + upper().size() + lowerext().size());
     }
-    bool isUpper(unsigned operandNumber) {
-      return lower().size() <= operandNumber && operandNumber < lower().size() + upper().size();
-    }
-    bool isLowerExt(unsigned operandNumber) {
-      return lower().size() + upper().size() <= operandNumber &&
-          operandNumber < lower().size() + upper().size() + lowerext().size();
-    }
-    bool isUpperExt(unsigned operandNumber) {
-      return lower().size() + upper().size() + lowerext().size() <= operandNumber &&
-          operandNumber < lower().size() + upper().size() + lowerext().size() + upperext().size();
+    bool isUpperOperand(unsigned operandNumber) {
+      return !isLowerOperand(operandNumber) && operandNumber < getNumOperands();
     }
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }

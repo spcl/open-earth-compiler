@@ -11,9 +11,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/Passes.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
-#include <unordered_map>
 
 using namespace mlir;
 using namespace stencil;
@@ -46,12 +43,10 @@ void splitOnDomains(FuncOp funcOp) {
           std::tuple<Index, Index> useDomain = {negative[use.getOwner()],
                                                 positive[use.getOwner()]};
           if (auto combineOp = dyn_cast<CombineOp>(use.getOwner())) {
-            if (combineOp.isLower(use.getOperandNumber()) ||
-                combineOp.isLowerExt(use.getOperandNumber())) {
+            if (combineOp.isLowerOperand(use.getOperandNumber())) {
               std::get<1>(useDomain)[combineOp.dim()] = combineOp.index();
             }
-            if (combineOp.isUpper(use.getOperandNumber()) ||
-                combineOp.isUpperExt(use.getOperandNumber())) {
+            if (combineOp.isUpperOperand(use.getOperandNumber())) {
               std::get<0>(useDomain)[combineOp.dim()] = combineOp.index();
             }
           }
@@ -184,13 +179,12 @@ void splitOnLastCombines(FuncOp funcOp) {
 
 namespace {
 
-struct StencilDomainSplitPass
-    : public StencilDomainSplitPassBase<StencilDomainSplitPass> {
+struct DomainSplitPass : public DomainSplitPassBase<DomainSplitPass> {
 
   void runOnFunction() override;
 };
 
-void StencilDomainSplitPass::runOnFunction() {
+void DomainSplitPass::runOnFunction() {
   FuncOp funcOp = getFunction();
 
   // Only run on functions marked as stencil programs
@@ -216,6 +210,6 @@ void StencilDomainSplitPass::runOnFunction() {
 
 } // namespace
 
-std::unique_ptr<OperationPass<FuncOp>> mlir::createStencilDomainSplitPass() {
-  return std::make_unique<StencilDomainSplitPass>();
+std::unique_ptr<OperationPass<FuncOp>> mlir::createDomainSplitPass() {
+  return std::make_unique<DomainSplitPass>();
 }

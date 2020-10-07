@@ -11,8 +11,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
-#include <cstdint>
-#include <cstdlib>
 
 using namespace mlir;
 using namespace stencil;
@@ -98,7 +96,7 @@ protected:
 
   // Shape inference
   void updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub);
-  LogicalResult updateBounds(const OpOperand &use, const AccessExtents &extents,
+  LogicalResult updateBounds(OpOperand &use, const AccessExtents &extents,
                              Index &lower, Index &upper);
   LogicalResult inferShapes(ShapeOp shapeOp, const AccessExtents &extents);
 };
@@ -116,7 +114,7 @@ void ShapeInferencePass::updateShape(ShapeOp shapeOp, ArrayRef<int64_t> lb,
 }
 
 /// Extend the loop bounds for the given use
-LogicalResult ShapeInferencePass::updateBounds(const OpOperand &use,
+LogicalResult ShapeInferencePass::updateBounds(OpOperand &use,
                                                const AccessExtents &extents,
                                                Index &lower, Index &upper) {
   // Copy the bounds of store ops
@@ -131,11 +129,9 @@ LogicalResult ShapeInferencePass::updateBounds(const OpOperand &use,
       }
       // Adjust the bounds if the shape is split into subdomains
       if (auto combineOp = dyn_cast<stencil::CombineOp>(use.getOwner())) {
-        if (!llvm::is_contained(combineOp.upper(), use.get()) &&
-            !llvm::is_contained(combineOp.upperext(), use.get()))
+        if (combineOp.isLowerOperand(use.getOperandNumber()))
           ub[combineOp.dim()] = min(combineOp.getIndex(), ub[combineOp.dim()]);
-        if (!llvm::is_contained(combineOp.lower(), use.get()) &&
-            !llvm::is_contained(combineOp.lowerext(), use.get()))
+        if (combineOp.isUpperOperand(use.getOperandNumber()))
           lb[combineOp.dim()] = max(combineOp.getIndex(), lb[combineOp.dim()]);
       }
 
