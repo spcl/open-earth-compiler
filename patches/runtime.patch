@@ -1,5 +1,5 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 56dc7d3f7c6..c1a3d759e2c 100644
+index b25c2643f52..c1a3d759e2c 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 @@ -100,12 +100,12 @@ protected:
@@ -82,19 +82,6 @@ index 56dc7d3f7c6..c1a3d759e2c 100644
  }
  
  LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
-@@ -279,9 +314,9 @@ Value ConvertLaunchFuncOpToGpuRuntimeCallPattern::generateParamsArray(
-   for (auto en : llvm::enumerate(arguments)) {
-     auto index = builder.create<LLVM::ConstantOp>(
-         loc, llvmInt32Type, builder.getI32IntegerAttr(en.index()));
--    auto fieldPtr =
--        builder.create<LLVM::GEPOp>(loc, structType.getPointerTo(), structPtr,
--                                    ArrayRef<Value>{zero, index.getResult()});
-+    auto fieldPtr = builder.create<LLVM::GEPOp>(
-+        loc, argumentTypes[en.index()].getPointerTo(), structPtr,
-+        ArrayRef<Value>{zero, index.getResult()});
-     builder.create<LLVM::StoreOp>(loc, en.value(), fieldPtr);
-     auto elementPtr = builder.create<LLVM::GEPOp>(loc, llvmPointerPointerType,
-                                                   arrayPtr, index.getResult());
 @@ -385,6 +420,33 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
    return success();
  }
