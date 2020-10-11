@@ -894,11 +894,9 @@ void stencil::StoreOp::getCanonicalizationPatterns(
 
 namespace mlir {
 namespace stencil {
-
 #include "Dialect/Stencil/StencilOpsInterfaces.cpp.inc"
+} // namespace stencil
+} // namespace mlir
 
 #define GET_OP_CLASSES
 #include "Dialect/Stencil/StencilOps.cpp.inc"
-
-} // namespace stencil
-} // namespace mlir

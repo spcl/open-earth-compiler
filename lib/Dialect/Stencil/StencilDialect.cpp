@@ -19,12 +19,11 @@ using namespace mlir::stencil;
 StencilDialect::StencilDialect(mlir::MLIRContext *context)
     : Dialect(getDialectNamespace(), context, TypeID::get<StencilDialect>()) {
   addTypes<FieldType, TempType, ResultType>();
-
   addOperations<
 #define GET_OP_LIST
 #include "Dialect/Stencil/StencilOps.cpp.inc"
       >();
-
+      
   // Allow Stencil operations to exist in their generic form
   allowUnknownOperations();
 }
