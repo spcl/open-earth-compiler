@@ -7,7 +7,7 @@
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
@@ -17,6 +17,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -362,7 +363,7 @@ void StencilInliningPass::runOnFunction() {
 
   OwningRewritePatternList patterns;
   patterns.insert<InliningRewrite, RerouteRewrite>(&getContext());
-  applyPatternsAndFoldGreedily(funcOp, patterns);
+  applyPatternsAndFoldGreedily(funcOp, std::move(patterns));
 }
 
 } // namespace

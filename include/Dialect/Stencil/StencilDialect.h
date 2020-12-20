@@ -1,8 +1,8 @@
 #ifndef DIALECT_STENCIL_STENCILDIALECT_H
 #define DIALECT_STENCIL_STENCILDIALECT_H
 
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dialect.h"
-#include "mlir/IR/Function.h"
 #include <cstdint>
 
 namespace mlir {

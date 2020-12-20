@@ -1,11 +1,11 @@
 #include "Conversion/LoopsToGPU/Passes.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
+#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
-#include "mlir/IR/Function.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -47,11 +47,11 @@ using namespace llvm;
 using Blob = SmallVector<char, 0>;
 constexpr char tripleName[] = "amdgcn-amd-amdhsa";
 constexpr char targetChip[] = "gfx1010";
-constexpr char features[] = "-code-object-v3";
+constexpr char features[] = "";
 constexpr char gpuBinaryAnnotation[] = "rocdl.hsaco";
 
 static LogicalResult assembleIsa(const std::string isa, StringRef name,
-                                 Blob &result) {  
+                                 Blob &result) {
   raw_svector_ostream os(result);
 
   std::string error;
@@ -206,6 +206,7 @@ void registerGPUToHSACOPipeline() {
         LLVMInitializeAMDGPUAsmParser();
 
         // Define the bitwidth
+        pm.addPass(createLowerToCFGPass());
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());
@@ -213,6 +214,7 @@ void registerGPUToHSACOPipeline() {
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             compileModuleToROCDLIR, compileISAToHsaco, tripleName, targetChip,
             features, gpuBinaryAnnotation));
+        pm.addPass(createGpuAsyncRegionPass());
         pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
       });
 }

@@ -6,16 +6,17 @@
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/TypeRange.h"
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
@@ -193,7 +194,7 @@ public:
     auto bufferOp = cast<stencil::BufferOp>(operation);
 
     // Free the buffer memory after the last use
-    assert(isa<AllocOp>(operands[0].getDefiningOp()) &&
+    assert(isa<gpu::AllocOp>(operands[0].getDefiningOp()) &&
            "expected the temporary points to an allocation");
     Operation *lastUser = bufferOp.getOperation();
     for (auto user : bufferOp.getResult().getUsers()) {
@@ -201,7 +202,8 @@ public:
         lastUser = user;
     }
     rewriter.setInsertionPointAfter(lastUser);
-    rewriter.create<DeallocOp>(loc, bufferOp.temp());
+    rewriter.create<gpu::DeallocOp>(loc, TypeRange(),
+                                    ValueRange(bufferOp.temp()));
 
     rewriter.replaceOp(operation, bufferOp.temp());
     return success();
@@ -246,7 +248,11 @@ public:
       auto allocType = typeConverter.convertType(tempType).cast<MemRefType>();
       assert(allocType.hasStaticShape() &&
              "expected buffer to have a static shape");
-      newResults.push_back(rewriter.create<AllocOp>(loc, allocType));
+      auto segAttr = rewriter.getNamedAttr(
+          "operand_segment_sizes", rewriter.getI32VectorAttr({0, 0, 0}));
+      auto allocOp = rewriter.create<gpu::AllocOp>(loc, TypeRange(allocType),
+                                                   ValueRange(), segAttr);
+      newResults.push_back(allocOp.getResult(0));
     }
 
     // Compute the loop bounds starting from zero
@@ -276,7 +282,7 @@ public:
     auto fwdMap = AffineMap::get(1, 0, fwdExpr);
 
     // Replace the stencil apply operation by a loop nest
-    ParallelOp parallelOp = rewriter.create<ParallelOp>(loc, lbs, ubs, steps);
+    auto parallelOp = rewriter.create<ParallelOp>(loc, lbs, ubs, steps);
     rewriter.mergeBlockBefore(
         applyOp.getBody(),
         parallelOp.getLoopBody().getBlocks().back().getTerminator());
@@ -322,12 +328,12 @@ public:
         size_t unrollDim = returnOp.getUnrollDim();
 
         // Get the output buffer
-        AllocOp allocOp;
+        gpu::AllocOp allocOp;
         unsigned bufferCount = (returnOp.getNumOperands() / unrollFac) -
                                (opOperand->getOperandNumber() / unrollFac);
         auto *node = parallelOp.getOperation();
         while (bufferCount != 0 && (node = node->getPrevNode())) {
-          if ((allocOp = dyn_cast<AllocOp>(node)))
+          if ((allocOp = dyn_cast<gpu::AllocOp>(node)))
             bufferCount--;
         }
         assert(bufferCount == 0 && "expected valid buffer allocation");
@@ -348,7 +354,8 @@ public:
         SmallVector<bool, 3> allocation(lb.size(), true);
         auto storeOffset =
             computeIndexValues(inductionVars, lb, allocation, rewriter);
-        rewriter.create<mlir::StoreOp>(loc, result, allocOp, storeOffset);
+        rewriter.create<mlir::StoreOp>(loc, result, allocOp.getResult(0),
+                                       storeOffset);
       }
     }
 
@@ -629,7 +636,9 @@ void StencilToStandardPass::runOnOperation() {
   target.addDynamicallyLegalOp<scf::IfOp>();
   target.addDynamicallyLegalOp<scf::YieldOp>();
   target.addLegalOp<ModuleOp, ModuleTerminatorOp>();
-  if (failed(applyFullConversion(module, target, patterns))) {
+  target.addLegalOp<gpu::AllocOp>();
+  target.addLegalOp<gpu::DeallocOp>();
+  if (failed(applyFullConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
 }

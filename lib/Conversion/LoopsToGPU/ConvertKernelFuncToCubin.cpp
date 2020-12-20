@@ -1,10 +1,11 @@
 #include "Conversion/LoopsToGPU/Passes.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
+#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
-#include "mlir/IR/Module.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Target/NVVMIR.h"
@@ -101,6 +102,7 @@ void registerGPUToCUBINPipeline() {
         LLVMInitializeNVPTXTargetMC();
         LLVMInitializeNVPTXAsmPrinter();
         // Define the bitwidth
+        pm.addPass(createLowerToCFGPass());
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());

@@ -25,12 +25,12 @@ def Stencil_CastOp : Stencil_Op<"cast", [
   let hasCanonicalizer = 1;
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "Value field, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub", [{
-      state.addOperands(field);
-      state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
-      state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
-      state.addTypes(stencil::FieldType::get(
+    OpBuilderDAG<(ins "Value":$field, "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), 
+    [{
+      $_state.addOperands(field);
+      $_state.addAttribute(getLBAttrName(), $_builder.getI64ArrayAttr(lb));
+      $_state.addAttribute(getUBAttrName(), $_builder.getI64ArrayAttr(ub));
+      $_state.addTypes(stencil::FieldType::get(
         field.getType().cast<stencil::GridType>().getElementType(), 
         applyFunElementWise(lb, ub, std::minus<int64_t>())));
     }]>
@@ -97,11 +97,11 @@ def Stencil_IndexOp : Stencil_Op<"index", [
   let results = (outs Index:$idx);
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "int64_t dim, ArrayRef<int64_t> offset", [{
-      state.addAttribute(getDimAttrName(), builder.getI64IntegerAttr(dim));
-      state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
-      state.addTypes(builder.getIndexType());
+    OpBuilderDAG<(ins "int64_t":$dim, "ArrayRef<int64_t>":$offset), 
+    [{
+      $_state.addAttribute(getDimAttrName(), $_builder.getI64IntegerAttr(dim));
+      $_state.addAttribute(getOffsetAttrName(), $_builder.getI64ArrayAttr(offset));
+      $_state.addTypes($_builder.getIndexType());
     }]>
   ];
 
@@ -137,12 +137,12 @@ def Stencil_AccessOp : Stencil_Op<"access", [
   let results = (outs Stencil_Element:$res);
   
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "Value temp, ArrayRef<int64_t> offset", [{
-      state.addOperands(temp);
-      state.addAttribute(getOffsetAttrName(), builder.getI64ArrayAttr(offset));
+    OpBuilderDAG<(ins "Value":$temp, "ArrayRef<int64_t>":$offset), 
+    [{
+      $_state.addOperands(temp);
+      $_state.addAttribute(getOffsetAttrName(), $_builder.getI64ArrayAttr(offset));
       auto tempType = temp.getType().cast<stencil::GridType>();
-      state.addTypes(tempType.getElementType());
+      $_state.addTypes(tempType.getElementType());
     }]>
   ];
 
@@ -186,15 +186,14 @@ def Stencil_DynAccessOp : Stencil_Op<"dyn_access", [
   let results = (outs Stencil_Element:$res);
   
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "Value temp, ValueRange offset, "
-              "ArrayRef<int64_t> lb, ArrayRef<int64_t> ub", [{
-      state.addOperands(temp);
-      state.addOperands(offset);
-      state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
-      state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub));
+    OpBuilderDAG<(ins "Value":$temp, "ValueRange":$offset, "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), 
+    [{
+      $_state.addOperands(temp);
+      $_state.addOperands(offset);
+      $_state.addAttribute(getLBAttrName(), $_builder.getI64ArrayAttr(lb));
+      $_state.addAttribute(getUBAttrName(), $_builder.getI64ArrayAttr(ub));
       auto tempType = temp.getType().cast<stencil::GridType>();
-      state.addTypes(tempType.getElementType());
+      $_state.addTypes(tempType.getElementType());
     }]>
   ];
 
@@ -235,21 +234,21 @@ def Stencil_LoadOp : Stencil_Op<"load", [
   let hasCanonicalizer = 1;
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, Value field, "
-              "Optional<ArrayAttr> lb, Optional<ArrayAttr> ub", [{
-      state.addOperands(field);
+    OpBuilderDAG<(ins "Value":$field, "Optional<ArrayAttr>":$lb, "Optional<ArrayAttr>":$ub), 
+    [{
+      $_state.addOperands(field);
       auto fieldType = field.getType().cast<stencil::GridType>();
       if(lb.hasValue() && ub.hasValue()) {
-        state.addAttribute(getLBAttrName(), lb.getValue());
-        state.addAttribute(getUBAttrName(), ub.getValue()); 
+        $_state.addAttribute(getLBAttrName(), lb.getValue());
+        $_state.addAttribute(getUBAttrName(), ub.getValue()); 
         Index lower, upper;
         for (auto &elem : lb.getValue()) 
           lower.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
         for (auto &elem : ub.getValue()) 
           upper.push_back(elem.cast<IntegerAttr>().getValue().getSExtValue());
-        state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getAllocation(), lower, upper));
+        $_state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getAllocation(), lower, upper));
       } else {
-        state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getShape()));
+        $_state.addTypes(stencil::TempType::get(fieldType.getElementType(), fieldType.getShape()));
       }
     }]>
   ];
@@ -308,9 +307,10 @@ def Stencil_BufferOp : Stencil_Op<"buffer",
   let results = (outs Stencil_Temp:$res);
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, Value temp", [{
-      state.addOperands(temp);
-      state.addTypes(temp.getType());
+    OpBuilderDAG<(ins "Value":$temp), 
+    [{
+      $_state.addOperands(temp);
+      $_state.addTypes(temp.getType());
     }]>
   ];
 
@@ -371,11 +371,11 @@ def Stencil_StoreOp : Stencil_Op<"store", [
   let hasCanonicalizer = 1;
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, Value temp, "
-              "Value field, ArrayRef<int64_t> lb, ArrayRef<int64_t> ub", [{
-      state.addOperands({temp, field});
-      state.addAttribute(getLBAttrName(), builder.getI64ArrayAttr(lb));
-      state.addAttribute(getUBAttrName(), builder.getI64ArrayAttr(ub)); 
+    OpBuilderDAG<(ins "Value":$temp, "Value":$field, "ArrayRef<int64_t>":$lb, "ArrayRef<int64_t>":$ub), 
+    [{
+      $_state.addOperands({temp, field});
+      $_state.addAttribute(getLBAttrName(), $_builder.getI64ArrayAttr(lb));
+      $_state.addAttribute(getUBAttrName(), $_builder.getI64ArrayAttr(ub)); 
     }]>
   ];
   
@@ -450,28 +450,26 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
   let hasCanonicalizer = 1;
   
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "TypeRange resultTypes, ValueRange operands, "
-              "Optional<ArrayAttr> lb, Optional<ArrayAttr> ub", [{
-      state.addOperands(operands);
+    OpBuilderDAG<(ins "TypeRange":$resultTypes, "ValueRange":$operands, "Optional<ArrayAttr>":$lb, "Optional<ArrayAttr>":$ub), 
+    [{
+      $_state.addOperands(operands);
       if(lb.hasValue() && ub.hasValue()) {
-        state.addAttribute(getLBAttrName(), lb.getValue());
-        state.addAttribute(getUBAttrName(), ub.getValue()); 
+        $_state.addAttribute(getLBAttrName(), lb.getValue());
+        $_state.addAttribute(getUBAttrName(), ub.getValue()); 
       }
-      auto region = state.addRegion(); 
+      auto region = $_state.addRegion(); 
       region->push_back(new Block());
       region->front().addArguments(operands.getTypes());
-      state.addTypes(resultTypes);
+      $_state.addTypes(resultTypes);
     }]>,
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "TypeRange resultTypes, "
-              "Optional<ArrayAttr> lb, Optional<ArrayAttr> ub", [{
+    OpBuilderDAG<(ins "TypeRange":$resultTypes, "Optional<ArrayAttr>":$lb, "Optional<ArrayAttr>":$ub), 
+    [{
       if(lb.hasValue() && ub.hasValue()) {
-        state.addAttribute(getLBAttrName(), lb.getValue());
-        state.addAttribute(getUBAttrName(), ub.getValue()); 
+        $_state.addAttribute(getLBAttrName(), lb.getValue());
+        $_state.addAttribute(getUBAttrName(), ub.getValue()); 
       }
-      state.addRegion();
-      state.addTypes(resultTypes);
+      $_state.addRegion();
+      $_state.addTypes(resultTypes);
     }]>
   ];
 
@@ -521,10 +519,10 @@ def Stencil_StoreResultOp : Stencil_Op<"store_result",
   let results = (outs Stencil_Result:$res);
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "Value value", [{
-      state.addOperands({value});
-      state.addTypes(stencil::ResultType::get(value.getType()));
+    OpBuilderDAG<(ins "Value":$value), 
+    [{
+      $_state.addOperands({value});
+      $_state.addTypes(stencil::ResultType::get(value.getType()));
     }]>
   ];
 
@@ -574,11 +572,11 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
                    OptionalAttr<Stencil_Index>:$unroll);
 
   let builders = [
-    OpBuilder<"OpBuilder &builder, OperationState &state, "
-              "ValueRange operands, Optional<ArrayAttr> unroll", [{
-      state.addOperands({operands});
+    OpBuilderDAG<(ins "ValueRange":$operands, "Optional<ArrayAttr>":$unroll), 
+    [{
+      $_state.addOperands({operands});
       if(unroll.hasValue())
-        state.addAttribute(getUnrollAttrName(), unroll.getValue());
+        $_state.addAttribute(getUnrollAttrName(), unroll.getValue());
     }]>
   ];
 

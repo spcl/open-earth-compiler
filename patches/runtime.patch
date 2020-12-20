@@ -1,8 +1,8 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index b25c2643f52..c1a3d759e2c 100644
+index 3b4b39e57d55..cd9807d3426c 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-@@ -100,12 +100,12 @@ protected:
+@@ -101,12 +101,12 @@ protected:
        llvmVoidType,
        {
            llvmPointerType,        /* void* f */
@@ -12,46 +12,25 @@ index b25c2643f52..c1a3d759e2c 100644
 -          llvmIntPtrType,         /* intptr_t blockXDim */
 -          llvmIntPtrType,         /* intptr_t blockYDim */
 -          llvmIntPtrType,         /* intptr_t blockZDim */
-+          llvmInt32Type,          /* intptr_t gridXDim */
-+          llvmInt32Type,          /* intptr_t gridyDim */
-+          llvmInt32Type,          /* intptr_t gridZDim */
-+          llvmInt32Type,          /* intptr_t blockXDim */
-+          llvmInt32Type,          /* intptr_t blockYDim */
-+          llvmInt32Type,          /* intptr_t blockZDim */
++          llvmInt32Type,         /* int32_t gridXDim */
++          llvmInt32Type,         /* int32_t gridyDim */
++          llvmInt32Type,         /* int32_t gridZDim */
++          llvmInt32Type,         /* int32_t blockXDim */
++          llvmInt32Type,         /* int32_t blockYDim */
++          llvmInt32Type,         /* int32_t blockZDim */
            llvmInt32Type,          /* unsigned int sharedMemBytes */
            llvmPointerType,        /* void *hstream */
            llvmPointerPointerType, /* void **kernelParams */
-@@ -123,6 +123,15 @@ protected:
-       {llvmIntPtrType /* intptr_t rank */,
-        llvmPointerType /* void *memrefDesc */,
-        llvmIntPtrType /* intptr_t elementSizeBytes */}};
-+  FunctionCallBuilder memAllocCallBuilder = {
-+      "mgpuMemAlloc",
-+      llvmVoidType,
-+      {
-+          llvmPointerPointerType, /* void **ptr */
-+          llvmInt32Type           /* int32 sizeBytes */
-+      }};
-+  FunctionCallBuilder memFreeCallBuilder = {
-+      "mgpuMemFree", llvmVoidType, {llvmPointerType /* void *ptr */}};
- };
- 
- /// A rewrite pattern to convert gpu.host_register operations into a GPU runtime
-@@ -185,17 +194,43 @@ class EraseGpuModuleOpPattern : public OpRewritePattern<gpu::GPUModuleOp> {
-   }
- };
- 
-+class ReplaceMallocAndFreePattern
-+    : public ConvertOpToGpuRuntimeCallPattern<LLVM::CallOp> {
-+public:
-+  ReplaceMallocAndFreePattern(LLVMTypeConverter &typeConverter)
-+      : ConvertOpToGpuRuntimeCallPattern<LLVM::CallOp>(typeConverter) {}
-+
-+  LogicalResult
-+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-+                  ConversionPatternRewriter &rewriter) const override;
-+};
-+
+@@ -145,7 +145,7 @@ protected:
+   FunctionCallBuilder allocCallBuilder = {
+       "mgpuMemAlloc",
+       llvmPointerType /* void * */,
+-      {llvmIntPtrType /* intptr_t sizeBytes */,
++      {llvmInt32Type /* int32_t sizeBytes */,
+        llvmPointerType /* void *stream */}};
+   FunctionCallBuilder deallocCallBuilder = {
+       "mgpuMemFree",
+@@ -271,7 +271,11 @@ class EraseGpuModuleOpPattern : public OpRewritePattern<gpu::GPUModuleOp> {
  } // namespace
  
  void GpuToLLVMConversionPass::runOnOperation() {
@@ -61,82 +40,14 @@ index b25c2643f52..c1a3d759e2c 100644
 +                                /*indexBitwidth =*/32,
 +                                /*useAlignedAlloc =*/false};
 +  LLVMTypeConverter converter(&getContext(), options);
-+
    OwningRewritePatternList patterns;
    populateStdToLLVMConversionPatterns(converter, patterns);
    populateGpuToLLVMConversionPatterns(converter, patterns, gpuBinaryAnnotation);
- 
-   LLVMConversionTarget target(getContext());
-+  target.addDynamicallyLegalOp<LLVM::CallOp>([](LLVM::CallOp callOp) {
-+    return callOp.callee().getValueOr("") != "malloc" &&
-+           callOp.callee().getValueOr("") != "free";
-+  });
-   if (failed(applyPartialConversion(getOperation(), target, patterns)))
-     signalPassFailure();
-+
-+  // Erase the malloc and free function declarations if they are unused.
-+  if (auto *malloc = getOperation().lookupSymbol("malloc"))
-+    malloc->erase();
-+  if (auto *free = getOperation().lookupSymbol("free"))
-+    free->erase();
- }
- 
- LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
-@@ -385,6 +420,33 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
-   return success();
- }
- 
-+LogicalResult ReplaceMallocAndFreePattern::matchAndRewrite(
-+    Operation *op, ArrayRef<Value> operands,
-+    ConversionPatternRewriter &rewriter) const {
-+  auto callOp = cast<LLVM::CallOp>(op);
-+  auto loc = callOp.getLoc();
-+
-+  // Replace all memory allocations by GPU memory allocations or frees.
-+  if (callOp.callee().getValue() == "malloc") {
-+    auto one = rewriter.create<LLVM::ConstantOp>(loc, llvmInt64Type,
-+                                                 rewriter.getI64IntegerAttr(1));
-+    auto allocPtr =
-+        rewriter.create<LLVM::AllocaOp>(loc, llvmPointerPointerType, one, 0);
-+    memAllocCallBuilder.create(loc, rewriter,
-+                               ArrayRef<Value>{allocPtr, callOp.getOperand(0)});
-+    auto loadOp = rewriter.create<LLVM::LoadOp>(loc, llvmPointerType, allocPtr);
-+    rewriter.replaceOp(op, loadOp.getResult());
-+    return success();
-+  }
-+  if (callOp.callee().getValue() == "free") {
-+    memFreeCallBuilder.create(loc, rewriter,
-+                              ArrayRef<Value>{callOp.getOperand(0)});
-+    rewriter.eraseOp(op);
-+    return success();
-+  }
-+  return failure();
-+}
-+
- std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
- mlir::createGpuToLLVMConversionPass(StringRef gpuBinaryAnnotation) {
-   return std::make_unique<GpuToLLVMConversionPass>(gpuBinaryAnnotation);
-@@ -396,5 +458,6 @@ void mlir::populateGpuToLLVMConversionPatterns(
-   patterns.insert<ConvertHostRegisterOpToGpuRuntimeCallPattern>(converter);
-   patterns.insert<ConvertLaunchFuncOpToGpuRuntimeCallPattern>(
-       converter, gpuBinaryAnnotation);
-+  patterns.insert<ReplaceMallocAndFreePattern>(converter);
-   patterns.insert<EraseGpuModuleOpPattern>(&converter.getContext());
- }
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index 517fc9fc18f..e9ca85cb399 100644
+index a6729b1c0b7d..552821ab1d58 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-@@ -14,6 +14,8 @@
- 
- #include <cassert>
- #include <numeric>
-+#include <iostream>
-+#include <iomanip>
- 
- #include "mlir/ExecutionEngine/CRunnerUtils.h"
- #include "llvm/ADT/ArrayRef.h"
-@@ -47,14 +49,25 @@ extern "C" CUfunction mgpuModuleGetFunction(CUmodule module, const char *name) {
+@@ -61,10 +61,10 @@ extern "C" CUfunction mgpuModuleGetFunction(CUmodule module, const char *name) {
  // The wrapper uses intptr_t instead of CUDA's unsigned int to match
  // the type of MLIR's index type. This avoids the need for casts in the
  // generated MLIR code.
@@ -149,54 +60,31 @@ index 517fc9fc18f..e9ca85cb399 100644
 +                                 int32_t blockX, int32_t blockY,
 +                                 int32_t blockZ, int32_t smem, CUstream stream,
                                   void **params, void **extra) {
-+  CUevent start, stop;
-+  CUDA_REPORT_IF_ERROR(cuEventCreate(&start, CU_EVENT_DEFAULT));
-+  CUDA_REPORT_IF_ERROR(cuEventCreate(&stop, CU_EVENT_DEFAULT));
-+
-+  CUDA_REPORT_IF_ERROR(cuEventRecord(start, stream));
    CUDA_REPORT_IF_ERROR(cuLaunchKernel(function, gridX, gridY, gridZ, blockX,
--                                      blockY, blockZ, smem, stream, params,
--                                      extra));
-+                                       blockY, blockZ, smem, stream, params,
-+                                       extra));
-+  CUDA_REPORT_IF_ERROR(cuEventRecord(stop, stream));
-+
-+  CUDA_REPORT_IF_ERROR(cuEventSynchronize(stop));
-+  float duration = 0.0;
-+  CUDA_REPORT_IF_ERROR(cuEventElapsedTime(&duration, start, stop));
-+  std::cout << std::setprecision(5) << "-> kernel time [ms]: " << duration << "\n";
+                                       blockY, blockZ, smem, stream, params,
+@@ -107,7 +107,7 @@ extern "C" void mgpuEventRecord(CUevent event, CUstream stream) {
+   CUDA_REPORT_IF_ERROR(cuEventRecord(event, stream));
  }
  
- extern "C" CUstream mgpuStreamCreate() {
-@@ -67,6 +80,14 @@ extern "C" void mgpuStreamSynchronize(CUstream stream) {
-   CUDA_REPORT_IF_ERROR(cuStreamSynchronize(stream));
- }
- 
-+extern "C" void mgpuMemAlloc(CUdeviceptr *ptr, uint32_t size) {
-+  CUDA_REPORT_IF_ERROR(cuMemAlloc(ptr, size));
-+}
-+
-+extern "C" void mgpuMemFree(CUdeviceptr ptr) {
-+  CUDA_REPORT_IF_ERROR(cuMemFree(ptr));
-+}
-+
- /// Helper functions for writing mlir example code
- 
- // Allows to register byte array with the CUDA runtime. Helpful until we have
+-extern "C" void *mgpuMemAlloc(uint64_t sizeBytes, CUstream /*stream*/) {
++extern "C" void *mgpuMemAlloc(uint32_t sizeBytes, CUstream /*stream*/) {
+   CUdeviceptr ptr;
+   CUDA_REPORT_IF_ERROR(cuMemAlloc(&ptr, sizeBytes));
+   return reinterpret_cast<void *>(ptr);
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index 9184c9fa20f..3d4b813e53d 100644
+index aad7ae27ff89..b644c48c876f 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-@@ -14,6 +14,8 @@
- 
- #include <cassert>
- #include <numeric>
-+#include <iostream>
-+#include <iomanip>
- 
- #include "mlir/ExecutionEngine/CRunnerUtils.h"
- #include "llvm/ADT/ArrayRef.h"
-@@ -47,16 +49,27 @@ extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
+@@ -36,7 +36,7 @@ static auto InitializeCtx = [] {
+   HIP_REPORT_IF_ERROR(hipInit(/*flags=*/0));
+   hipDevice_t device;
+   HIP_REPORT_IF_ERROR(hipDeviceGet(&device, /*ordinal=*/0));
+-  hipContext_t context;
++  hipCtx_t context;
+   HIP_REPORT_IF_ERROR(hipCtxCreate(&context, /*flags=*/0, device));
+   return 0;
+ }();
+@@ -61,10 +61,10 @@ extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
  // The wrapper uses intptr_t instead of ROCM's unsigned int to match
  // the type of MLIR's index type. This avoids the need for casts in the
  // generated MLIR code.
@@ -210,71 +98,22 @@ index 9184c9fa20f..3d4b813e53d 100644
 +                                 int32_t blockZ, int32_t smem,
                                   hipStream_t stream, void **params,
                                   void **extra) {
-+  hipEvent_t start, stop;
-+  HIP_REPORT_IF_ERROR(hipEventCreate(&start));
-+  HIP_REPORT_IF_ERROR(hipEventCreate(&stop));
-+
-+  HIP_REPORT_IF_ERROR(hipEventRecord(start, stream));
    HIP_REPORT_IF_ERROR(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
-                                             blockX, blockY, blockZ, smem,
-                                             stream, params, extra));
--}
-+  HIP_REPORT_IF_ERROR(hipEventRecord(stop, stream));
-+
-+  HIP_REPORT_IF_ERROR(hipEventSynchronize(stop));
-+  float duration = 0.0;
-+  HIP_REPORT_IF_ERROR(hipEventElapsedTime(&duration, start, stop));
-+  std::cout << std::setprecision(5) << "-> kernel time [ms]: " << duration << "\n";
-+ }
- 
- extern "C" void *mgpuStreamCreate() {
-   hipStream_t stream = nullptr;
-@@ -68,6 +81,14 @@ extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
-   return HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
+@@ -108,14 +108,14 @@ extern "C" void mgpuEventRecord(hipEvent_t event, hipStream_t stream) {
+   HIP_REPORT_IF_ERROR(hipEventRecord(event, stream));
  }
  
-+extern "C" void mgpuMemAlloc(hipDeviceptr_t *ptr, uint32_t size) {
-+  HIP_REPORT_IF_ERROR(hipMalloc(ptr, size));
-+}
-+
-+extern "C" void mgpuMemFree(hipDeviceptr_t ptr) {
+-extern "C" void *mgpuMemAlloc(uint64_t sizeBytes, hipStream_t /*stream*/) {
++extern "C" void *mgpuMemAlloc(uint32_t sizeBytes, hipStream_t /*stream*/) {
+   void *ptr;
+-  HIP_REPORT_IF_ERROR(hipMemAlloc(&ptr, sizeBytes));
++  HIP_REPORT_IF_ERROR(hipMalloc(&ptr, sizeBytes));
+   return ptr;
+ }
+ 
+ extern "C" void mgpuMemFree(void *ptr, hipStream_t /*stream*/) {
+-  HIP_REPORT_IF_ERROR(hipMemFree(ptr));
 +  HIP_REPORT_IF_ERROR(hipFree(ptr));
-+}
-+
- /// Helper functions for writing mlir example code
- 
- // Allows to register byte array with the ROCM runtime. Helpful until we have
-@@ -107,18 +128,18 @@ void mgpuMemGetDevicePointer(T *hostPtr, T **devicePtr) {
-       hipHostGetDevicePointer((void **)devicePtr, hostPtr, /*flags=*/0));
  }
  
--extern "C" StridedMemRefType<float, 1>
--mgpuMemGetDeviceMemRef1dFloat(float *allocated, float *aligned, int64_t offset,
--                              int64_t size, int64_t stride) {
--  float *devicePtr = nullptr;
--  mgpuMemGetDevicePointer(aligned, &devicePtr);
--  return {devicePtr, devicePtr, offset, {size}, {stride}};
--}
--
--extern "C" StridedMemRefType<int32_t, 1>
--mgpuMemGetDeviceMemRef1dInt32(int32_t *allocated, int32_t *aligned,
--                              int64_t offset, int64_t size, int64_t stride) {
--  int32_t *devicePtr = nullptr;
--  mgpuMemGetDevicePointer(aligned, &devicePtr);
--  return {devicePtr, devicePtr, offset, {size}, {stride}};
--}
-+// extern "C" StridedMemRefType<float, 1>
-+// mgpuMemGetDeviceMemRef1dFloat(float *allocated, float *aligned, int64_t offset,
-+//                               int64_t size, int64_t stride) {
-+//   float *devicePtr = nullptr;
-+//   mgpuMemGetDevicePointer(aligned, &devicePtr);
-+//   return {devicePtr, devicePtr, offset, {size}, {stride}};
-+// }
-+
-+// extern "C" StridedMemRefType<int32_t, 1>
-+// mgpuMemGetDeviceMemRef1dInt32(int32_t *allocated, int32_t *aligned,
-+//                               int64_t offset, int64_t size, int64_t stride) {
-+//   int32_t *devicePtr = nullptr;
-+//   mgpuMemGetDevicePointer(aligned, &devicePtr);
-+//   return {devicePtr, devicePtr, offset, {size}, {stride}};
-+// }
+ /// Helper functions for writing mlir example code

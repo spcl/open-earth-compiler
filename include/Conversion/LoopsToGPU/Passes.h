@@ -2,7 +2,7 @@
 #define CONVERSION_LOOPSTOGPU_PASSES_H
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
-#include "mlir/IR/Function.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>

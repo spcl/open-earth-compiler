@@ -7,8 +7,8 @@
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Function.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OperationSupport.h"
@@ -18,6 +18,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
 #include "llvm/ADT/STLExtras.h"
@@ -125,7 +126,7 @@ void StorageMaterializationPass::runOnFunction() {
   // Poppulate the pattern list depending on the config
   OwningRewritePatternList patterns;
   patterns.insert<ApplyOpRewrite, CombineOpRewrite>(&getContext());
-  applyPatternsAndFoldGreedily(funcOp, patterns);
+  applyPatternsAndFoldGreedily(funcOp, std::move(patterns));
 }
 
 } // namespace

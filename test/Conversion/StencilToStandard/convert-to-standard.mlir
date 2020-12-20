@@ -10,8 +10,8 @@ func @func_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.progra
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP0:#map[0-9]*]] = affine_map<(d0) -> (d0)>
+// CHECK: [[MAP1:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @parallel_loop
 func @parallel_loop(%arg0 : f64) attributes {stencil.program} {
@@ -42,8 +42,8 @@ func @parallel_loop(%arg0 : f64) attributes {stencil.program} {
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP0:#map[0-9]*]] = affine_map<(d0) -> (d0)>
+// CHECK: [[MAP1:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @parallel_loop_unroll
 func @parallel_loop_unroll(%arg0 : f64) attributes {stencil.program} {
@@ -75,8 +75,8 @@ func @parallel_loop_unroll(%arg0 : f64) attributes {stencil.program} {
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP0:#map[0-9]*]] = affine_map<(d0) -> (d0)>
+// CHECK: [[MAP1:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @access_lowering
 func @access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
@@ -105,8 +105,8 @@ func @access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.prog
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP0:#map[0-9]*]] = affine_map<(d0) -> (d0)>
+// CHECK: [[MAP1:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @index_lowering
 func @index_lowering(%arg0 : f64) attributes {stencil.program} {
@@ -175,7 +175,7 @@ func @if_lowering(%arg0: f64) attributes {stencil.program} {
 // CHECK-LABEL: @load_lowering
 func @load_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0 ([0, 0, 0]:[11, 12, 13]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<11x12x13xf64>
-  // CHECK: %{{.*}} = subview %{{.*}}[3, 2, 1] [9, 9, 9] [1, 1, 1] : memref<13x12x11xf64> to memref<9x9x9xf64, #map{{[0-9]+}}>
+  // CHECK: %{{.*}} = subview %{{.*}}[3, 2, 1] [9, 9, 9] [1, 1, 1] : memref<13x12x11xf64> to memref<9x9x9xf64, #map{{[0-9]*}}>
   %1 = stencil.load %0 ([1, 2, 3]:[10, 11, 12]) : (!stencil.field<11x12x13xf64>) -> !stencil.temp<9x9x9xf64>
   return
 }
@@ -185,7 +185,7 @@ func @load_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.progra
 // CHECK-LABEL: @store_lowering
 func @store_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
   %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 10, 10]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<10x10x10xf64>
-  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[3, 2, 1] [7, 7, 7] [1, 1, 1] : memref<10x10x10xf64> to memref<7x7x7xf64, #map{{[0-9]+}}>
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[3, 2, 1] [7, 7, 7] [1, 1, 1] : memref<10x10x10xf64> to memref<7x7x7xf64, #map{{[0-9]*}}>
   %cst = constant 1.0 : f64
   %1 = stencil.apply (%arg1 = %cst : f64) -> !stencil.temp<7x7x7xf64> {
     // CHECK: store %{{.*}} [[VIEW]]
@@ -227,15 +227,15 @@ func @if_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program}
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0) -> (d0)>
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP0:#map[0-9]*]] = affine_map<(d0) -> (d0)>
+// CHECK: [[MAP1:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @lowerdim
 // CHECK: (%{{.*}}: memref<?x?xf64>) {
 func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
   // CHECK: %{{.*}} = memref_cast %{{.*}} : memref<?x?xf64> to memref<11x10xf64>
   %0 = stencil.cast %arg0 ([0, 0, 0]:[10, 11, 12]) : (!stencil.field<?x?x0xf64>) -> !stencil.field<10x11x0xf64>
-  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[0, 0] [8, 7] [1, 1] : memref<11x10xf64> to memref<8x7xf64, #map{{[0-9]+}}>
+  // CHECK: [[VIEW:%.*]] = subview %{{.*}}[0, 0] [8, 7] [1, 1] : memref<11x10xf64> to memref<8x7xf64, #map{{[0-9]*}}>
   %1 = stencil.load %0 ([0, 0, 0]:[7, 8, 9]) : (!stencil.field<10x11x0xf64>) -> !stencil.temp<7x8x0xf64>
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
   %2 = stencil.apply (%arg1 = %1 : !stencil.temp<7x8x0xf64>) -> !stencil.temp<7x7x7xf64> {
@@ -256,7 +256,7 @@ func @lowerdim(%arg0: !stencil.field<?x?x0xf64>) attributes {stencil.program} {
 
 // -----
 
-// CHECK: [[MAP0:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP0:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @dyn_access_lowering
 func @dyn_access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
@@ -285,12 +285,12 @@ func @dyn_access_lowering(%arg0: !stencil.field<?x?x?xf64>) attributes {stencil.
 
 // -----
 
-// CHECK: [[MAP1:#map[0-9]+]] = affine_map<(d0, d1) -> (d0 + d1)>
+// CHECK: [[MAP1:#map[0-9]*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 // CHECK-LABEL: @alloc_temp
 func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
-  // CHECK: [[TEMP1:%.*]] = alloc() : memref<7x7x7xf64>
-  // CHECK: [[TEMP2:%.*]] = alloc() : memref<6x6x6xf64>
+  // CHECK: [[TEMP1:%.*]] = gpu.alloc () : memref<7x7x7xf64>
+  // CHECK: [[TEMP2:%.*]] = gpu.alloc () : memref<6x6x6xf64>
   // CHECK: scf.parallel ([[ARG0:%.*]], [[ARG1:%.*]], [[ARG2:%.*]]) =
   %0,%1 = stencil.apply (%arg1 = %arg0 : f64) -> (!stencil.temp<7x7x7xf64>, !stencil.temp<7x7x7xf64>) {
     // CHECK-DAG: [[C0:%.*]] = constant 0 : index
@@ -313,8 +313,8 @@ func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
   } to ([0, 0, 0]:[7, 7, 7]) 
   %2 = stencil.buffer %0([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
   %3 = stencil.buffer %1([1, 1, 1]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<6x6x6xf64>
-  // CHECK: dealloc [[TEMP2]] : memref<6x6x6xf64>
-  // CHECK: [[TEMP3:%.*]] = alloc() : memref<7x7x7xf64>
+  // CHECK: gpu.dealloc [[TEMP2]] : memref<6x6x6xf64>
+  // CHECK: [[TEMP3:%.*]] = gpu.alloc () : memref<7x7x7xf64>
   %4 = stencil.apply (%arg1 = %2 : !stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64> {
     // CHECK: load [[TEMP1]]
     // CHECK: store %{{.*}}, [[TEMP3]]    
@@ -323,7 +323,7 @@ func @alloc_temp(%arg0 : f64) attributes {stencil.program} {
     stencil.return %7 : !stencil.result<f64>
   } to ([0, 0, 0]:[7, 7, 7])
   %5 = stencil.buffer %4([0, 0, 0]:[7, 7, 7]) : (!stencil.temp<7x7x7xf64>) -> !stencil.temp<7x7x7xf64>
-  // CHECK: dealloc [[TEMP1]] : memref<7x7x7xf64>
-  // CHECK: dealloc [[TEMP3]] : memref<7x7x7xf64>
+  // CHECK: gpu.dealloc [[TEMP1]] : memref<7x7x7xf64>
+  // CHECK: gpu.dealloc [[TEMP3]] : memref<7x7x7xf64>
   return
 }

@@ -37,13 +37,14 @@ using namespace mlir;
 
 // Register the parallel loop gpu mapping pass
 namespace mlir {
+namespace test {
 void registerTestGpuParallelLoopMappingPass();
 }
+} // namespace mlir
 
 int main(int argc, char **argv) {
-  registerAllDialects();
   registerAllPasses();
-  registerTestGpuParallelLoopMappingPass();
+  test::registerTestGpuParallelLoopMappingPass();
 
   // Register the stencil passes
   registerStencilPasses();
@@ -52,16 +53,17 @@ int main(int argc, char **argv) {
   // Register the stencil pipelines
 #ifdef CUDA_BACKEND_ENABLED
   registerGPUToCUBINPipeline();
-#endif 
+#endif
 #ifdef ROCM_BACKEND_ENABLED
   registerGPUToHSACOPipeline();
-#endif 
+#endif
 
   mlir::DialectRegistry registry;
   registry.insert<stencil::StencilDialect>();
   registry.insert<StandardOpsDialect>();
   registry.insert<scf::SCFDialect>();
   registry.insert<gpu::GPUDialect>();
+  registerAllDialects(registry);
 
   return failed(
       mlir::MlirOptMain(argc, argv, "Open Earth Compiler driver\n", registry));
