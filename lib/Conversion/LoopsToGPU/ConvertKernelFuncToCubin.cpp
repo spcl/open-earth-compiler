@@ -110,6 +110,7 @@ void registerGPUToCUBINPipeline() {
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToNVVMIR, compilePtxToCubin, tripleName, targetChip,
             features, gpuBinaryAnnotation));
+        pm.addPass(createGpuAsyncRegionPass());
         pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
       });
 }
