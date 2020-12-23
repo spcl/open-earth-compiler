@@ -390,9 +390,6 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
       if (!applyOp.getBody()->getArgument(en.index()).getUses().empty()) {
         newIndex[en.value()] = newOperands.size();
         newOperands.push_back(en.value());
-      } else {
-        // Unused arguments are mapped to the first index
-        newIndex[en.value()] = 0;
       }
     }
   }
@@ -406,8 +403,8 @@ stencil::ApplyOpPattern::cleanupOpArguments(stencil::ApplyOp applyOp,
     // Compute the argument mapping and move the block
     SmallVector<Value, 10> newArgs(applyOp.getNumOperands());
     llvm::transform(applyOp.getOperands(), newArgs.begin(), [&](Value value) {
-      return newOperands.empty()
-                 ? value // pass default value if the new apply has no params
+      return newIndex.count(value) == 0
+                 ? nullptr // pass default value if the new apply has no params
                  : newOp.getBody()->getArgument(newIndex[value]);
     });
     rewriter.mergeBlocks(applyOp.getBody(), newOp.getBody(), newArgs);
