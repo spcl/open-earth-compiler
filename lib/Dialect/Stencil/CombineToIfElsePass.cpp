@@ -15,6 +15,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -345,18 +346,16 @@ void CombineToIfElsePass::runOnFunction() {
     return;
 
   // Check all combine op operands have one use
-  bool hasOperandsWithMultipleUses = false;
-  funcOp.walk([&](stencil::CombineOp combineOp) {
+  auto result = funcOp.walk([&](stencil::CombineOp combineOp) {
     for (auto operand : combineOp.getOperands()) {
-      if (!operand.hasOneUse()) {
-        hasOperandsWithMultipleUses = true;
-      }
+      if (!operand.hasOneUse()) 
+        return WalkResult::interrupt();
     }
+    return WalkResult::advance();
   });
-  if (hasOperandsWithMultipleUses) {
+  if (result.wasInterrupted()) {
     funcOp.emitOpError("execute domain splitting before combine op conversion");
-    signalPassFailure();
-    return;
+    return signalPassFailure();
   }
 
   // Poppulate the pattern list depending on the config

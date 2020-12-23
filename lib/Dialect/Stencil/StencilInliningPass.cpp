@@ -14,6 +14,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -358,18 +359,16 @@ void StencilInliningPass::runOnFunction() {
     return;
 
   // Verify unrolling has not been executed
-  bool hasUnrolledStencils = false;
-  funcOp.walk([&](stencil::ReturnOp returnOp) {
+  auto result = funcOp.walk([&](stencil::ReturnOp returnOp) {
     if (returnOp.unroll().hasValue()) {
       returnOp.emitOpError("execute stencil unrolling after stencil inlining");
-      hasUnrolledStencils = true;
+      return WalkResult::interrupt();
     }
+    return WalkResult::advance();
   });
-  if (hasUnrolledStencils) {
-    signalPassFailure();
-    return;
-  }
-
+  if (result.wasInterrupted())
+    return signalPassFailure();
+ 
   OwningRewritePatternList patterns;
   patterns.insert<InliningRewrite, RerouteRewrite>(&getContext());
   applyPatternsAndFoldGreedily(funcOp, std::move(patterns));

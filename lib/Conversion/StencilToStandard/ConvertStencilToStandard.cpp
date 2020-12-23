@@ -19,6 +19,7 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -543,16 +544,16 @@ void StencilToStandardPass::runOnOperation() {
   auto module = getOperation();
 
   // Check all shapes are set
-  bool allShapesValid = true;
-  module.walk([&](ShapeOp shapeOp) {
+  auto shapeResult = module.walk([&](ShapeOp shapeOp) {
     if (!shapeOp.hasShape()) {
-      allShapesValid = false;
       shapeOp.emitOpError("expected to have a valid shape");
-      signalPassFailure();
+      return WalkResult::interrupt();
     }
+    return WalkResult::advance();
   });
-  if (!allShapesValid)
-    return;
+  if (shapeResult.wasInterrupted()) {
+    return signalPassFailure();
+  }
 
   // Store the input bounds of the stencil program
   DenseMap<Value, Index> valueToLB;
@@ -588,8 +589,7 @@ void StencilToStandardPass::runOnOperation() {
   });
 
   // Check there is exactly one storage operation per apply op result
-  bool allApplyOpResultsHaveUniqueStorage = true;
-  module.walk([&](stencil::ApplyOp applyOp) {
+  auto uniqueStorageResult = module.walk([&](stencil::ApplyOp applyOp) {
     for (auto result : applyOp.getResults()) {
       unsigned storageOps = 0;
       for (auto user : result.getUsers()) {
@@ -598,31 +598,28 @@ void StencilToStandardPass::runOnOperation() {
         }
       }
       if (storageOps != 1) {
-        allApplyOpResultsHaveUniqueStorage = false;
         applyOp.emitOpError("expected apply op results to have storage");
-        signalPassFailure();
-        return;
+        return WalkResult::interrupt();
       }
     }
+    return WalkResult::advance();
   });
-  if (!allApplyOpResultsHaveUniqueStorage)
-    return;
+  if (uniqueStorageResult.wasInterrupted())
+    return signalPassFailure();
 
   // Store the return op operands for the result values
-  bool allStoredResultsMappedToReturnOp = true;
   DenseMap<Value, SmallVector<OpOperand *, 10>> valueToReturnOpOperands;
-  module.walk([&](stencil::StoreResultOp resultOp) {
+  auto storeMappingResult = module.walk([&](stencil::StoreResultOp resultOp) {
     if (!resultOp.getReturnOpOperands()) {
-      allStoredResultsMappedToReturnOp = false;
       resultOp.emitOpError("expected valid return op operands");
-      signalPassFailure();
-      return;
+      return WalkResult::interrupt();
     }
     valueToReturnOpOperands[resultOp.res()] =
         resultOp.getReturnOpOperands().getValue();
+    return WalkResult::advance();
   });
-  if (!allStoredResultsMappedToReturnOp)
-    return;
+  if (storeMappingResult.wasInterrupted())
+    return signalPassFailure();
 
   StencilTypeConverter typeConverter(module.getContext());
   populateStencilToStdConversionPatterns(typeConverter, valueToLB,
