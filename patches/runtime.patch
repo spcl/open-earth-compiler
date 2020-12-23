@@ -1,8 +1,8 @@
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index 3b4b39e57d55..cd9807d3426c 100644
+index 6859834de67f..3f34ab7de38a 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-@@ -101,12 +101,12 @@ protected:
+@@ -102,12 +102,12 @@ protected:
        llvmVoidType,
        {
            llvmPointerType,        /* void* f */
@@ -21,7 +21,7 @@ index 3b4b39e57d55..cd9807d3426c 100644
            llvmInt32Type,          /* unsigned int sharedMemBytes */
            llvmPointerType,        /* void *hstream */
            llvmPointerPointerType, /* void **kernelParams */
-@@ -145,7 +145,7 @@ protected:
+@@ -146,7 +146,7 @@ protected:
    FunctionCallBuilder allocCallBuilder = {
        "mgpuMemAlloc",
        llvmPointerType /* void * */,
@@ -30,7 +30,16 @@ index 3b4b39e57d55..cd9807d3426c 100644
         llvmPointerType /* void *stream */}};
    FunctionCallBuilder deallocCallBuilder = {
        "mgpuMemFree",
-@@ -271,7 +271,11 @@ class EraseGpuModuleOpPattern : public OpRewritePattern<gpu::GPUModuleOp> {
+@@ -156,7 +156,7 @@ protected:
+       "mgpuMemcpy",
+       llvmVoidType,
+       {llvmPointerType /* void *dst */, llvmPointerType /* void *src */,
+-       llvmIntPtrType /* intptr_t sizeBytes */,
++       llvmInt32Type /* int32_t sizeBytes */,
+        llvmPointerType /* void *stream */}};
+ };
+ 
+@@ -292,7 +292,11 @@ private:
  } // namespace
  
  void GpuToLLVMConversionPass::runOnOperation() {
@@ -44,7 +53,7 @@ index 3b4b39e57d55..cd9807d3426c 100644
    populateStdToLLVMConversionPatterns(converter, patterns);
    populateGpuToLLVMConversionPatterns(converter, patterns, gpuBinaryAnnotation);
 diff --git a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
-index a6729b1c0b7d..552821ab1d58 100644
+index 72d172889d30..9e0aff602113 100644
 --- a/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-cuda-runner/cuda-runtime-wrappers.cpp
 @@ -61,10 +61,10 @@ extern "C" CUfunction mgpuModuleGetFunction(CUmodule module, const char *name) {
@@ -72,7 +81,7 @@ index a6729b1c0b7d..552821ab1d58 100644
    CUDA_REPORT_IF_ERROR(cuMemAlloc(&ptr, sizeBytes));
    return reinterpret_cast<void *>(ptr);
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
-index aad7ae27ff89..b644c48c876f 100644
+index 4f62f204f4a8..da8cbd24628e 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 +++ b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 @@ -36,7 +36,7 @@ static auto InitializeCtx = [] {
@@ -99,7 +108,7 @@ index aad7ae27ff89..b644c48c876f 100644
                                   hipStream_t stream, void **params,
                                   void **extra) {
    HIP_REPORT_IF_ERROR(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
-@@ -108,14 +108,14 @@ extern "C" void mgpuEventRecord(hipEvent_t event, hipStream_t stream) {
+@@ -108,19 +108,19 @@ extern "C" void mgpuEventRecord(hipEvent_t event, hipStream_t stream) {
    HIP_REPORT_IF_ERROR(hipEventRecord(event, stream));
  }
  
@@ -114,6 +123,13 @@ index aad7ae27ff89..b644c48c876f 100644
  extern "C" void mgpuMemFree(void *ptr, hipStream_t /*stream*/) {
 -  HIP_REPORT_IF_ERROR(hipMemFree(ptr));
 +  HIP_REPORT_IF_ERROR(hipFree(ptr));
+ }
+ 
+-extern "C" void mgpuMemcpy(void *dst, void *src, uint64_t sizeBytes,
++extern "C" void mgpuMemcpy(void *dst, void *src, uint32_t sizeBytes,
+                            hipStream_t stream) {
+-  HIP_REPORT_IF_ERROR(hipMemcpyAsync(dst, src, sizeBytes, stream));
++  HIP_REPORT_IF_ERROR(hipMemcpyAsync(dst, src, sizeBytes, hipMemcpyDefault, stream));
  }
  
  /// Helper functions for writing mlir example code

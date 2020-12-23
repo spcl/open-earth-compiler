@@ -170,10 +170,10 @@ void stencil::DynAccessOp::shiftByOffset(ArrayRef<int64_t> offset) {
   SmallVector<Attribute, kIndexSize> lbAttrs;
   SmallVector<Attribute, kIndexSize> ubAttrs;
   llvm::transform(lb, std::back_inserter(lbAttrs), [&](int64_t x) {
-    return IntegerAttr::get(IntegerType::get(64, getContext()), x);
+    return IntegerAttr::get(IntegerType::get(getContext(), 64), x);
   });
   llvm::transform(ub, std::back_inserter(ubAttrs), [&](int64_t x) {
-    return IntegerAttr::get(IntegerType::get(64, getContext()), x);
+    return IntegerAttr::get(IntegerType::get(getContext(), 64), x);
   });
   lbAttr(ArrayAttr::get(lbAttrs, getContext()));
   ubAttr(ArrayAttr::get(ubAttrs, getContext()));

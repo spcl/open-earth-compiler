@@ -60,8 +60,8 @@ public:
     for (auto &en : llvm::enumerate(funcOp.getType().getInputs()))
       result.addInputs(en.index(), typeConverter.convertType(en.value()));
     auto funcType =
-        FunctionType::get(result.getConvertedTypes(),
-                          funcOp.getType().getResults(), funcOp.getContext());
+        FunctionType::get(funcOp.getContext(), result.getConvertedTypes(),
+                          funcOp.getType().getResults());
 
     // Replace the function by a function with an updated signature
     auto newFuncOp =

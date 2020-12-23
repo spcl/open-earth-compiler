@@ -46,10 +46,10 @@ def ShapeOp : OpInterface<"ShapeOp"> {
         // Update the shape
         SmallVector<Attribute, kIndexSize> lbAttr, ubAttr;
         llvm::transform(lb, std::back_inserter(lbAttr), [&](int64_t x) {
-          return IntegerAttr::get(IntegerType::get(64, $_op.getContext()), x);
+          return IntegerAttr::get(IntegerType::get($_op.getContext(), 64), x);
         });
         llvm::transform(ub, std::back_inserter(ubAttr), [&](int64_t x) {
-          return IntegerAttr::get(IntegerType::get(64, $_op.getContext()), x);
+          return IntegerAttr::get(IntegerType::get($_op.getContext(), 64), x);
         });
         $_op.lbAttr(ArrayAttr::get(lbAttr, $_op.getContext()));
         $_op.ubAttr(ArrayAttr::get(ubAttr, $_op.getContext()));
@@ -109,7 +109,7 @@ def ShiftOp : OpInterface<"ShiftOp"> {
         SmallVector<Attribute, kIndexSize> offsetAttr;
         for (auto elem : llvm::zip(offset, $_op.offset())) {
           offsetAttr.push_back(IntegerAttr::get(
-              IntegerType::get(64, $_op.getContext()),
+              IntegerType::get($_op.getContext(), 64),
               std::get<1>(elem).template cast<IntegerAttr>().getValue().getSExtValue() + 
               std::get<0>(elem)));
         }
