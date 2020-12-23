@@ -182,7 +182,7 @@ struct RerouteRewrite : public StencilInliningPattern {
   // Find a match and reroute the outputs of the stencil apply
   LogicalResult matchAndRewrite(stencil::ApplyOp applyOp,
                                 PatternRewriter &rewriter) const override {
-    // Find two apply ops with a shared dependency
+    // Reroute input dependency
     for (auto operand : applyOp.operands()) {
       if (operand.getDefiningOp()) {
         for (auto user : operand.getDefiningOp()->getUsers()) {
@@ -198,6 +198,15 @@ struct RerouteRewrite : public StencilInliningPattern {
               return redirectStore(producerOp, applyOp, rewriter);
           }
         }
+      }
+    }
+    // Reroute output dependency
+    for (auto operand : applyOp.operands()) {
+      if (auto producerOp =
+              dyn_cast_or_null<stencil::ApplyOp>(operand.getDefiningOp())) {
+        if (isStencilInliningPossible(producerOp, applyOp) &&
+            isStencilReroutingPossible(producerOp, applyOp))
+          return redirectStore(producerOp, applyOp, rewriter);
       }
     }
     return failure();

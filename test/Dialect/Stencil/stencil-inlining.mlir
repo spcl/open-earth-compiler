@@ -178,7 +178,9 @@ func @avoid_redundant(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x
 //  CHECK-NEXT: %{{.*}} = stencil.cast %{{.*}}([-3, -3, -3] : [67, 67, 67]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x70xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.load %{{.*}} : (!stencil.field<70x70x70xf64>) -> !stencil.temp<67x66x63xf64>
 //  CHECK-NEXT: %{{.*}} = stencil.apply ([[ARG0:%.*]] = %{{.*}} : !stencil.temp<67x66x63xf64>) ->
-//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<67x66x63xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [-1, 0, 0] : (!stencil.temp<67x66x63xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [1, 0, 0] : (!stencil.temp<67x66x63xf64>) -> f64
+//  CHECK-NEXT: %{{.*}} = addf %{{.*}}, %{{.*}} : f64 
 //  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [0, 2, 3] : (!stencil.temp<67x66x63xf64>) -> f64
 //  CHECK-NEXT: %{{.*}} = stencil.access [[ARG0]] [2, 2, 3] : (!stencil.temp<67x66x63xf64>) -> f64
 func @reroute(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>, %arg2: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
@@ -193,8 +195,8 @@ func @reroute(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>
     %9 = stencil.store_result %8 : (f64) -> !stencil.result<f64>
     stencil.return %9 : !stencil.result<f64>
   } to ([0, 0, 0] : [65, 66, 63])
-  %5 = stencil.apply (%arg3 = %3 : !stencil.temp<67x66x63xf64>, %arg4 = %4 : !stencil.temp<65x66x63xf64>) -> !stencil.temp<64x64x60xf64> {
-    %6 = stencil.access %arg3 [0, 0, 0] : (!stencil.temp<67x66x63xf64>) -> f64
+  %5 = stencil.apply (%arg4 = %4 : !stencil.temp<65x66x63xf64>) -> !stencil.temp<64x64x60xf64> {
+    %6 = stencil.access %arg4 [0, 0, 0] : (!stencil.temp<65x66x63xf64>) -> f64
     %7 = stencil.access %arg4 [1, 2, 3] : (!stencil.temp<65x66x63xf64>) -> f64
     %8 = addf %6, %7 : f64
     %9 = stencil.store_result %8 : (f64) -> !stencil.result<f64>
