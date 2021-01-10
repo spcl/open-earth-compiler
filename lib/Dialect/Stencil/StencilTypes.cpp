@@ -113,7 +113,7 @@ int64_t GridType::hasStaticShape() const {
                        [](int64_t size) { return size == kDynamicDimension; });
 }
 
-bool GridType::isEqualThanShape(ArrayRef<int64_t> lb,
+bool GridType::hasEqualShape(ArrayRef<int64_t> lb,
                                 ArrayRef<int64_t> ub) const {
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
   return llvm::all_of(llvm::zip(getAllocation(), getShape(), shape),
@@ -124,7 +124,7 @@ bool GridType::isEqualThanShape(ArrayRef<int64_t> lb,
                       });
 }
 
-bool GridType::isLargerOrEqualThanShape(ArrayRef<int64_t> lb,
+bool GridType::hasLargerOrEqualShape(ArrayRef<int64_t> lb,
                                         ArrayRef<int64_t> ub) const {
   auto shape = applyFunElementWise(ub, lb, std::minus<int64_t>());
   return llvm::all_of(llvm::zip(getAllocation(), getShape(), shape),

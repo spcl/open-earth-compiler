@@ -56,7 +56,7 @@ def Stencil_CastOp : Stencil_Op<"cast", [
       return emitOpError("expected op and the field and result types to have the same rank");
     
     // Ensure the shape matches the result type
-    if (!resType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+    if (!resType.hasEqualShape(shapeOp.getLB(), shapeOp.getUB()))
       return emitOpError("expected op and result type to have the same shape");
 
     // Verify all users fit the shape
@@ -273,9 +273,9 @@ def Stencil_LoadOp : Stencil_Op<"load", [
     // Ensure the shape matches the field and result types
     auto shapeOp = cast<ShapeOp>(this->getOperation());
     if(shapeOp.hasShape()) {
-      if (!fieldType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+      if (!fieldType.hasLargerOrEqualShape(shapeOp.getLB(), shapeOp.getUB()))
         return emitOpError("expected the field type to be larger than the op shape");
-      if (!resType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+      if (!resType.hasEqualShape(shapeOp.getLB(), shapeOp.getUB()))
         return emitOpError("expected op and result type to have the same shape");
     }
 
@@ -332,9 +332,9 @@ def Stencil_BufferOp : Stencil_Op<"buffer",
     // Ensure the shape matches the temp and result types
     auto shapeOp = cast<ShapeOp>(this->getOperation());
     if(shapeOp.hasShape()) {
-      if (!tempType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+      if (!tempType.hasLargerOrEqualShape(shapeOp.getLB(), shapeOp.getUB()))
         return emitOpError("expected the temp type to be larger than the op shape");
-      if (!resType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+      if (!resType.hasEqualShape(shapeOp.getLB(), shapeOp.getUB()))
         return emitOpError("expected op and result type to have the same shape");
     }
 
@@ -400,9 +400,9 @@ def Stencil_StoreOp : Stencil_Op<"store", [
 
     // Ensure the shape matches the temp and result types
     auto shapeOp = cast<ShapeOp>(this->getOperation());
-    if (!fieldType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+    if (!fieldType.hasLargerOrEqualShape(shapeOp.getLB(), shapeOp.getUB()))
       return emitOpError("expected the field type to be larger than the op shape");
-    if (!tempType.isLargerOrEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+    if (!tempType.hasLargerOrEqualShape(shapeOp.getLB(), shapeOp.getUB()))
       return emitOpError("expected the temp type to be larger than the op shape");
 
     if (!(dyn_cast<stencil::ApplyOp>(temp().getDefiningOp()) || 
@@ -489,7 +489,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
       if(shapeOp.hasShape()) {
         if(shapeOp.getRank() != tempType.getRank())
           return emitOpError("expected result rank to match the operation rank");
-        if (!tempType.isEqualThanShape(shapeOp.getLB(), shapeOp.getUB()))
+        if (!tempType.hasEqualShape(shapeOp.getLB(), shapeOp.getUB()))
           return emitOpError("expected temp type to have the shape of the op");
       }
     }
