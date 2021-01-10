@@ -537,7 +537,27 @@ struct StencilToStandardPass
     registry.insert<AffineDialect>();
   }
   void runOnOperation() override;
+
+private:
+  Index findLB(Value value);
 };
+
+Index StencilToStandardPass::findLB(Value value) {
+  SmallVector<Operation *> operations(value.getUsers().begin(),
+                                      value.getUsers().end());
+  if (auto definingOp = value.getDefiningOp())
+    operations.push_back(definingOp);
+  // Search the lower bound of the value
+  for (auto op : operations) {
+    if (auto loadOp = dyn_cast<stencil::LoadOp>(op))
+      return cast<ShapeOp>(loadOp.getOperation()).getLB();
+    if (auto storeOp = dyn_cast<stencil::StoreOp>(op))
+      return cast<ShapeOp>(storeOp.getOperation()).getLB();
+    if (auto bufferOp = dyn_cast<stencil::BufferOp>(op))
+      return cast<ShapeOp>(bufferOp.getOperation()).getLB();
+  }
+  return {};
+}
 
 void StencilToStandardPass::runOnOperation() {
   OwningRewritePatternList patterns;
@@ -564,20 +584,13 @@ void StencilToStandardPass::runOnOperation() {
     auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
     // Store the lower bounds for all arguments
     for (auto en : llvm::enumerate(applyOp.getOperands())) {
-      if (auto shapeOp = dyn_cast_or_null<ShapeOp>(en.value().getDefiningOp()))
-        valueToLB[applyOp.getBody()->getArgument(en.index())] = shapeOp.getLB();
+      valueToLB[applyOp.getBody()->getArgument(en.index())] =
+          findLB(en.value());
     }
     // Store the lower bounds for all results
     auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
     for (auto en : llvm::enumerate(applyOp.getResults())) {
-      Index lb;
-      for (auto use : en.value().getUsers()) {
-        // Collect the lower bound of the storage op
-        if (auto storeOp = dyn_cast<stencil::StoreOp>(use))
-          lb = cast<ShapeOp>(storeOp.getOperation()).getLB();
-        if (auto bufferOp = dyn_cast<stencil::BufferOp>(use))
-          lb = cast<ShapeOp>(bufferOp.getOperation()).getLB();
-      }
+      Index lb = findLB(en.value());
       assert(lb.size() == shapeOp.getRank() &&
              "expected to find valid storage shape");
       // Store the bound for all return op operands writting to the result
@@ -721,9 +734,9 @@ StencilToStdPattern::getInductionVars(Operation *operation) const {
 }
 
 std::tuple<Index, Index, Index>
-StencilToStdPattern::computeSubViewShape(FieldType fieldType, ShapeOp accessOp,
+StencilToStdPattern::computeSubViewShape(FieldType fieldType, ShapeOp shapeOp,
                                          Index castLB) const {
-  auto shape = computeShape(accessOp);
+  auto shape = computeShape(shapeOp);
   Index revShape, revOffset, revStrides;
   for (auto en : llvm::enumerate(fieldType.getAllocation())) {
     // Insert values at the front to convert from column- to row-major
@@ -731,7 +744,7 @@ StencilToStdPattern::computeSubViewShape(FieldType fieldType, ShapeOp accessOp,
       revShape.insert(revShape.begin(), shape[en.index()]);
       revStrides.insert(revStrides.begin(), 1);
       revOffset.insert(revOffset.begin(),
-                       accessOp.getLB()[en.index()] - castLB[en.index()]);
+                       shapeOp.getLB()[en.index()] - castLB[en.index()]);
     }
   }
   return std::make_tuple(revOffset, revShape, revStrides);
