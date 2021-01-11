@@ -316,10 +316,10 @@ public:
     for (auto opOperand : valueToReturnOpOperands[resultOp.res()]) {
       // Get the return op and the parallel op
       auto returnOp = cast<stencil::ReturnOp>(opOperand->getOwner());
-      auto parallelOp = returnOp.getParentOfType<ParallelOp>();
+      auto parallelOp = returnOp->getParentOfType<ParallelOp>();
 
       // Check the parent has been lowered
-      if (!isa<ParallelOp>(returnOp.getParentOp()))
+      if (!isa<ParallelOp>(returnOp->getParentOp()))
         return failure();
 
       // Store the result in case there is something to store
@@ -347,7 +347,7 @@ public:
         // Set the insertion point to the defining op if possible
         auto result = resultOp.operands().front();
         if (result.getDefiningOp() &&
-            result.getDefiningOp()->getParentOp() == resultOp.getParentOp())
+            result.getDefiningOp()->getParentOp() == resultOp->getParentOp())
           rewriter.setInsertionPointAfter(result.getDefiningOp());
 
         // Compute the index values and introduce the store operation

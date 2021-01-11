@@ -33,7 +33,7 @@ public:
   static StringRef getResultTypeName() { return "result"; }
 
   static bool isStencilProgram(FuncOp funcOp) {
-    return !!funcOp.getAttr(getStencilProgramAttrName());
+    return !!funcOp->getAttr(getStencilProgramAttrName());
   }
 
   /// Parses a type registered to this dialect

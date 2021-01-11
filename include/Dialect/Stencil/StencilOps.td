@@ -585,7 +585,7 @@ def Stencil_ReturnOp : Stencil_Op<"return", [
   }];
 
   let verifier = [{
-    auto applyOp = cast<stencil::ApplyOp>(getParentOp());
+    auto applyOp = cast<stencil::ApplyOp>(getOperation()->getParentOp());
     unsigned unrollFac = getUnrollFac();
 
     // Verify the number of operands matches the number of apply results

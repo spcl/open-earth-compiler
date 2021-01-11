@@ -213,15 +213,15 @@ stencil::StoreResultOp::getReturnOpOperands() {
     // Search the parent block for a return operation
     if (auto yieldOp = dyn_cast<scf::YieldOp>(*currOperations.begin())) {
       // Expected for ops in apply ops not to return a result
-      if (isa<scf::ForOp>(yieldOp.getParentOp()) &&
-          yieldOp.getParentOfType<stencil::ApplyOp>())
+      if (isa<scf::ForOp>(yieldOp->getParentOp()) &&
+          yieldOp->getParentOfType<stencil::ApplyOp>())
         return llvm::None;
 
       // Search the uses of the result and compute the consumer operations
       currOperations.clear();
       SmallVector<OpOperand *, 10> nextOperands;
       for (auto &use : currOperands) {
-        auto result = yieldOp.getParentOp()->getResult(use->getOperandNumber());
+        auto result = yieldOp->getParentOp()->getResult(use->getOperandNumber());
         for (auto &use : result.getUses()) {
           nextOperands.push_back(&use);
           currOperations.insert(use.getOwner());

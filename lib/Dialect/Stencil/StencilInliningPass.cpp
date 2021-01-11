@@ -291,7 +291,7 @@ struct InliningRewrite : public StencilInliningPattern {
           for (auto it : inliningCache[accessOp.temp()]) {
             if (std::get<0>(it) == offset &&
                 std::get<1>(it).getParentRegion()->isAncestor(
-                    accessOp.getParentRegion())) {
+                    accessOp->getParentRegion())) {
               rewriter.replaceOp(accessOp, std::get<1>(it));
               return;
             }
