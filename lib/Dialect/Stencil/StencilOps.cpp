@@ -148,12 +148,12 @@ void stencil::ApplyOp::updateArgumentTypes() {
 }
 
 bool stencil::ApplyOp::hasOnlyEmptyStores() {
-  bool hasOnlyEmptyStores = true;
-  walk([&](stencil::StoreResultOp resultOp) {
+  auto result = walk([&](stencil::StoreResultOp resultOp) {
     if (resultOp.operands().size() != 0)
-      hasOnlyEmptyStores = false;
+      return WalkResult::interrupt();
+    return WalkResult::advance();
   });
-  return hasOnlyEmptyStores;
+  return !result.wasInterrupted();
 }
 
 //===----------------------------------------------------------------------===//
@@ -221,7 +221,8 @@ stencil::StoreResultOp::getReturnOpOperands() {
       currOperations.clear();
       SmallVector<OpOperand *, 10> nextOperands;
       for (auto &use : currOperands) {
-        auto result = yieldOp->getParentOp()->getResult(use->getOperandNumber());
+        auto result =
+            yieldOp->getParentOp()->getResult(use->getOperandNumber());
         for (auto &use : result.getUses()) {
           nextOperands.push_back(&use);
           currOperations.insert(use.getOwner());
@@ -627,7 +628,7 @@ struct CombineOpSymmetricCleaner : public stencil::CombineOpPattern {
                                 PatternRewriter &rewriter) const override {
     // Exit if the combine has extra operands
     if (combineOp.lowerext().size() > 0 || combineOp.upperext().size() > 0)
-      failure();
+      return failure();
 
     // Compute the empty values
     SmallVector<Value, 10> emptyValues;
@@ -648,9 +649,12 @@ struct CombineOpSymmetricCleaner : public stencil::CombineOpPattern {
     }
 
     // Create an empty apply
-    auto emptyOp = createEmptyApply(
-        combineOp, std::numeric_limits<int64_t>::min(),
-        std::numeric_limits<int64_t>::max(), emptyValues, rewriter);
+    ApplyOp emptyOp;
+    if (!emptyValues.empty()) {
+      emptyOp = createEmptyApply(combineOp, std::numeric_limits<int64_t>::min(),
+                                 std::numeric_limits<int64_t>::max(),
+                                 emptyValues, rewriter);
+    }
 
     // Compute the replacement values
     unsigned emptyCount = 0;
