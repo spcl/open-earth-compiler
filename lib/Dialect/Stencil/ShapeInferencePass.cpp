@@ -89,9 +89,11 @@ struct ShapeInferencePass : public ShapeInferencePassBase<ShapeInferencePass> {
 
 protected:
   // Shape extension
-  void updateStorageShape(ShapeOp shapeOp, ShapeOp resultShape);
-  bool isShapeExtension(ShapeOp current, ShapeOp update);
-  ShapeOp getResultShape(Operation *definingOp, Value result);
+  void updateStorageShape(ShapeOp shapeOp, ArrayRef<int64_t> lb,
+                          ArrayRef<std::int64_t> ub);
+  bool isShapeExtension(ShapeOp current, ArrayRef<int64_t> lb,
+                        ArrayRef<std::int64_t> ub);
+  std::tuple<Index, Index> getResultShape(Operation *definingOp, Value result);
   LogicalResult extendStorageShape(ShapeOp shapeOp, Value temp);
 
   // Shape inference
@@ -172,11 +174,18 @@ LogicalResult ShapeInferencePass::inferShapes(ShapeOp shapeOp,
 }
 
 /// Compute the shape for a given result of a defining op
-ShapeOp ShapeInferencePass::getResultShape(Operation *definingOp,
-                                           Value result) {
+std::tuple<Index, Index>
+ShapeInferencePass::getResultShape(Operation *definingOp, Value result) {
   // If the defining op is an apply op return its shape
   if (auto applyOp = dyn_cast<stencil::ApplyOp>(definingOp)) {
-    return cast<ShapeOp>(applyOp.getOperation());
+    auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
+    if (shapeOp.hasShape()) {
+      return std::make_tuple(shapeOp.getLB(), shapeOp.getUB());
+    } else {
+      return std::make_tuple(
+          Index(kIndexSize, std::numeric_limits<int64_t>::max()),
+          Index(kIndexSize, std::numeric_limits<int64_t>::min()));
+    }
   }
   // If the defining op is a combine check if it is an extra parameter
   if (auto combineOp = dyn_cast<stencil::CombineOp>(definingOp)) {
@@ -184,9 +193,17 @@ ShapeOp ShapeInferencePass::getResultShape(Operation *definingOp,
     assert(it != combineOp.getResults().end() &&
            "expected to find the result value");
     unsigned resultNumber = std::distance(combineOp.getResults().begin(), it);
-    // If the result is a combine result return the shape
-    if (resultNumber < combineOp.lower().size()) {
-      return cast<ShapeOp>(combineOp.getOperation());
+    // If the result is not an extra result combine the shape recursively
+    if (auto num = combineOp.getLowerOperandNumber(resultNumber)) {
+      Index lb1, lb2, ub1, ub2;
+      std::tie(lb1, ub1) =
+          getResultShape(combineOp.lower()[num.getValue()].getDefiningOp(),
+                         combineOp.lower()[num.getValue()]);
+      std::tie(lb2, ub2) =
+          getResultShape(combineOp.upper()[num.getValue()].getDefiningOp(),
+                         combineOp.upper()[num.getValue()]);
+      return std::make_tuple(applyFunElementWise(lb1, lb2, min),
+                             applyFunElementWise(ub1, ub2, max));
     }
     // If the result is a lower extra result compute the shape recursively
     if (auto num = combineOp.getLowerExtraOperandNumber(resultNumber)) {
@@ -202,25 +219,27 @@ ShapeOp ShapeInferencePass::getResultShape(Operation *definingOp,
     }
   }
   llvm_unreachable("expected an apply or a combine op");
-  return nullptr;
+  return {};
 }
 
 /// Update the shape given the old and the new shape op
 void ShapeInferencePass::updateStorageShape(ShapeOp shapeOp,
-                                            ShapeOp resultShape) {
+                                            ArrayRef<int64_t> lb,
+                                            ArrayRef<std::int64_t> ub) {
   // Compute the update bounds
-  auto lb = applyFunElementWise(shapeOp.getLB(), resultShape.getLB(), min);
-  auto ub = applyFunElementWise(shapeOp.getUB(), resultShape.getUB(), max);
-  updateShape(shapeOp, lb, ub);
+  auto lower = applyFunElementWise(shapeOp.getLB(), lb, min);
+  auto upper = applyFunElementWise(shapeOp.getUB(), ub, max);
+  updateShape(shapeOp, lower, upper);
 }
 
 /// Check it is a valid shape extension
-bool ShapeInferencePass::isShapeExtension(ShapeOp current, ShapeOp update) {
-  if (llvm::all_of(llvm::zip(update.getLB(), current.getLB()),
+bool ShapeInferencePass::isShapeExtension(ShapeOp current, ArrayRef<int64_t> lb,
+                                          ArrayRef<std::int64_t> ub) {
+  if (llvm::all_of(llvm::zip(lb, current.getLB()),
                    [](std::tuple<int64_t, int64_t> x) {
                      return std::get<0>(x) <= std::get<1>(x);
                    }) &&
-      llvm::all_of(llvm::zip(update.getUB(), current.getUB()),
+      llvm::all_of(llvm::zip(ub, current.getUB()),
                    [](std::tuple<int64_t, int64_t> x) {
                      return std::get<0>(x) >= std::get<1>(x);
                    }))
@@ -231,13 +250,13 @@ bool ShapeInferencePass::isShapeExtension(ShapeOp current, ShapeOp update) {
 /// Update the storage shape if needed
 LogicalResult ShapeInferencePass::extendStorageShape(ShapeOp shapeOp,
                                                      Value temp) {
-  auto resultShape = getResultShape(temp.getDefiningOp(), temp);
+  Index lb, ub;
+  std::tie(lb, ub) = getResultShape(temp.getDefiningOp(), temp);
   // Update the shape
-  if (shapeOp.getLB() != resultShape.getLB() ||
-      shapeOp.getUB() != resultShape.getUB()) {
+  if (shapeOp.getLB() != lb || shapeOp.getUB() != ub) {
     // Update the storage if it is an extension
-    if (isShapeExtension(shapeOp, resultShape)) {
-      updateStorageShape(shapeOp, resultShape);
+    if (isShapeExtension(shapeOp, lb, ub)) {
+      updateStorageShape(shapeOp, lb, ub);
       return success();
     }
     // Emit an error if the update shrinks the shape
