@@ -16,6 +16,8 @@ std::unique_ptr<OperationPass<FuncOp>> createCombineToIfElsePass();
 
 std::unique_ptr<OperationPass<FuncOp>> createShapeInferencePass();
 
+std::unique_ptr<OperationPass<FuncOp>> createShapeOverlapPass();
+
 std::unique_ptr<OperationPass<FuncOp>> createStorageMaterializationPass();
 
 //===----------------------------------------------------------------------===//

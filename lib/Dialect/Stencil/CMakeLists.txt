@@ -5,6 +5,7 @@ add_mlir_dialect_library(Stencil
   StencilTypes.cpp
   StencilInliningPass.cpp
   ShapeInferencePass.cpp
+  ShapeOverlapPass.cpp
   StencilUnrollingPass.cpp
   CombineToIfElsePass.cpp
   DomainSplitPass.cpp

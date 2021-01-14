@@ -42,6 +42,11 @@ def ShapeInferencePass : FunctionPass<"stencil-shape-inference"> {
   ];
 }
 
+def ShapeOverlapPass : FunctionPass<"stencil-shape-overlap"> {
+  let summary = "Handle overlapping stores";
+  let constructor = "mlir::createShapeOverlapPass()";
+}
+
 def StorageMaterializationPass : FunctionPass<"stencil-storage-materialization"> {
   let summary = "Introduce explicit storage between combine and apply ops";
   let constructor = "mlir::createStorageMaterializationPass()";
