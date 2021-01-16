@@ -2,7 +2,6 @@
 #define DIALECT_STENCIL_STENCILTYPES_H
 
 #include "Dialect/Stencil/StencilDialect.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/TypeSupport.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LLVM.h"

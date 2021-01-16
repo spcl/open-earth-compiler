@@ -3,7 +3,6 @@
 
 #include "Dialect/Stencil/StencilOps.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/StandardTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include <cstdint>
