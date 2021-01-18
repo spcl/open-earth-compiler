@@ -11,7 +11,7 @@ func @simple(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>)
   // CHECK: {{%.*}} = stencil.apply ([[ARG0:%.*]] = {{%.*}} : !stencil.temp<65x64x60xf64>, [[ARG1:%.*]] = {{%.*}} : !stencil.temp<65x64x60xf64>) -> !stencil.temp<64x64x60xf64> {
   // CHECK-DAG: [[IDX:%.*]] = stencil.index 0 [0, 0, 0] : index
   // CHECK-DAG: [[C32:%.*]] = constant 32 : index
-  // CHECK-DAG: [[COND:%.*]] = cmpi "ult", [[IDX]], [[C32]] : index
+  // CHECK-DAG: [[COND:%.*]] = cmpi ult, [[IDX]], [[C32]] : index
   // CHECK: [[RES:%.*]] = scf.if [[COND]] -> (!stencil.result<f64>) {
   // CHECK-NEXT: [[ACC1:%.*]] = stencil.access [[ARG0]] [0, 0, 0] : (!stencil.temp<65x64x60xf64>) -> f64
   // CHECK-NEXT: [[RES1:%.*]] = stencil.store_result [[ACC1]] : (f64) -> !stencil.result<f64>
@@ -92,7 +92,7 @@ func @internal(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64
   // CHECKINT: {{%.*}} = stencil.apply ({{%.*}} = {{%.*}} : !stencil.temp<64x64x60xf64>, {{%.*}} = {{%.*}} : !stencil.temp<64x64x60xf64>) -> !stencil.temp<64x64x60xf64> {
   // CHECKINT-DAG: [[IDX:%.*]] = stencil.index 0 [0, 0, 0] : index
   // CHECKINT-DAG: [[C32:%.*]] = constant 32 : index
-  // CHECKINT-DAG: [[COND:%.*]] = cmpi "ult", [[IDX]], [[C32]] : index
+  // CHECKINT-DAG: [[COND:%.*]] = cmpi ult, [[IDX]], [[C32]] : index
   // CHECKINT: {{%.*}} = scf.if [[COND]] -> (!stencil.result<f64>) {
   %3 = stencil.apply (%arg2 = %2 : !stencil.temp<64x64x60xf64>) -> !stencil.temp<32x64x60xf64> {
     %7 = stencil.access %arg2 [0, 0, 0] : (!stencil.temp<64x64x60xf64>) -> f64
