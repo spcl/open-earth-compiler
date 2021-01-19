@@ -1,16 +1,77 @@
+diff --git a/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h b/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h
+index 61d62a3ef78c..d1fbdc846e94 100644
+--- a/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h
++++ b/mlir/include/mlir/Conversion/GPUCommon/GPUCommonPass.h
+@@ -8,6 +8,7 @@
+ #ifndef MLIR_CONVERSION_GPUCOMMON_GPUCOMMONPASS_H_
+ #define MLIR_CONVERSION_GPUCOMMON_GPUCOMMONPASS_H_
+ 
++#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+ #include "mlir/Support/LLVM.h"
+ #include "llvm/IR/Module.h"
+ #include <vector>
+@@ -45,7 +46,9 @@ using LoweringCallback = std::function<std::unique_ptr<llvm::Module>(
+ /// instead uses a small wrapper library that exports a stable and conveniently
+ /// typed ABI on top of GPU runtimes such as CUDA or ROCm (HIP).
+ std::unique_ptr<OperationPass<ModuleOp>>
+-createGpuToLLVMConversionPass(StringRef gpuBinaryAnnotation = "");
++createGpuToLLVMConversionPass(StringRef gpuBinaryAnnotation = "",
++                              const LowerToLLVMOptions &options =
++                                  LowerToLLVMOptions::getDefaultOptions());
+ 
+ /// Collect a set of patterns to convert from the GPU dialect to LLVM.
+ void populateGpuToLLVMConversionPatterns(LLVMTypeConverter &converter,
+diff --git a/mlir/include/mlir/Conversion/Passes.td b/mlir/include/mlir/Conversion/Passes.td
+index aa228784e48a..61e4ee8b5498 100644
+--- a/mlir/include/mlir/Conversion/Passes.td
++++ b/mlir/include/mlir/Conversion/Passes.td
+@@ -109,6 +109,22 @@ def GpuToLLVMConversionPass : Pass<"gpu-to-llvm", "ModuleOp"> {
+   let options = [
+     Option<"gpuBinaryAnnotation", "gpu-binary-annotation", "std::string",
+            "", "Annotation attribute string for GPU binary">,
++    Option<"useAlignedAlloc", "use-aligned-alloc", "bool", /*default=*/"false",
++           "Use aligned_alloc in place of malloc for heap allocations">,
++    Option<"useBarePtrCallConv", "use-bare-ptr-memref-call-conv", "bool",
++           /*default=*/"false",
++           "Replace FuncOp's MemRef arguments with bare pointers to the MemRef "
++           "element types">,
++    Option<"emitCWrappers", "emit-c-wrappers", "bool", /*default=*/"false",
++           "Emit wrappers for C-compatible pointer-to-struct memref "
++           "descriptors">,
++    Option<"indexBitwidth", "index-bitwidth", "unsigned",
++           /*default=kDeriveIndexBitwidthFromDataLayout*/"0",
++           "Bitwidth of the index type, 0 to use size of machine word">,
++    Option<"dataLayout", "data-layout", "std::string",
++           /*default=*/"\"\"",
++           "String description (LLVM format) of the data layout that is "
++           "expected on the produced module">
+   ];
+ }
+ 
 diff --git a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-index cee1d7ba20e3..a148c38ac872 100644
+index cee1d7ba20e3..bce7808a4608 100644
 --- a/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
 +++ b/mlir/lib/Conversion/GPUCommon/ConvertLaunchFuncToRuntimeCalls.cpp
-@@ -17,6 +17,7 @@
+@@ -41,9 +41,17 @@ namespace {
+ class GpuToLLVMConversionPass
+     : public GpuToLLVMConversionPassBase<GpuToLLVMConversionPass> {
+ public:
+-  GpuToLLVMConversionPass(StringRef gpuBinaryAnnotation) {
++  GpuToLLVMConversionPass(StringRef gpuBinaryAnnotation,
++                          bool useBarePtrCallConv, bool emitCWrappers,
++                          unsigned indexBitwidth, bool useAlignedAlloc,
++                          const llvm::DataLayout &dataLayout) {
+     if (!gpuBinaryAnnotation.empty())
+       this->gpuBinaryAnnotation = gpuBinaryAnnotation.str();
++    this->useBarePtrCallConv = useBarePtrCallConv;
++    this->emitCWrappers = emitCWrappers;
++    this->indexBitwidth = indexBitwidth;
++    this->useAlignedAlloc = useAlignedAlloc;
++    this->dataLayout = dataLayout.getStringRepresentation();
+   }
  
- #include "../PassDetail.h"
- #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-+#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
- #include "mlir/Dialect/GPU/GPUDialect.h"
- #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
- #include "mlir/IR/Attributes.h"
-@@ -56,7 +57,7 @@ public:
+   // Run the dialect converter on the module.
+@@ -56,7 +64,7 @@ public:
                        ArrayRef<Type> argumentTypes)
        : functionName(functionName),
          functionType(LLVM::LLVMFunctionType::get(returnType, argumentTypes)) {}
@@ -19,20 +80,19 @@ index cee1d7ba20e3..a148c38ac872 100644
                        ArrayRef<Value> arguments) const;
  
  private:
-@@ -291,7 +292,11 @@ private:
+@@ -291,7 +299,10 @@ private:
  } // namespace
  
  void GpuToLLVMConversionPass::runOnOperation() {
 -  LLVMTypeConverter converter(&getContext());
-+  LowerToLLVMOptions options = {/*useBarePtrCallConv =*/false,
-+                                /*emitCWrappers =*/true,
-+                                /*indexBitwidth =*/32,
-+                                /*useAlignedAlloc =*/false};
++  LowerToLLVMOptions options = {useBarePtrCallConv, emitCWrappers,
++                                indexBitwidth, useAlignedAlloc,
++                                llvm::DataLayout(this->dataLayout)};
 +  LLVMTypeConverter converter(&getContext(), options);
    OwningRewritePatternList patterns;
    populateStdToLLVMConversionPatterns(converter, patterns);
    populateGpuToLLVMConversionPatterns(converter, patterns, gpuBinaryAnnotation);
-@@ -303,6 +308,7 @@ void GpuToLLVMConversionPass::runOnOperation() {
+@@ -303,6 +314,7 @@ void GpuToLLVMConversionPass::runOnOperation() {
  }
  
  LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
@@ -40,11 +100,11 @@ index cee1d7ba20e3..a148c38ac872 100644
                                           ArrayRef<Value> arguments) const {
    auto module = builder.getBlock()->getParent()->getParentOfType<ModuleOp>();
    auto function = [&] {
-@@ -311,9 +317,34 @@ LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
+@@ -311,9 +323,34 @@ LLVM::CallOp FunctionCallBuilder::create(Location loc, OpBuilder &builder,
      return OpBuilder(module.getBody()->getTerminator())
          .create<LLVM::LLVMFuncOp>(loc, functionName, functionType);
    }();
-+  // Cast index arguments to the bitwidth of the runtime wrapper functions.
++  // Cast index arguments to the bitwidth used by the runtime wrapper functions.
 +  SmallVector<Value, 4> castedArguments;
 +  castedArguments.reserve(arguments.size());
 +  llvm::transform(
@@ -76,7 +136,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  }
  
  // Returns whether all operands are of LLVM type.
-@@ -348,6 +379,7 @@ LogicalResult ConvertHostRegisterOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -348,6 +385,7 @@ LogicalResult ConvertHostRegisterOpToGpuRuntimeCallPattern::matchAndRewrite(
      return failure();
  
    Location loc = op->getLoc();
@@ -84,7 +144,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    auto memRefType = hostRegisterOp.value().getType();
    auto elementType = memRefType.cast<UnrankedMemRefType>().getElementType();
-@@ -356,7 +388,7 @@ LogicalResult ConvertHostRegisterOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -356,7 +394,7 @@ LogicalResult ConvertHostRegisterOpToGpuRuntimeCallPattern::matchAndRewrite(
    auto arguments = getTypeConverter()->promoteOperands(loc, op->getOperands(),
                                                         operands, rewriter);
    arguments.push_back(elementSize);
@@ -93,7 +153,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    rewriter.eraseOp(op);
    return success();
-@@ -373,6 +405,7 @@ LogicalResult ConvertAllocOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -373,6 +411,7 @@ LogicalResult ConvertAllocOpToGpuRuntimeCallPattern::matchAndRewrite(
      return failure();
  
    auto loc = allocOp.getLoc();
@@ -101,7 +161,7 @@ index cee1d7ba20e3..a148c38ac872 100644
    auto adaptor = gpu::AllocOpAdaptor(operands, allocOp->getAttrDictionary());
  
    // Get shape of the memref as values: static sizes are constant
-@@ -388,7 +421,8 @@ LogicalResult ConvertAllocOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -388,7 +427,8 @@ LogicalResult ConvertAllocOpToGpuRuntimeCallPattern::matchAndRewrite(
    Type elementPtrType = this->getElementPtrType(memRefType);
    auto stream = adaptor.asyncDependencies().front();
    Value allocatedPtr =
@@ -111,7 +171,7 @@ index cee1d7ba20e3..a148c38ac872 100644
    allocatedPtr =
        rewriter.create<LLVM::BitcastOp>(loc, elementPtrType, allocatedPtr);
  
-@@ -412,6 +446,7 @@ LogicalResult ConvertDeallocOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -412,6 +452,7 @@ LogicalResult ConvertDeallocOpToGpuRuntimeCallPattern::matchAndRewrite(
      return failure();
  
    Location loc = deallocOp.getLoc();
@@ -119,7 +179,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    auto adaptor =
        gpu::DeallocOpAdaptor(operands, deallocOp->getAttrDictionary());
-@@ -419,7 +454,7 @@ LogicalResult ConvertDeallocOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -419,7 +460,7 @@ LogicalResult ConvertDeallocOpToGpuRuntimeCallPattern::matchAndRewrite(
        MemRefDescriptor(adaptor.memref()).allocatedPtr(rewriter, loc);
    auto casted = rewriter.create<LLVM::BitcastOp>(loc, llvmPointerType, pointer);
    Value stream = adaptor.asyncDependencies().front();
@@ -128,7 +188,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    rewriter.replaceOp(deallocOp, {stream});
    return success();
-@@ -437,11 +472,14 @@ LogicalResult ConvertWaitOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -437,11 +478,14 @@ LogicalResult ConvertWaitOpToGpuRuntimeCallPattern::matchAndRewrite(
      return rewriter.notifyMatchFailure(waitOp, "Cannot convert async op.");
  
    Location loc = waitOp.getLoc();
@@ -145,7 +205,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    rewriter.eraseOp(waitOp);
    return success();
-@@ -460,6 +498,7 @@ LogicalResult ConvertWaitAsyncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -460,6 +504,7 @@ LogicalResult ConvertWaitAsyncOpToGpuRuntimeCallPattern::matchAndRewrite(
      return rewriter.notifyMatchFailure(waitOp, "Can only convert async op.");
  
    Location loc = waitOp.getLoc();
@@ -153,7 +213,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    auto insertionPoint = rewriter.saveInsertionPoint();
    SmallVector<Value, 1> events;
-@@ -472,17 +511,21 @@ LogicalResult ConvertWaitAsyncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -472,17 +517,21 @@ LogicalResult ConvertWaitAsyncOpToGpuRuntimeCallPattern::matchAndRewrite(
        // which is late and therefore misses parallelism, but still valid.
        rewriter.setInsertionPointToStart(waitOp->getBlock());
      }
@@ -180,7 +240,7 @@ index cee1d7ba20e3..a148c38ac872 100644
    rewriter.replaceOp(waitOp, {stream});
  
    return success();
-@@ -601,6 +644,7 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -601,6 +650,7 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
          launchOp, "Cannot convert non-async op with async dependencies.");
  
    Location loc = launchOp.getLoc();
@@ -188,7 +248,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    // Create an LLVM global with CUBIN extracted from the kernel annotation and
    // obtain a pointer to the first byte in it.
-@@ -622,25 +666,27 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -622,25 +672,27 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
        LLVM::createGlobalString(loc, rewriter, nameBuffer.str(),
                                 binaryAttr.getValue(), LLVM::Linkage::Internal);
  
@@ -220,7 +280,7 @@ index cee1d7ba20e3..a148c38ac872 100644
                                   {function.getResult(0), launchOp.gridSizeX(),
                                    launchOp.gridSizeY(), launchOp.gridSizeZ(),
                                    launchOp.blockSizeX(), launchOp.blockSizeY(),
-@@ -655,11 +701,12 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -655,11 +707,12 @@ LogicalResult ConvertLaunchFuncOpToGpuRuntimeCallPattern::matchAndRewrite(
      // Synchronize with host and destroy stream. This must be the stream created
      // above (with no other uses) because we check that the synchronous version
      // does not have any async dependencies.
@@ -236,7 +296,7 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    return success();
  }
-@@ -675,6 +722,7 @@ LogicalResult ConvertMemcpyOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -675,6 +728,7 @@ LogicalResult ConvertMemcpyOpToGpuRuntimeCallPattern::matchAndRewrite(
      return failure();
  
    auto loc = memcpyOp.getLoc();
@@ -244,7 +304,7 @@ index cee1d7ba20e3..a148c38ac872 100644
    auto adaptor = gpu::MemcpyOpAdaptor(operands, memcpyOp->getAttrDictionary());
  
    MemRefDescriptor srcDesc(adaptor.src());
-@@ -701,7 +749,8 @@ LogicalResult ConvertMemcpyOpToGpuRuntimeCallPattern::matchAndRewrite(
+@@ -701,7 +755,8 @@ LogicalResult ConvertMemcpyOpToGpuRuntimeCallPattern::matchAndRewrite(
        MemRefDescriptor(adaptor.dst()).alignedPtr(rewriter, loc));
  
    auto stream = adaptor.asyncDependencies().front();
@@ -254,6 +314,20 @@ index cee1d7ba20e3..a148c38ac872 100644
  
    rewriter.replaceOp(memcpyOp, {stream});
  
+@@ -709,8 +764,11 @@ LogicalResult ConvertMemcpyOpToGpuRuntimeCallPattern::matchAndRewrite(
+ }
+ 
+ std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+-mlir::createGpuToLLVMConversionPass(StringRef gpuBinaryAnnotation) {
+-  return std::make_unique<GpuToLLVMConversionPass>(gpuBinaryAnnotation);
++mlir::createGpuToLLVMConversionPass(StringRef gpuBinaryAnnotation,
++                                    const LowerToLLVMOptions &options) {
++  return std::make_unique<GpuToLLVMConversionPass>(
++      gpuBinaryAnnotation, options.useBarePtrCallConv, options.emitCWrappers,
++      options.indexBitwidth, options.useAlignedAlloc, options.dataLayout);
+ }
+ 
+ void mlir::populateGpuToLLVMConversionPatterns(
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 index 4f62f204f4a8..b8f55ddd8e83 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp

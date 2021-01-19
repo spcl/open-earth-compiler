@@ -101,17 +101,24 @@ void registerGPUToCUBINPipeline() {
         LLVMInitializeNVPTXTargetInfo();
         LLVMInitializeNVPTXTargetMC();
         LLVMInitializeNVPTXAsmPrinter();
-        // Define the bitwidth
+
+        // Define the lowering options
+        LowerToLLVMOptions options = {/*useBarePtrCallConv =*/false,
+                                      /*emitCWrappers =*/true,
+                                      /*indexBitwidth =*/32,
+                                      /*useAlignedAlloc =*/false};
+        
+        // Setup the lowering pipeline
         pm.addPass(createLowerToCFGPass());
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());
-        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(32));
+        kernelPm.addPass(createLowerGpuOpsToNVVMOpsPass(options.indexBitwidth));
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             translateModuleToNVVMIR, compilePtxToCubin, tripleName, targetChip,
             features, gpuBinaryAnnotation));
         pm.addPass(createGpuAsyncRegionPass());
-        pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
+        pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation, options));
       });
 }
 } // namespace mlir

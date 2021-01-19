@@ -199,18 +199,24 @@ void registerGPUToHSACOPipeline() {
         LLVMInitializeAMDGPUTargetMC();
         LLVMInitializeAMDGPUAsmPrinter();
         LLVMInitializeAMDGPUAsmParser();
-
-        // Define the bitwidth
+        
+        // Define the lowering options
+        LowerToLLVMOptions options = {/*useBarePtrCallConv =*/false,
+                                      /*emitCWrappers =*/true,
+                                      /*indexBitwidth =*/32,
+                                      /*useAlignedAlloc =*/false};
+        
+        // Setup the lowering pipeline
         pm.addPass(createLowerToCFGPass());
         pm.addPass(createGpuKernelOutliningPass());
         auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
         kernelPm.addPass(createStripDebugInfoPass());
-        kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(32));
+        kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(options.indexBitwidth));
         kernelPm.addPass(createConvertGPUKernelToBlobPass(
             compileModuleToROCDLIR, compileISAToHsaco, tripleName, targetChip,
             features, gpuBinaryAnnotation));
         pm.addPass(createGpuAsyncRegionPass());
-        pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
+        pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation, options));
       });
 }
 } // namespace mlir
