@@ -327,6 +327,72 @@ index cee1d7ba20e3..7fd9f2cd95d3 100644
  }
  
  void mlir::populateGpuToLLVMConversionPatterns(
+diff --git a/mlir/test/Conversion/GPUCommon/lower-alloc-to-gpu-runtime-calls.mlir b/mlir/test/Conversion/GPUCommon/lower-alloc-to-gpu-runtime-calls.mlir
+index 4169f0e8191d..b22e947d975b 100644
+--- a/mlir/test/Conversion/GPUCommon/lower-alloc-to-gpu-runtime-calls.mlir
++++ b/mlir/test/Conversion/GPUCommon/lower-alloc-to-gpu-runtime-calls.mlir
+@@ -1,4 +1,5 @@
+ // RUN: mlir-opt %s --gpu-to-llvm | FileCheck %s
++// RUN: mlir-opt %s --gpu-to-llvm="index-bitwidth=32" | FileCheck %s --check-prefix=CHECK32
+ 
+ module attributes {gpu.container_module} {
+   // CHECK-LABEL: llvm.func @main
+@@ -8,6 +9,9 @@ module attributes {gpu.container_module} {
+     %0 = gpu.wait async
+     // CHECK: %[[gep:.*]] = llvm.getelementptr {{.*}}[%[[size]]]
+     // CHECK: %[[size_bytes:.*]] = llvm.ptrtoint %[[gep]]
++    // CHECK32: %[[size_bytes:.*]] = llvm.ptrtoint
++    // CHECK32: {{%.*}} = llvm.sext %[[size_bytes:.*]] : i32 to i64
++
+     // CHECK: llvm.call @mgpuMemAlloc(%[[size_bytes]], %[[stream]])
+     %1, %2 = gpu.alloc async [%0] (%size) : memref<?xf32>
+     // CHECK: %[[float_ptr:.*]] = llvm.extractvalue {{.*}}[0]
+diff --git a/mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir b/mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir
+index 634385cf1a64..f3596e74660a 100644
+--- a/mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir
++++ b/mlir/test/Conversion/GPUCommon/lower-launch-func-to-gpu-runtime-calls.mlir
+@@ -1,4 +1,5 @@
+ // RUN: mlir-opt %s --gpu-to-llvm="gpu-binary-annotation=nvvm.cubin" | FileCheck %s
++// RUN: mlir-opt %s --gpu-to-llvm="gpu-binary-annotation=nvvm.cubin index-bitwidth=32" | FileCheck %s --check-prefix=CHECK32
+ // RUN: mlir-opt %s --gpu-to-llvm="gpu-binary-annotation=rocdl.hsaco" | FileCheck %s --check-prefix=ROCDL
+ 
+ module attributes {gpu.container_module} {
+@@ -26,12 +27,14 @@ module attributes {gpu.container_module} {
+         args(%c32 : i32, %buffer : memref<?xf32>)
+     return
+   }
+-
++  
+   // CHECK: [[C8:%.*]] = llvm.mlir.constant(8 : index) : i64
+   // CHECK: [[ADDRESSOF:%.*]] = llvm.mlir.addressof @[[GLOBAL]]
+   // CHECK: [[C0:%.*]] = llvm.mlir.constant(0 : index)
+   // CHECK: [[BINARY:%.*]] = llvm.getelementptr [[ADDRESSOF]]{{\[}}[[C0]], [[C0]]]
+   // CHECK-SAME: -> !llvm.ptr<i8>
++  // CHECK32: [[C8:%.*]] = llvm.mlir.constant(8 : index) : i32
++  // CHECK32: {{%.*}} = llvm.sext [[C8]] : i32 to i64
+ 
+   // CHECK: [[MODULE:%.*]] = llvm.call @mgpuModuleLoad([[BINARY]])
+   // CHECK: [[FUNC:%.*]] = llvm.call @mgpuModuleGetFunction([[MODULE]], {{.*}})
+diff --git a/mlir/test/Conversion/GPUCommon/lower-memcpy-to-gpu-runtime-calls.mlir b/mlir/test/Conversion/GPUCommon/lower-memcpy-to-gpu-runtime-calls.mlir
+index 162c2f4e838a..8311c21c3ab9 100644
+--- a/mlir/test/Conversion/GPUCommon/lower-memcpy-to-gpu-runtime-calls.mlir
++++ b/mlir/test/Conversion/GPUCommon/lower-memcpy-to-gpu-runtime-calls.mlir
+@@ -1,4 +1,5 @@
+ // RUN: mlir-opt %s --gpu-to-llvm | FileCheck %s
++// RUN: mlir-opt %s --gpu-to-llvm="index-bitwidth=32" | FileCheck %s --check-prefix=CHECK32
+ 
+ module attributes {gpu.container_module} {
+ 
+@@ -7,6 +8,9 @@ module attributes {gpu.container_module} {
+     // CHECK: %[[t0:.*]] = llvm.call @mgpuStreamCreate
+     %t0 = gpu.wait async
+     // CHECK: %[[size_bytes:.*]] = llvm.ptrtoint
++    // CHECK32: %[[size_bytes:.*]] = llvm.ptrtoint
++    // CHECK32: {{%.*}} = llvm.sext %[[size_bytes:.*]] : i32 to i64
++
+     // CHECK: %[[src:.*]] = llvm.bitcast
+     // CHECK: %[[dst:.*]] = llvm.bitcast
+     // CHECK: llvm.call @mgpuMemcpy(%[[dst]], %[[src]], %[[size_bytes]], %[[t0]])
 diff --git a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp b/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
 index 4f62f204f4a8..b8f55ddd8e83 100644
 --- a/mlir/tools/mlir-rocm-runner/rocm-runtime-wrappers.cpp
