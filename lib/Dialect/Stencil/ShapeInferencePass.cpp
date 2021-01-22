@@ -57,12 +57,18 @@ public:
       auto returnOp =
           cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
       if (returnOp.unroll().hasValue()) {
+        auto unrollDim = returnOp.getUnrollDim();
+        auto unrollFac = returnOp.getUnrollFac();
+        // Limit the unroll factor to the loop length if available
+        auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
+        if (shapeOp.hasShape()) {
+          unrollFac = min(unrollFac, shapeOp.getUB()[unrollDim] -
+                                         shapeOp.getLB()[unrollDim]);
+        }
         for (auto operand : applyOp.getOperands()) {
           if (extents[operation].count(operand) == 1) {
             auto &positive = extents[operation][operand].positive;
-            positive = applyFunElementWise(
-                positive, returnOp.getUnroll(),
-                [](int64_t x, int64_t y) { return x - y + 1; });
+            positive[unrollDim] -= unrollFac - 1;
           }
         }
       }
