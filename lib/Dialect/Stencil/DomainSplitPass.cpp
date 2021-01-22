@@ -205,7 +205,7 @@ void DomainSplitPass::runOnFunction() {
   }
 
   splitOnDomains(funcOp);
-  funcOp.dump();
+  //funcOp.dump();
   splitOnLastCombines(funcOp);
 }
 

@@ -129,7 +129,7 @@ void StencilUnrollingPass::addPeelIteration(stencil::ApplyOp applyOp) {
       auto peelOp = cast<stencil::ApplyOp>(b.clone(*applyOp.getOperation()));
       auto bodyOp = cast<stencil::ApplyOp>(b.clone(*applyOp.getOperation()));
 
-      // // Adapt the shape of the two apply ops
+      // Adapt the shape of the two apply ops
       auto lb = shapeOp.getLB();
       auto ub = shapeOp.getUB();
       int64_t split = ub[unrollIndex] - domainSize % unrollFactor;

@@ -358,7 +358,7 @@ void CombineToIfElsePass::runOnFunction() {
     return signalPassFailure();
   }
 
-  // Poppulate the pattern list depending on the config
+  // Populate the pattern list depending on the config
   OwningRewritePatternList patterns;
   if (internalOnly) {
     patterns.insert<InternalIfElseRewrite>(&getContext());
