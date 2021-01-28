@@ -52,4 +52,9 @@ def StorageMaterializationPass : FunctionPass<"stencil-storage-materialization">
   let constructor = "mlir::createStorageMaterializationPass()";
 }
 
+def PeelOddIterationsPass : FunctionPass<"stencil-peel-odd-iterations"> {
+  let summary = "Peel odd iterations that are not a multiple of the unroll factor";
+  let constructor = "mlir::createPeelOddIterationsPass()";
+}
+
 #endif // DIALECT_STENCIL_PASSES

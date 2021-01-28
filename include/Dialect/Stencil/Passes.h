@@ -20,6 +20,8 @@ std::unique_ptr<OperationPass<FuncOp>> createShapeOverlapPass();
 
 std::unique_ptr<OperationPass<FuncOp>> createStorageMaterializationPass();
 
+std::unique_ptr<OperationPass<FuncOp>> createPeelOddIterationsPass();
+
 //===----------------------------------------------------------------------===//
 // Registration
 //===----------------------------------------------------------------------===//

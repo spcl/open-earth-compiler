@@ -4,7 +4,6 @@
 #include "Dialect/Stencil/StencilTypes.h"
 #include "Dialect/Stencil/StencilUtils.h"
 #include "PassDetail.h"
-#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
@@ -18,9 +17,6 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
-#include <cstdint>
 
 using namespace mlir;
 using namespace stencil;
@@ -101,60 +97,6 @@ void StencilUnrollingPass::unrollStencilApply(stencil::ApplyOp applyOp) {
                               b.getI64ArrayAttr(unroll));
 }
 
-void StencilUnrollingPass::makePeelIteration(stencil::ReturnOp returnOp,
-                                             unsigned tripCount) {
-  // Create empty store for all iterations that exceed the trip count
-  SmallVector<Value, 16> newOperands;
-  for (auto en : llvm::enumerate(returnOp.getOperands())) {
-    if (en.index() % unrollFactor >= tripCount) {
-      en.value().getDefiningOp()->setOperands({});
-    }
-  }
-}
-
-void StencilUnrollingPass::addPeelIteration(stencil::ApplyOp applyOp) {
-  // Check if the domain size is not a multiple of the unroll factor
-  auto shapeOp = cast<ShapeOp>(applyOp.getOperation());
-  auto returnOp = cast<stencil::ReturnOp>(applyOp.getBody()->getTerminator());
-  auto domainSize = shapeOp.getUB()[unrollIndex] - shapeOp.getLB()[unrollIndex];
-  if (domainSize % unrollFactor != 0) {
-    if (domainSize < unrollFactor) {
-      makePeelIteration(returnOp, domainSize);
-    } else {
-      // Setup the builder
-      OpBuilder b(applyOp);
-      auto loc = applyOp.getLoc();
-
-      // Introduce a second apply to handle the peel domain
-      auto peelOp = cast<stencil::ApplyOp>(b.clone(*applyOp.getOperation()));
-      auto bodyOp = cast<stencil::ApplyOp>(b.clone(*applyOp.getOperation()));
-
-      // Adapt the shape of the two apply ops
-      auto lb = shapeOp.getLB();
-      auto ub = shapeOp.getUB();
-      int64_t split = ub[unrollIndex] - domainSize % unrollFactor;
-      lb[unrollIndex] = split;
-      ub[unrollIndex] = split;
-      cast<ShapeOp>(peelOp.getOperation()).updateShape(lb, shapeOp.getUB());
-      cast<ShapeOp>(bodyOp.getOperation()).updateShape(shapeOp.getLB(), ub);
-
-      // Remove stores that exceed the domain size
-      makePeelIteration(
-          cast<stencil::ReturnOp>(peelOp.getBody()->getTerminator()),
-          domainSize % unrollFactor);
-
-      // Introduce a stencil combine to replace the uses of the original apply
-      auto combineOp = b.create<stencil::CombineOp>(
-          loc, applyOp.getResultTypes(), unrollIndex, split,
-          bodyOp.getResults(), peelOp.getResults(), ValueRange(), ValueRange(),
-          applyOp.lbAttr(), applyOp.ubAttr());
-
-      applyOp.replaceAllUsesWith(combineOp.getResults());
-      applyOp.erase();
-    }
-  }
-}
-
 void StencilUnrollingPass::runOnFunction() {
   FuncOp funcOp = getFunction();
   // Only run on functions marked as stencil programs
@@ -168,18 +110,6 @@ void StencilUnrollingPass::runOnFunction() {
     return;
   }
 
-  // Check shape inference has been executed
-  auto result = funcOp->walk([&](stencil::ShapeOp shapeOp) {
-    if (!shapeOp.hasShape())
-      return WalkResult::interrupt();
-    return WalkResult::advance();
-  });
-  if (result.wasInterrupted()) {
-    funcOp.emitOpError("execute shape inference before stencil unrolling");
-    signalPassFailure();
-    return;
-  }
-
   // Collect the stencil apply operations
   SmallVector<stencil::ApplyOp, 16> workList;
   funcOp.walk([&](stencil::ApplyOp applyOp) { workList.push_back(applyOp); });
@@ -187,7 +117,6 @@ void StencilUnrollingPass::runOnFunction() {
   // Unroll the stencil apply operations
   for (auto applyOp : workList) {
     unrollStencilApply(applyOp);
-    addPeelIteration(applyOp);
   }
 }
 

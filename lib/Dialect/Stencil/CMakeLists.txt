@@ -10,6 +10,7 @@ add_mlir_dialect_library(Stencil
   CombineToIfElsePass.cpp
   DomainSplitPass.cpp
   StorageMaterializationPass.cpp
+  PeelOddIterationsPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/Dialect/Stencil

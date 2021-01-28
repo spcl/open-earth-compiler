@@ -501,6 +501,7 @@ def Stencil_ApplyOp : Stencil_Op<"apply", [
     static StringRef getLBAttrName() { return "lb"; }
     static StringRef getUBAttrName() { return "ub"; }
     Block *getBody() { return &region().front(); }
+    ShapeOp getCombineTreeRootShape();
   }];
 }
 

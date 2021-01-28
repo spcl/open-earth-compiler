@@ -155,6 +155,25 @@ bool stencil::ApplyOp::hasOnlyEmptyStores() {
   return !result.wasInterrupted();
 }
 
+ShapeOp stencil::ApplyOp::getCombineTreeRootShape() {
+  // Collect all users
+  DenseSet<Operation *> users;
+  for (auto result : getResults()) {
+    for (auto user : result.getUsers()) {
+      users.insert(user);
+    }
+  }
+
+  // Return the shape of the combine tree root if available
+  if (users.size() == 1) {
+    if (auto combineOp = dyn_cast<CombineOp>(*users.begin())) {
+      return cast<ShapeOp>(combineOp.getCombineTreeRoot().getOperation());
+    }
+  }
+  // Otherwise return the shape of the apply operation
+  return cast<ShapeOp>(getOperation());
+}
+
 //===----------------------------------------------------------------------===//
 // stencil.dyn_access
 //===----------------------------------------------------------------------===//
