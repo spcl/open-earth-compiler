@@ -346,7 +346,7 @@ void CombineToIfElsePass::runOnFunction() {
   // Check all combine op operands have one use
   auto result = funcOp.walk([&](stencil::CombineOp combineOp) {
     for (auto operand : combineOp.getOperands()) {
-      if (!operand.hasOneUse()) 
+      if (!operand.hasOneUse())
         return WalkResult::interrupt();
     }
     return WalkResult::advance();
@@ -358,7 +358,9 @@ void CombineToIfElsePass::runOnFunction() {
 
   // Populate the pattern list depending on the config
   OwningRewritePatternList patterns;
-  if (internalOnly) {
+  if (prepareOnly) {
+    patterns.insert<EmptyStoreRewrite, FuseRewrite>(&getContext());
+  } else if (internalOnly) {
     patterns.insert<InternalIfElseRewrite>(&getContext());
   } else {
     patterns.insert<IfElseRewrite, EmptyStoreRewrite, FuseRewrite>(

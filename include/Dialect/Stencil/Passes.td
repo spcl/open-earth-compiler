@@ -28,6 +28,8 @@ def CombineToIfElsePass : FunctionPass<"stencil-combine-to-ifelse"> {
   let summary = "Lower stencil combine ops to if/else";
   let constructor = "mlir::createCombineToIfElsePass()";
   let options = [
+    Option<"prepareOnly", "prepare-only", "bool", /*default=*/"false", 
+           "Lower extra operands and fuse multiple producers attached to one combine">,
     Option<"internalOnly", "internal-only", "bool", /*default=*/"false", 
            "Lower only combine ops embedded in between apply ops">,
   ];

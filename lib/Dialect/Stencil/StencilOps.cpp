@@ -380,13 +380,17 @@ static LogicalResult verify(stencil::CombineOp op) {
 }
 
 stencil::CombineOp stencil::CombineOp::getCombineTreeRoot() {
-  auto curr = this->getOperation();
-  while (std::distance(curr->getUsers().begin(), curr->getUsers().end()) == 1 &&
-         llvm::all_of(curr->getUsers(), [](Operation *op) {
-           return isa<stencil::CombineOp>(op);
-         })) {
-    curr = *curr->getUsers().begin();
-  }
+  Operation *curr = nullptr;
+  Operation *next = this->getOperation();
+  do {
+    curr = next;
+    for (auto user : curr->getUsers()) {
+      if (next != curr && next != user) {
+        return cast<stencil::CombineOp>(curr);
+      }
+      next = user;
+    }
+  } while (isa<stencil::CombineOp>(next));
   return cast<stencil::CombineOp>(curr);
 }
 

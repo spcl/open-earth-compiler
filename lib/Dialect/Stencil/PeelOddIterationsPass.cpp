@@ -13,6 +13,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -94,11 +95,11 @@ struct PeelRewrite : public stencil::ApplyOpPattern {
       // Introduce a second apply to handle the peel domain
       cast<ShapeOp>(leftOp.getOperation()).updateShape(shapeOp.getLB(), ub);
       cast<ShapeOp>(rightOp.getOperation()).updateShape(lb, shapeOp.getUB());
-      
+
       // Remove stores that exceed the domain
       auto peelOp = peelSize < 0 ? leftOp : rightOp;
       makePeelIteration(peelOp, domainSize % unrollFac, rewriter);
-      
+
       // Introduce a stencil combine to replace the apply operation
       auto combineOp = rewriter.create<stencil::CombineOp>(
           applyOp.getLoc(), applyOp.getResultTypes(), unrollDim, split,
@@ -118,6 +119,8 @@ struct PeelRewrite : public stencil::ApplyOpPattern {
     // Compute the domain size
     auto unrollDim = returnOp.getUnrollDim();
     auto unrollFac = returnOp.getUnrollFac();
+    if (unrollFac == 1)
+      return failure();
 
     // Get the combine tree root and determine to base offset
     auto rootOp = applyOp.getCombineTreeRootShape();
@@ -168,7 +171,7 @@ struct FuseRewrite : public stencil::CombineOpPattern {
         cast<stencil::ReturnOp>(leftOp.getBody()->getTerminator());
     auto rightReturnOp =
         cast<stencil::ReturnOp>(rightOp.getBody()->getTerminator());
-    assert(leftReturnOp.getUnroll() == rightReturnOp.getUnroll() &&
+    assert(leftReturnOp.unroll() == rightReturnOp.unroll() &&
            "expected unroll of the left and right apply to match");
 
     // Create a new operation that has the size of
@@ -239,6 +242,8 @@ struct FuseRewrite : public stencil::CombineOpPattern {
 
     // Check if the shapes overlap
     auto returnOp = cast<stencil::ReturnOp>(leftOp.getBody()->getTerminator());
+    if (returnOp.getUnrollFac() == 1)
+      return failure();
     if (cast<ShapeOp>(leftOp.getOperation()).getLB()[returnOp.getUnrollDim()] !=
         cast<ShapeOp>(rightOp.getOperation()).getLB()[returnOp.getUnrollDim()])
       return failure();
@@ -305,18 +310,33 @@ void PeelOddIterationsPass::runOnFunction() {
   if (!StencilDialect::isStencilProgram(funcOp))
     return;
 
-  // Check all combine op operands have one use
+  // Check the combine to ifelse preparations have been run
   auto result = funcOp.walk([&](stencil::CombineOp combineOp) {
-    for (auto operand : combineOp.getOperands()) {
-      if (!operand.hasOneUse())
-        return WalkResult::interrupt();
+    if (!combineOp.lowerext().empty() || !combineOp.upperext().empty()) {
+      combineOp.emitOpError("expected no lower or upper extra operands");
+      return WalkResult::interrupt();
+    }
+    // Check the producer in the operand range are unique
+    auto haveUniqueProducer = [](OperandRange operands) {
+      Operation *lastOp = nullptr;
+      for (auto operand : operands) {
+        auto definingOp = operand.getDefiningOp();
+        if (lastOp && definingOp && lastOp != definingOp)
+          return false;
+        lastOp = definingOp ? definingOp : lastOp;
+      }
+      return true;
+    };
+    if (!(haveUniqueProducer(combineOp.lower()) &&
+          haveUniqueProducer(combineOp.upper()))) {
+      combineOp.emitOpError(
+          "expected unique lower and upper producer operations");
+      return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
-  if (result.wasInterrupted()) {
-    funcOp.emitOpError("execute domain splitting before bounds unrolling");
+  if (result.wasInterrupted())
     return signalPassFailure();
-  }
 
   // Check shape inference has been executed
   result = funcOp->walk([&](stencil::ShapeOp shapeOp) {
