@@ -98,7 +98,7 @@ struct PeelRewrite : public stencil::ApplyOpPattern {
 
       // Remove stores that exceed the domain
       auto peelOp = peelSize < 0 ? leftOp : rightOp;
-      makePeelIteration(peelOp, domainSize % unrollFac, rewriter);
+      makePeelIteration(peelOp, peelSize, rewriter);
 
       // Introduce a stencil combine to replace the apply operation
       auto combineOp = rewriter.create<stencil::CombineOp>(
@@ -212,10 +212,6 @@ struct FuseRewrite : public stencil::CombineOpPattern {
   // Introduce a peel loop if the shape is not a multiple of the unroll factor
   LogicalResult matchAndRewrite(stencil::CombineOp combineOp,
                                 PatternRewriter &rewriter) const override {
-    // Store the left and right leaf combines
-    stencil::CombineOp leftCombineOp = combineOp;
-    stencil::CombineOp rightCombineOp = combineOp;
-
     // Search the lower and upper defining ops and exit if none exists
     Operation *currLeftCombineOp = getLowerDefiningOp(combineOp);
     Operation *currRightCombineOp = getUpperDefiningOp(combineOp);
@@ -223,14 +219,16 @@ struct FuseRewrite : public stencil::CombineOpPattern {
       return failure();
 
     // Walk up the combine tree
+    SmallVector<Operation *, 4> leftCombineOps;
+    SmallVector<Operation *, 4> rightCombineOps;
     while (auto combineOp =
                dyn_cast_or_null<stencil::CombineOp>(currLeftCombineOp)) {
-      leftCombineOp = combineOp;
+      leftCombineOps.push_back(combineOp);
       currLeftCombineOp = getUpperDefiningOp(combineOp);
     }
     while (auto combineOp =
                dyn_cast_or_null<stencil::CombineOp>(currRightCombineOp)) {
-      rightCombineOp = combineOp;
+      rightCombineOps.push_back(combineOp);
       currRightCombineOp = getLowerDefiningOp(combineOp);
     }
 
@@ -250,23 +248,41 @@ struct FuseRewrite : public stencil::CombineOpPattern {
 
     // Merge the two apply operations in case they overlap
     auto newOp = fusePeelIterations(leftOp, rightOp, rewriter);
+    auto newShape = cast<ShapeOp>(newOp.getOperation());
+
+    // Update the shape of the left and right combines
+    for (auto leftCombineOp : leftCombineOps) {
+      auto leftShape = cast<ShapeOp>(leftCombineOp);
+      auto ub = leftShape.getUB();
+      ub[returnOp.getUnrollDim()] = newShape.getLB()[returnOp.getUnrollDim()];
+      leftShape.updateShape(leftShape.getLB(), ub);
+    }
+    for (auto rightCombineOp : rightCombineOps) {
+      auto rightShape = cast<ShapeOp>(rightCombineOp);
+      auto lb = rightShape.getLB();
+      lb[returnOp.getUnrollDim()] = newShape.getUB()[returnOp.getUnrollDim()];
+      rightShape.updateShape(lb, rightShape.getUB());
+    }
 
     // Disconnect the left and right apply operations from the combine tree
     SmallVector<Value, 10> leftOperands;
     SmallVector<Value, 10> rightOperands;
-    if (leftCombineOp != combineOp) {
-      rewriter.replaceOp(leftCombineOp, leftCombineOp.lower());
+    if (!leftCombineOps.empty()) {
+      rewriter.replaceOp(
+          leftCombineOps.back(),
+          cast<stencil::CombineOp>(leftCombineOps.back()).lower());
       leftOperands = combineOp.lower();
     }
-    if (rightCombineOp != combineOp) {
-      rewriter.replaceOp(rightCombineOp, rightCombineOp.upper());
+    if (!rightCombineOps.empty()) {
+      rewriter.replaceOp(
+          rightCombineOps.back(),
+          cast<stencil::CombineOp>(rightCombineOps.back()).upper());
       rightOperands = combineOp.upper();
     }
 
     // Replace the combine op by the results computed by the fused apply
     SmallVector<Value, 10> newResults = newOp.getResults();
     auto currShape = cast<ShapeOp>(newOp.getOperation());
-    auto fullShape = cast<ShapeOp>(combineOp.getOperation());
     auto unrollDim = returnOp.getUnrollDim();
     if (!leftOperands.empty()) {
       // Introduce a combine ob to connect to the left combine subtree
@@ -276,10 +292,9 @@ struct FuseRewrite : public stencil::CombineOpPattern {
           ValueRange(), combineOp.lbAttr(), combineOp.ubAttr());
       newResults = newCombineOp.getResults();
 
-      // Update the shape of the newly introduced combine
-      auto lb = fullShape.getLB();
-      auto ub = fullShape.getUB();
-      ub[unrollDim] = currShape.getUB()[unrollDim];
+      // Get the lower and upper bounds of the children
+      auto lb = cast<ShapeOp>(getLowerDefiningOp(newCombineOp)).getLB();
+      auto ub = cast<ShapeOp>(getUpperDefiningOp(newCombineOp)).getUB();
       currShape = cast<ShapeOp>(newCombineOp.getOperation());
       currShape.updateShape(lb, ub);
     }
@@ -290,7 +305,14 @@ struct FuseRewrite : public stencil::CombineOpPattern {
           currShape.getUB()[unrollDim], newResults, rightOperands, ValueRange(),
           ValueRange(), combineOp.lbAttr(), combineOp.ubAttr());
       newResults = newCombineOp.getResults();
+
+      // Get the lower and upper bounds of the children
+      auto lb = cast<ShapeOp>(getLowerDefiningOp(newCombineOp)).getLB();
+      auto ub = cast<ShapeOp>(getUpperDefiningOp(newCombineOp)).getUB();
+      currShape = cast<ShapeOp>(newCombineOp.getOperation());
+      currShape.updateShape(lb, ub);
     }
+
     rewriter.replaceOp(combineOp, newResults);
     rewriter.eraseOp(leftOp);
     rewriter.eraseOp(rightOp);

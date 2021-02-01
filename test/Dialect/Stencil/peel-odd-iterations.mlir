@@ -110,3 +110,43 @@ func @combine_tree(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?
   stencil.store %5 to %1([0, 0, 0] : [64, 63, 60]) : !stencil.temp<64x63x60xf64> to !stencil.field<70x70x60xf64>
   return
 }
+
+// -----
+
+// CHECK-LABEL: func @test
+func @test(%arg0: !stencil.field<?x?x?xf64>, %arg1: !stencil.field<?x?x?xf64>) attributes {stencil.program} {
+  %0 = stencil.cast %arg0([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  %1 = stencil.cast %arg1([-3, -3, 0] : [67, 67, 60]) : (!stencil.field<?x?x?xf64>) -> !stencil.field<70x70x60xf64>
+  %2 = stencil.load %0([0, 0, 0] : [64, 63, 60]) : (!stencil.field<70x70x60xf64>) -> !stencil.temp<64x63x60xf64>
+  %3 = stencil.apply (%arg2 = %2 : !stencil.temp<64x63x60xf64>) -> !stencil.temp<64x10x60xf64> {
+    %8 = stencil.access %arg2 [0, 0, 0] : (!stencil.temp<64x63x60xf64>) -> f64
+    %9 = stencil.store_result %8 : (f64) -> !stencil.result<f64>
+    %10 = stencil.access %arg2 [0, 1, 0] : (!stencil.temp<64x63x60xf64>) -> f64
+    %11 = stencil.store_result %10 : (f64) -> !stencil.result<f64>
+    %12 = stencil.access %arg2 [0, 2, 0] : (!stencil.temp<64x63x60xf64>) -> f64
+    %13 = stencil.store_result %12 : (f64) -> !stencil.result<f64>
+    %14 = stencil.access %arg2 [0, 3, 0] : (!stencil.temp<64x63x60xf64>) -> f64
+    %15 = stencil.store_result %14 : (f64) -> !stencil.result<f64>
+    stencil.return unroll [1, 4, 1] %9, %11, %13, %15 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
+  } to ([0, 0, 0] : [64, 10, 60])
+  %4 = stencil.apply (%arg2 = %2 : !stencil.temp<64x63x60xf64>) -> !stencil.temp<64x52x60xf64> {
+    %cst = constant 2.000000e+00 : f64
+    %8 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    %9 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    %10 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    %11 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    stencil.return unroll [1, 4, 1] %8, %9, %10, %11 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
+  } to ([0, 10, 0] : [64, 62, 60])
+  %5 = stencil.combine 1 at 10 lower = (%3 : !stencil.temp<64x10x60xf64>) upper = (%4 : !stencil.temp<64x52x60xf64>) ([0, 0, 0] : [64, 62, 60]) : !stencil.temp<64x62x60xf64>
+  %6 = stencil.apply (%arg2 = %2 : !stencil.temp<64x63x60xf64>) -> !stencil.temp<64x1x60xf64> {
+    %cst = constant 1.000000e+00 : f64
+    %8 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    %9 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    %10 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    %11 = stencil.store_result %cst : (f64) -> !stencil.result<f64>
+    stencil.return unroll [1, 4, 1] %8, %9, %10, %11 : !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>, !stencil.result<f64>
+  } to ([0, 62, 0] : [64, 63, 60])
+  %7 = stencil.combine 1 at 62 lower = (%5 : !stencil.temp<64x62x60xf64>) upper = (%6 : !stencil.temp<64x1x60xf64>) ([0, 0, 0] : [64, 63, 60]) : !stencil.temp<64x63x60xf64>
+  stencil.store %7 to %1([0, 0, 0] : [64, 63, 60]) : !stencil.temp<64x63x60xf64> to !stencil.field<70x70x60xf64>
+  return
+}
