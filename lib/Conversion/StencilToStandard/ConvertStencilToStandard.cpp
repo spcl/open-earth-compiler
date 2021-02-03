@@ -177,7 +177,7 @@ public:
     // Replace the load op by a subview op
     auto subViewOp = rewriter.create<SubViewOp>(
         loc, operands[0], std::get<0>(subViewShape), std::get<1>(subViewShape),
-        std::get<2>(subViewShape), ValueRange(), ValueRange(), ValueRange());
+        std::get<2>(subViewShape));
     rewriter.replaceOp(operation, subViewOp.getResult());
     return success();
   }
@@ -494,7 +494,7 @@ public:
     rewriter.setInsertionPoint(allocOp);
     auto subViewOp = rewriter.create<SubViewOp>(
         loc, operands[1], std::get<0>(subViewShape), std::get<1>(subViewShape),
-        std::get<2>(subViewShape), ValueRange(), ValueRange(), ValueRange());
+        std::get<2>(subViewShape));
     rewriter.replaceOp(allocOp, subViewOp.getResult());
     rewriter.eraseOp(operation);
     return success();
